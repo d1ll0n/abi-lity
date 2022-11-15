@@ -1,0 +1,38 @@
+{
+  "name": "abi-typed-ast",
+  "version": "1.0.0",
+  "files": [
+    "dist"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^18.11.9",
+    "@typescript-eslint/eslint-plugin": "^5.42.1",
+    "@typescript-eslint/parser": "^5.42.1",
+    "chai": "^4.3.7",
+    "eslint": "^8.27.0",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "expect": "^29.3.1",
+    "mocha": "^10.1.0",
+    "prettier": "^2.7.1",
+    "solc-typed-ast": "^10.3.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.8.4"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
+    "lint": "eslint src/ test/ --ext=ts",
+    "lint:fix": "eslint src/ test/ --ext=ts --fix",
+    "test": "NODE_OPTIONS='--max-old-space-size=2048' mocha",
+    "prepare": "npm run build"
+  },
+  "author": {
+    "name": "d1ll0n",
+    "url": "https://github.com/d1ll0n"
+  }
+}

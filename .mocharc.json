@@ -1,0 +1,5 @@
+{
+    "package": "./package.json",
+    "timeout": false,
+    "require": "ts-node/register"
+}
