@@ -16,12 +16,6 @@ export class ASTContext {
   id = contextIdSequence.next().value;
 
   /**
-   *  Temporary workaround
-   */
-  readonly yulIdStart = 1e5;
-  lastYulId = this.yulIdStart;
-
-  /**
    * Map from ID number to the `AST` node with same ID in tree
    */
   map = new Map<number, Node>();
@@ -37,9 +31,6 @@ export class ASTContext {
     let last = 0;
 
     for (const id of this.map.keys()) {
-      if (id >= this.yulIdStart) {
-        continue;
-      }
       if (id > last) {
         last = id;
       }
@@ -58,13 +49,15 @@ export class ASTContext {
         throw new Error(`The id ${node.id} is already taken for the context`);
       }
 
-      if (node.context) {
+      if (node.context && node.context !== this) {
         node.context.unregister(node);
       }
 
       this.map.set(node.id, node);
 
-      node.context = this;
+      if (node.context !== this) {
+        node.context = this;
+      }
     }
   }
 
