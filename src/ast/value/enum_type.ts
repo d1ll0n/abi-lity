@@ -19,6 +19,10 @@ export class EnumType extends ValueType {
     return new EnumType(this.name, [...this.members]);
   }
 
+  get nBits(): number {
+    return Math.ceil(Math.log2(this.members.length));
+  }
+
   get unpaddedSize(): number {
     return Math.ceil(Math.log2(this.members.length));
   }
@@ -35,5 +39,10 @@ export class EnumType extends ValueType {
 
   get canonicalName(): string {
     return this.name;
+  }
+
+  writeDefinition(): string {
+    const memberTypeStrings = this.members.join(", ");
+    return [`enum ${this.name} { `, memberTypeStrings, " }"].join(" ");
   }
 }
