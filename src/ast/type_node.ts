@@ -1,5 +1,6 @@
+import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../constants";
-import { Node } from "./node";
+import { Node, NodeSelector } from "./node";
 
 export abstract class TypeNode extends Node<TypeNode> {
   parent?: TypeNodeWithChildren<TypeNode>;
@@ -23,22 +24,54 @@ export abstract class TypeNode extends Node<TypeNode> {
     return this.signatureInExternalFunction(true);
   }
 
-  get maxDynamicDepthOfChildren(): number {
-    return Math.max(
-      ...this.children.map((child) => {
-        if (child.isDynamicallyEncoded) return 1 + child.maxDynamicDepthOfChildren;
-        return 0;
-      })
-    );
+  writeParameter(location: DataLocation, name = this.labelFromParent): string {
+    const locationString =
+      location === DataLocation.Default || this.isValueType ? "" : location.toString();
+    return [this.canonicalName, locationString, name].filter(Boolean).join(" ");
   }
 
-  get maxReferenceDepthOfChildren(): number {
-    return Math.max(
-      ...this.children.map((child) => {
-        if (child.isReferenceType) return 1 + child.maxReferenceDepthOfChildren;
-        return 0;
-      })
-    );
+  get memoryHeadOffset(): number {
+    return this.parent?.memoryOffsetOfChild(this) ?? 0;
+  }
+
+  get calldataHeadOffset(): number {
+    return this.parent?.calldataOffsetOfChild(this) ?? 0;
+  }
+
+  get hasEmbeddedDynamicTypes(): boolean {
+    return this.maxNestedDynamicTypes > 1;
+  }
+
+  get hasEmbeddedReferenceTypes(): boolean {
+    return this.maxNestedReferenceTypes > 1;
+  }
+
+  get maxNestedDynamicTypes(): number {
+    if (!this.isDynamicallyEncoded) return 0;
+    return Math.max(...this.children.map((child) => child.maxNestedDynamicTypes), 0) + 1;
+  }
+
+  get maxNestedReferenceTypes(): number {
+    if (!this.isReferenceType) return 0;
+    return Math.max(...this.children.map((child) => child.maxNestedReferenceTypes), 0) + 1;
+  }
+
+  get totalNestedDynamicTypes(): number {
+    if (!this.isDynamicallyEncoded) return 0;
+    let sum = 1;
+    for (const child of this.children) {
+      sum += child.totalNestedDynamicTypes;
+    }
+    return sum;
+  }
+
+  get totalNestedReferenceTypes(): number {
+    if (!this.isReferenceType) return 0;
+    let sum = 1;
+    for (const child of this.children) {
+      sum += child.totalNestedReferenceTypes;
+    }
+    return sum;
   }
 
   // ======================================================================//
@@ -90,6 +123,10 @@ export abstract class TypeNode extends Node<TypeNode> {
     return 32;
   }
 
+  get memoryTailSize(): number {
+    return 0;
+  }
+
   /**
    * @returns the size of this data type in bytes when stored in memory. For memory-reference
    * types, this is the size of the actual data area, if it is statically-sized.
@@ -117,6 +154,10 @@ export abstract class TypeNode extends Node<TypeNode> {
   /** @returns the canonical name of this type for use in library function signatures. */
   abstract canonicalName: string;
 
+  get identifier(): string {
+    return this.canonicalName;
+  }
+
   /**
    *  @returns a (simpler) type that is encoded in the same way for external function calls.
    * This for example returns address for contract types.
@@ -132,18 +173,52 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
     return this.ownChildren;
   }
 
-  requireFindChildIndex(node: T): number {
+  requireIndexOfChild(node: T): number {
     const index = this.ownChildren.indexOf(node);
-
     if (index === -1) {
       throw new Error("Reference node is not a child of current node");
     }
     return index;
   }
 
+  /**
+   * @returns the size in memory of embedded types' heads.
+   */
+  get embeddedMemoryHeadSize(): number {
+    return this.ownChildren.reduce((sum, child) => sum + child.memoryHeadSize, 0);
+  }
+
+  get embeddedCalldataHeadSize(): number {
+    return this.ownChildren.reduce((sum, child) => sum + child.calldataHeadSize, 0);
+  }
+
+  requireFindChildIndexBySelector(selector: NodeSelector<T>): number {
+    const index = this.ownChildren.findIndex(selector);
+    if (index === -1) {
+      throw new Error("Node matching selector not found");
+    }
+    return index;
+  }
+
+  requireFindChildIndex(indexOrNameOrNode: string | number | T): number {
+    if (typeof indexOrNameOrNode === "number") {
+      if (indexOrNameOrNode > this.ownChildren.length - 1) {
+        throw Error(`Index out of bounds: ${indexOrNameOrNode}`);
+      }
+      return indexOrNameOrNode;
+    }
+    if (typeof indexOrNameOrNode === "string") {
+      return this.requireFindChildIndexBySelector((c) => c.labelFromParent === indexOrNameOrNode);
+    }
+    return this.requireIndexOfChild(indexOrNameOrNode);
+  }
+
   spliceChildren(start: number, deleteCount: number, ...nodes: T[]): T[] {
     nodes.forEach((node) => {
       node.parent = this;
+      if (this.context) {
+        node.context = this.context;
+      }
     });
     const removedNodes = this.ownChildren.splice(start, deleteCount, ...nodes);
     removedNodes.forEach((node) => {
@@ -153,7 +228,7 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
   }
 
   removeChild(node: T): T {
-    const index = this.requireFindChildIndex(node);
+    const index = this.requireIndexOfChild(node);
     this.spliceChildren(index, 1);
     return node;
   }
@@ -164,13 +239,13 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
   }
 
   insertBefore<N extends T[]>(referenceNode: T, ...nodes: N): N {
-    const index = this.requireFindChildIndex(referenceNode);
+    const index = this.requireIndexOfChild(referenceNode);
     this.spliceChildren(index, 0, ...nodes);
     return nodes;
   }
 
   insertAfter<N extends T[]>(referenceNode: T, ...nodes: N): N {
-    const index = this.requireFindChildIndex(referenceNode);
+    const index = this.requireIndexOfChild(referenceNode);
     this.spliceChildren(index + 1, 0, ...nodes);
     return nodes;
   }
@@ -181,10 +256,33 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
   }
 
   replaceChild<O extends T, N extends T[]>(oldNode: O, ...newNodes: N): O {
-    const index = this.requireFindChildIndex(oldNode);
+    const index = this.requireIndexOfChild(oldNode);
 
     this.spliceChildren(index, 1, ...newNodes);
 
     return oldNode;
+  }
+
+  calldataOffsetOfChild(indexOrNameOrNode: string | number | T): number {
+    const index = this.requireFindChildIndex(indexOrNameOrNode);
+    let offset = 0;
+    for (let i = 0; i < index; i++) {
+      const member = this.ownChildren[i];
+      offset += member.calldataHeadSize;
+    }
+    return offset;
+  }
+
+  memoryOffsetOfChild(indexOrNameOrNode: string | number | T): number {
+    const index = this.requireFindChildIndex(indexOrNameOrNode);
+    if (index > this.ownChildren.length - 1) {
+      throw Error(`Index out of bounds: ${index}`);
+    }
+    let offset = 0;
+    for (let i = 0; i < index; i++) {
+      const member = this.ownChildren[i];
+      offset += member.memoryHeadSize;
+    }
+    return offset;
   }
 }
