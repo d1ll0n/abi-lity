@@ -30,7 +30,8 @@ function buildGetTailSize(ctx: DecoderContext, type: TypeNode, ptr: string) {
 
 /**
  * Generates an ABI decoding function for an array with a dynamic base type
- * where the tails can be combined into a single copy, assuming strict encoding.
+ * where the tails can be combined into a single copy, assuming strict encoding,
+ * which is checked.
  */
 function abiDecodingFunctionArrayCombinedDynamicTail(ctx: DecoderContext, type: ArrayType): string {
   if (!canDeriveSizeInOneStep(type.baseType)) {
@@ -101,8 +102,8 @@ function abiDecodingFunctionArrayCombinedDynamicTail(ctx: DecoderContext, type: 
 }
 
 /**
- * Function used to decode arrays of reference types with a fixed size that can
- * be combined into a single copy.
+ * Generates an ABI decoding function for an array of fixed-size reference types
+ * that can be combined into a single copy (no embedded reference types).
  */
 function abiDecodingFunctionArrayCombinedStaticTail(ctx: DecoderContext, type: ArrayType): string {
   const typeName = type.identifier;
@@ -170,6 +171,9 @@ function abiDecodingFunctionArrayCombinedStaticTail(ctx: DecoderContext, type: A
   return fnName;
 }
 
+/**
+ * Generates an ABI decoding function for an array of value types.
+ */
 function abiDecodingFunctionValueArray(ctx: DecoderContext, type: ArrayType): string {
   if (!type.baseType.isValueType) {
     throw Error(`Array with non-value baseType passed to abiDecodingFunctionValueArray`);
@@ -202,7 +206,11 @@ function abiDecodingFunctionValueArray(ctx: DecoderContext, type: ArrayType): st
   return fnName;
 }
 
-function abiDecodingFunctionSeparateMembers(ctx: DecoderContext, type: ArrayType) {
+/**
+ * Generates an ABI decoding function for an array of reference types which can not
+ * be combined into a single copy, i.e. those with embedded reference types.
+ */
+function abiDecodingFunctionArraySeparateTail(ctx: DecoderContext, type: ArrayType) {
   const typeName = type.identifier;
   const fnName = `abi_decode_${typeName}`;
   if (ctx.hasFunction(fnName)) return fnName;
@@ -260,5 +268,5 @@ export function abiDecodingFunctionArray(ctx: DecoderContext, type: ArrayType): 
     }
     return abiDecodingFunctionArrayCombinedStaticTail(ctx, type);
   }
-  return abiDecodingFunctionSeparateMembers(ctx, type);
+  return abiDecodingFunctionArraySeparateTail(ctx, type);
 }
