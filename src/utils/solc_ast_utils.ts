@@ -3,14 +3,19 @@ import {
   ASTContext,
   ASTNode,
   ASTNodeFactory,
+  coerceArray,
   ContractDefinition,
   EnumDefinition,
   Expression,
   FunctionCall,
   FunctionCallKind,
   FunctionDefinition,
+  FunctionKind,
+  FunctionStateMutability,
+  FunctionVisibility,
   Identifier,
   isInstanceOf,
+  ParameterList,
   SourceUnit,
   staticNodeFactory,
   StructDefinition,
@@ -23,21 +28,10 @@ import {
 } from "solc-typed-ast";
 import { EnumType, StructType } from "../ast";
 
-export function getCommonBasePath(sourceUnits: SourceUnit[]): string {
-  const paths = sourceUnits.map((s) => path.parse(s.absolutePath).dir);
-  paths.sort((a, b) => a.length - b.length);
-  const length = paths[0].length;
-  paths.forEach((p, i) => {
-    paths[i] = p.slice(0, length);
-  });
-  if (!paths.every((p) => p === paths[0])) {
-    throw Error(`Common base path not found for source units`);
-  }
-  return paths[0];
-}
-
 export const symbolAliasToId = (symbolAlias: SymbolAlias): number =>
-  typeof symbolAlias.foreign === "number" ? symbolAlias.foreign : symbolAlias.foreign.id;
+  typeof symbolAlias.foreign === "number"
+    ? symbolAlias.foreign
+    : symbolAlias.foreign.referencedDeclaration ?? symbolAlias.foreign.id;
 
 export const getParentSourceUnit = (node: ASTNode): SourceUnit => {
   if (node instanceof SourceUnit) return node;
@@ -48,24 +42,16 @@ export const getParentSourceUnit = (node: ASTNode): SourceUnit => {
   return sourceUnit;
 };
 
-export function makeFunctionCallFor(fn: FunctionDefinition, args: Expression[]): FunctionCall {
-  const {
-    vParameters: { vParameters }
-  } = fn;
-
-  const paramTypeStrings = vParameters.map((v) => v.typeString);
-
-  const functionTypeString = (
-    paramTypeStrings.length > 1 ? `tuple(${paramTypeStrings.join(",")})` : paramTypeStrings[0]
-  )
-    .replace(/(struct\s+)([\w\d]+)/g, "$1$2 memory")
-    .replace(/\[\]/g, "[] memory");
-
-  const identifier = staticNodeFactory.makeIdentifierFor(fn);
+export function makeFunctionCallFor(
+  fn: FunctionDefinition | Expression,
+  args: Expression[]
+): FunctionCall {
+  const identifier =
+    fn instanceof FunctionDefinition ? staticNodeFactory.makeIdentifierFor(fn) : fn;
 
   return staticNodeFactory.makeFunctionCall(
     fn.requiredContext,
-    functionTypeString,
+    "",
     FunctionCallKind.FunctionCall,
     identifier,
     args
@@ -109,7 +95,70 @@ export const findConstantDeclaration = (
   )[0] as VariableDeclaration | undefined;
 };
 
-function getConstantDeclaration(
+export function makeGlobalFunctionDefinition(
+  sourceUnit: SourceUnit,
+  name: string,
+  parameters: ParameterList = staticNodeFactory.makeParameterList(sourceUnit.requiredContext, []),
+  returnParameters: ParameterList = staticNodeFactory.makeParameterList(
+    sourceUnit.requiredContext,
+    []
+  ),
+  stateMutability = FunctionStateMutability.Pure,
+  body = staticNodeFactory.makeBlock(sourceUnit.requiredContext, [])
+): FunctionDefinition {
+  return staticNodeFactory.makeFunctionDefinition(
+    sourceUnit.requiredContext,
+    sourceUnit.id,
+    FunctionKind.Free,
+    name,
+    false,
+    FunctionVisibility.Default,
+    stateMutability,
+    false,
+    parameters,
+    returnParameters,
+    [],
+    undefined,
+    body
+  );
+}
+
+export function makeVariableDeclarationStatement(
+  variableDeclarations: VariableDeclaration | VariableDeclaration[],
+  initialValue?: Expression
+): VariableDeclarationStatement {
+  variableDeclarations = coerceArray(variableDeclarations);
+  return staticNodeFactory.makeVariableDeclarationStatement(
+    variableDeclarations[0].requiredContext,
+    variableDeclarations.map((v) => v.id),
+    variableDeclarations,
+    initialValue
+  );
+}
+
+function getFunctionDefinitions(
+  ctx: ContractDefinition | SourceUnit,
+  name: string
+): FunctionDefinition[] {
+  const functions = ctx.getChildrenBySelector(
+    (child) => child instanceof FunctionDefinition && child.name === name
+  ) as FunctionDefinition[];
+  return functions;
+}
+
+export function findFunctionDefinition(
+  ctx: ContractDefinition | SourceUnit,
+  name: string
+): FunctionDefinition | undefined {
+  return getFunctionDefinitions(ctx, name)[0];
+}
+
+/**
+ * Creates a new constant VariableDeclaration in the SourceUnit containing
+ * `node` if a constant variable declaration of the same name does not
+ * already exist.
+ */
+function addUniqueGlobalConstantDeclaration(
   node: ASTNode,
   name: string,
   value: string | number
@@ -124,23 +173,32 @@ function getConstantDeclaration(
   return existingConstant;
 }
 
+export function addUniqueFunctionDefinition(
+  ctx: ContractDefinition | SourceUnit,
+  node: FunctionDefinition
+): FunctionDefinition {
+  const existingFunction = findFunctionDefinition(ctx, node.name);
+  if (!existingFunction) {
+    return ctx.appendChild(node) as FunctionDefinition;
+  }
+  return existingFunction;
+}
+
+export function getUniqueFunctionDefinition(
+  ctx: ContractDefinition | SourceUnit,
+  node: FunctionDefinition
+): Identifier {
+  return staticNodeFactory.makeIdentifierFor(addUniqueFunctionDefinition(ctx, node));
+}
+
 export function getConstant(node: ASTNode, name: string, value: string | number): Identifier {
-  return staticNodeFactory.makeIdentifierFor(getConstantDeclaration(node, name, value));
+  return staticNodeFactory.makeIdentifierFor(addUniqueGlobalConstantDeclaration(node, name, value));
 }
 
 export function getYulConstant(node: ASTNode, name: string, value: string | number): YulIdentifier {
-  return staticNodeFactory.makeYulIdentifierFor(getConstantDeclaration(node, name, value));
-}
-
-export function getGlobalFunctionDefinitions(
-  sourceUnit: SourceUnit,
-  name: string
-): FunctionDefinition | undefined {
-  const functions = sourceUnit.getChildrenBySelector(
-    (child) =>
-      child instanceof FunctionDefinition && child.parent === sourceUnit && child.name === name
-  ) as FunctionDefinition[];
-  return functions[0];
+  return staticNodeFactory.makeYulIdentifierFor(
+    addUniqueGlobalConstantDeclaration(node, name, value)
+  );
 }
 
 /**
@@ -200,7 +258,9 @@ export function addTypeImport(
   const foreignSymbol = staticNodeFactory.makeIdentifierFor(
     type.vScope.type === "SourceUnit" ? type : (type.vScope as ContractDefinition)
   );
-  addImports(sourceUnit, parentSourceUnit, [{ foreign: foreignSymbol } as SymbolAlias]);
+  addImports(sourceUnit, parentSourceUnit, [
+    /* { foreign: foreignSymbol } as SymbolAlias */
+  ]);
 }
 
 export function addDependencyImports(sourceUnit: SourceUnit, fn: FunctionDefinition): void {
@@ -212,12 +272,17 @@ export function addDependencyImports(sourceUnit: SourceUnit, fn: FunctionDefinit
     const foreignSymbol = staticNodeFactory.makeIdentifierFor(
       type.vScope.type === "SourceUnit" ? type : (type.vScope as ContractDefinition)
     );
-    if (!importDirectives[parent.id]) {
-      importDirectives[parent.id] = [];
+    const directives = importDirectives[parent.id] ?? (importDirectives[parent.id] = []);
+    if (
+      !directives.some(
+        (f) =>
+          (f.foreign as Identifier).referencedDeclaration === foreignSymbol.referencedDeclaration
+      )
+    ) {
+      directives.push({
+        foreign: foreignSymbol
+      } as SymbolAlias);
     }
-    importDirectives[parent.id].push({
-      foreign: foreignSymbol
-    } as SymbolAlias);
     return importDirectives;
   }, {} as Record<string, SymbolAlias[]>);
   const entries = Object.entries(importsNeeded);
@@ -271,7 +336,7 @@ export function addRequiredImports(fn: FunctionDefinition): void {
 const getDirectory = (_path: string): string =>
   !path.parse(_path).ext ? _path : path.parse(_path).dir;
 
-const getRelativePath = (from: string, to: string): string => {
+export const getRelativePath = (from: string, to: string): string => {
   let relative = path.relative(from, to);
   if (!relative.startsWith("../")) relative = `./${relative}`;
   return relative;
