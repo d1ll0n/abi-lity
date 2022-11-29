@@ -5,10 +5,16 @@ import {
   ASTWriter,
   DataLocation,
   DefaultASTWriterMapping,
+  Expression,
+  FunctionCall,
+  FunctionCallKind,
   FunctionDefinition,
   FunctionVisibility,
+  Identifier,
   LatestCompilerVersion,
   PrettyFormatter,
+  replaceNode,
+  Return,
   SourceUnit,
   staticNodeFactory,
   VariableDeclaration
@@ -28,7 +34,7 @@ import {
 import { abiDecodingFunction } from "./abi_decode";
 import { DecoderContext } from "./utils";
 
-const isExternalFunction = (fn: FunctionDefinition) =>
+export const isExternalFunction = (fn: FunctionDefinition): boolean =>
   [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
 
 /**
@@ -112,6 +118,11 @@ function findFunctionDefinition(node: ASTNode, name: string): FunctionDefinition
   return functionDefinition;
 }
 
+/**
+ * Inserts a VariableDeclarationStatement node at the beginning of the body
+ * of `fn` which assigns the variable for `parameter` to a `FunctionCall` node
+ * for the associated decoding function in `decoderSourceUnit`.
+ */
 function makeParameterAssignmentFromDecodeFunctionCall(
   factory: ASTNodeFactory,
   sourceUnit: SourceUnit,
@@ -141,6 +152,11 @@ function makeParameterAssignmentFromDecodeFunctionCall(
   fn.vBody.insertAtBeginning(statement);
 }
 
+/**
+ * Removes the names of all reference-type parameters in external functions
+ * inside of `sourceUnit`, moves their declarations to the function body and
+ * assigns them using their associated decoding functions in `decoderSourceUnit`.
+ */
 export function replaceExternalFunctionReferenceTypeParameters(
   sourceUnit: SourceUnit,
   decoderSourceUnit: SourceUnit
@@ -152,6 +168,17 @@ export function replaceExternalFunctionReferenceTypeParameters(
   const factory = new ASTNodeFactory(context);
   for (const fn of functions) {
     const [parameters, parameterTypes] = getParametersAndTypes(fn);
+    const internalCalls = fn.getChildrenByType(FunctionCall);
+    if (
+      internalCalls.some((call) =>
+        (call.vReferencedDeclaration as FunctionDefinition)?.vParameters?.vParameters.some(
+          (arg) => arg.storageLocation === DataLocation.CallData
+        )
+      )
+    ) {
+      continue;
+    }
+    fn.documentation = undefined;
     for (let i = 0; i < parameters.length; i++) {
       makeParameterAssignmentFromDecodeFunctionCall(
         factory,
@@ -162,6 +189,55 @@ export function replaceExternalFunctionReferenceTypeParameters(
         parameterTypes[i]
       );
     }
+  }
+}
+
+export function replaceReturnStatementsWithCall(
+  fn: FunctionDefinition,
+  returnFn: FunctionDefinition
+): void {
+  const { vBody, vReturnParameters } = fn;
+  if (!vReturnParameters.children.length) return;
+
+  const factory = new ASTNodeFactory(fn.requiredContext);
+
+  const returnStatements = fn.getChildrenByType(Return, true);
+
+  const paramTypeStrings = vReturnParameters.vParameters.map(
+    (v: VariableDeclaration) => v.typeString
+  );
+  const returnTypeString = (
+    paramTypeStrings.length > 1 ? `tuple(${paramTypeStrings.join(",")})` : paramTypeStrings[0]
+  )
+    .replace(/(struct\s+)([\w\d]+)/g, "$1$2 memory")
+    .replace(/\[\]/g, "[] memory");
+
+  const returnFnIdentifier = factory.makeIdentifierFor(returnFn);
+
+  for (const returnStatement of returnStatements) {
+    const _call = factory.makeFunctionCall(
+      returnTypeString,
+      FunctionCallKind.FunctionCall,
+      returnFnIdentifier,
+      returnStatement.children as Expression[]
+    );
+
+    const callExpression = factory.makeExpressionStatement(_call);
+    replaceNode(returnStatement, callExpression);
+  }
+
+  while (vReturnParameters.children.length > 0) {
+    const parameter = vReturnParameters.children[0] as VariableDeclaration;
+    // Define return params at start of body
+    if (parameter.name) {
+      if (fn.getChildrenByType(Identifier).find((node) => node.name === parameter.name)) {
+        const copy = factory.copy(parameter);
+        const statement = factory.makeVariableDeclarationStatement([copy.id], [copy]);
+        vBody?.insertAtBeginning(statement);
+      }
+    }
+    // Remove return parameter
+    vReturnParameters.removeChild(parameter);
   }
 }
 
@@ -197,28 +273,4 @@ function addConstantsToSource(sourceUnit: SourceUnit, ctx: DecoderContext) {
         .replace(";", "") as string
     );
   }
-}
-
-function getDecodeParametersTuple(ctx: DecoderContext, type: TupleType) {
-  const typeName = type.vMembers.length > 1 ? type.identifier : type.vMembers[0].identifier;
-  const fnName = `abi_decode_${typeName}`;
-  if (ctx.hasFunction(fnName)) {
-    return { name: fnName, code: ctx.functions.get(fnName) as string };
-  }
-  const inner: StructuredText = [];
-  for (const member of type.vMembers) {
-    const headPositionSrc = 4 + type.calldataOffsetOfChild(member);
-    const name = member.labelFromParent;
-    if (!name) throw Error(`Tuple member not named: ${type.identifier} -> ${member.identifier}`);
-    const decodeFn = member.isValueType ? `calldataload` : abiDecodingFunction(ctx, member);
-    inner.push(`${name} := ${decodeFn}(${headPositionSrc})`);
-  }
-  const asmFunctions = [...ctx.functions.values()];
-
-  const code = writeNestedStructure([
-    `function ${fnName}() pure returns ${type.writeParameter(DataLocation.Memory)} {`,
-    [`assembly {`, [...asmFunctions, inner], `}`],
-    `}`
-  ]);
-  return { code, name: fnName };
 }
