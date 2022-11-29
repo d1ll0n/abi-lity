@@ -96,7 +96,11 @@ export function buildDecoderFile(sourceUnit: SourceUnit): string {
     new PrettyFormatter(2),
     LatestCompilerVersion
   );
-  const code = writeNestedStructure([writer.write(newSource), ...decodeFunctions]);
+  const code = writeNestedStructure([
+    `import "./Pointers.sol";`,
+    writer.write(newSource),
+    ...decodeFunctions
+  ]);
   return code;
 }
 
