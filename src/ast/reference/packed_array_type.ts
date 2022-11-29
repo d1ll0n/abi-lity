@@ -1,10 +1,10 @@
 import { ABITypeKind } from "../../constants";
 import { ReferenceType } from "./reference_type";
 
-class PackedArrayType extends ReferenceType {
-  constructor(isBytes: boolean) {
+export class BytesType extends ReferenceType {
+  constructor() {
     super();
-    this.isBytes = isBytes;
+    this.isBytes = true;
   }
 
   isBytes: boolean;
@@ -15,8 +15,8 @@ class PackedArrayType extends ReferenceType {
   encodingType = undefined;
   unpaddedSize = undefined;
 
-  copy(): PackedArrayType {
-    return new PackedArrayType(this.isBytes);
+  copy(): BytesType {
+    return new BytesType();
   }
 
   get calldataEncodedSize(): number {
@@ -48,14 +48,13 @@ class PackedArrayType extends ReferenceType {
   }
 }
 
-export class BytesType extends PackedArrayType {
+export class StringType extends BytesType {
   constructor() {
-    super(true);
+    super();
+    this.isBytes = false;
   }
-}
 
-export class StringType extends PackedArrayType {
-  constructor() {
-    super(false);
+  copy(): StringType {
+    return new StringType();
   }
 }

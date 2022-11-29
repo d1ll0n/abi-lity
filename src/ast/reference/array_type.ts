@@ -1,14 +1,15 @@
+import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
-import { TypeNode } from "../type_node";
-import { ReferenceType } from "./reference_type";
+import { TypeNode, TypeNodeWithChildren } from "../type_node";
 
-export class ArrayType extends ReferenceType {
+export class ArrayType extends TypeNodeWithChildren<TypeNode> {
   encodingType = undefined;
   readonly kind = ABITypeKind.Array;
   baseType: TypeNode;
   length: number | undefined;
 
   unpaddedSize = undefined;
+  leftAligned = false;
 
   constructor(baseType: TypeNode, length: number | undefined) {
     super();
@@ -17,7 +18,9 @@ export class ArrayType extends ReferenceType {
   }
 
   copy(): ArrayType {
-    return new ArrayType(this.baseType.copy(), this.length);
+    const arr = new ArrayType(this.baseType.copy(), this.length);
+    arr.labelFromParent = this.labelFromParent;
+    return arr;
   }
 
   get isDynamicallyEncoded(): boolean {
@@ -63,7 +66,7 @@ export class ArrayType extends ReferenceType {
 
   get memoryDataSize(): number | undefined {
     if (this.length === undefined) return undefined;
-    return this.baseType.memoryHeadSize * this.length;
+    return (this.baseType.memoryDataSize as number) * this.length;
   }
 
   get extendedMemoryDataSize(): number | undefined {
@@ -72,11 +75,26 @@ export class ArrayType extends ReferenceType {
     return this.baseType.extendedMemoryDataSize * this.length;
   }
 
-  signatureInExternalFunction(_structsByName: boolean): string {
+  get embeddedMemoryHeadSize(): number {
     if (this.isDynamicallySized) {
-      const x = this.length;
-      x;
+      throw Error("Can not determine embedded head size for dynamically sized array");
     }
+    return (this.length as number) * 32;
+  }
+
+  get embeddedCalldataHeadSize(): number {
+    if (this.isDynamicallySized) {
+      throw Error("Can not determine embedded head size for dynamically sized array");
+    }
+    return (this.length as number) * this.baseType.calldataHeadSize;
+  }
+
+  get identifier(): string {
+    const prefix = this.isDynamicallySized ? `dyn_array` : `array_${this.length}`;
+    return `${prefix}_${this.baseType.identifier}`;
+  }
+
+  signatureInExternalFunction(_structsByName: boolean): string {
     return (
       this.baseType.signatureInExternalFunction(_structsByName) +
       "[" +
@@ -88,4 +106,14 @@ export class ArrayType extends ReferenceType {
   get children(): TypeNode[] {
     return this.pickNodes(this.baseType);
   }
+
+  calldataOffsetOfChild(indexOrNameOrNode: number): number {
+    return this.baseType.calldataHeadSize * indexOrNameOrNode;
+  }
+
+  memoryOffsetOfChild(indexOrNameOrNode: number): number {
+    return this.baseType.memoryHeadSize * indexOrNameOrNode;
+  }
+
+  isValueType = false;
 }

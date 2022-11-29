@@ -1,22 +1,18 @@
+import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TypeNode, TypeNodeWithChildren } from "../type_node";
 
-export class TupleType extends TypeNodeWithChildren<TypeNode> {
-  readonly kind = ABITypeKind.Tuple;
-
-  // memberNames?: string[];
-
+export abstract class TupleLikeType extends TypeNodeWithChildren<TypeNode> {
   constructor(members: TypeNode[]) {
     super();
 
     for (const member of members) {
       this.appendChild(member);
     }
-    this.acceptChildren();
   }
 
-  copy(): TupleType {
-    return new TupleType(this.ownChildren.map((member) => member.copy()));
+  get vMembers(): TypeNode[] {
+    return this.ownChildren;
   }
 
   get canonicalName(): string {
@@ -68,28 +64,24 @@ export class TupleType extends TypeNodeWithChildren<TypeNode> {
     return "(" + memberTypeStrings.join(",") + ")";
   }
 
-  calldataOffsetOfMember(index: number): number {
-    if (index > this.ownChildren.length - 1) {
-      throw Error(`Index out of bounds: ${index}`);
-    }
-    let offset = 0;
-    for (let i = 0; i < index; i++) {
-      const member = this.ownChildren[i];
-      offset += member.calldataHeadSize;
-    }
-    return offset;
+  readonly encodingType = undefined;
+  readonly unpaddedSize = undefined;
+  readonly isValueType = false;
+  readonly leftAligned = false;
+  readonly isDynamicallySized = false;
+}
+
+export class TupleType extends TupleLikeType {
+  readonly kind = ABITypeKind.Tuple;
+
+  get identifier(): string {
+    return `tuple_${this.ownChildren.map((child) => child.identifier).join("_")}`;
   }
 
-  memoryOffsetOfMember(index: number): number {
-    if (index > this.ownChildren.length - 1) {
-      throw Error(`Index out of bounds: ${index}`);
-    }
-    let offset = 0;
-    for (let i = 0; i < index; i++) {
-      const member = this.ownChildren[i];
-      offset += member.memoryHeadSize;
-    }
-    return offset;
+  copy(): TupleType {
+    const tuple = new TupleType(this.ownChildren.map((member) => member.copy()));
+    tuple.labelFromParent = this.labelFromParent;
+    return tuple;
   }
 
   pp(): string {
@@ -99,9 +91,8 @@ export class TupleType extends TypeNodeWithChildren<TypeNode> {
     return "(" + memberTypeStrings.join(",") + ")";
   }
 
-  readonly encodingType = undefined;
-  readonly unpaddedSize = undefined;
-  readonly isValueType = false;
-  readonly leftAligned = false;
-  readonly isDynamicallySized = false;
+  writeParameter(location: DataLocation): string {
+    const childParameters = this.ownChildren.map((c) => c.writeParameter(location));
+    return "(" + childParameters.join(", ") + ")";
+  }
 }

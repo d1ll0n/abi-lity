@@ -1,3 +1,5 @@
+import { ASTContext } from "./ast_context";
+
 export type NodeCallback<NodeType extends Node = Node> = (node: NodeType) => void;
 export type NodeSelector<NodeType extends Node = Node> = (node: NodeType) => boolean;
 
@@ -11,6 +13,24 @@ let nNodes = 0;
  * @see https://github.com/consensys/solc-typed-ast/commit/af781125e6f083ef5e0b0f458325aa7b8271de35
  */
 export class Node<NodeType extends Node = any> {
+  private _context?: ASTContext;
+
+  get context(): ASTContext | undefined {
+    return this._context;
+  }
+
+  set context(ctx: ASTContext | undefined) {
+    if (ctx !== this._context) {
+      if (ctx && !ctx.contains(this)) {
+        ctx.register(this);
+        this.children.forEach((node) => {
+          node.context = ctx;
+        });
+      }
+      this._context = ctx;
+    }
+  }
+
   /**
    * Unique identifier number for the node in the tree context
    */
@@ -49,6 +69,9 @@ export class Node<NodeType extends Node = any> {
   acceptChildren(): void {
     for (const node of this.children) {
       node.parent = this;
+      if (this.context) {
+        node.context = this.context;
+      }
     }
   }
 
@@ -189,6 +212,14 @@ export class Node<NodeType extends Node = any> {
 
   getChildrenByTypeString<T extends NodeType>(typeString: string, inclusive = false): T[] {
     return this.getChildrenBySelector((node) => node.constructor.name === typeString, inclusive);
+  }
+
+  getChildrenByProperty<T extends NodeType, K extends keyof T, V extends T[K]>(
+    key: K,
+    value: V,
+    inclusive = false
+  ): T[] {
+    return this.getChildrenBySelector((node) => (node as T)[key] === value, inclusive);
   }
 
   getParents(): NodeType[] {
