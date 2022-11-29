@@ -1,72 +1,119 @@
-import { DataLocation, FunctionDefinition, SourceUnit } from "solc-typed-ast";
+import { DataLocation, FunctionDefinition } from "solc-typed-ast";
 import { abiDecodingFunctionArray } from "./abi_decode_array";
-import { DecoderContext, getSequentiallyCopyableSegments, roundUpAdd32 } from "./utils";
 import { ArrayType, BytesType, StructType, TupleType, TypeNode } from "../ast";
 import { functionDefinitionToTypeNode } from "../readers/read_solc_ast";
+import { StructuredText, toHex, writeNestedStructure, addDependencyImports } from "../utils";
 import {
-  StructuredText,
-  toHex,
-  writeNestedStructure,
-  addDependencyImports,
-  getConstant
-} from "../utils";
+  CodegenContext,
+  getCalldataDecodingFunction,
+  getSequentiallyCopyableSegments,
+  roundUpAdd32
+} from "./utils";
 
-function getOffset(parent: string, offset: number): string {
-  return offset === 0 ? parent : `add(${parent}, ${toHex(offset)})`;
+function getOffset(parent: string, offset: number | string, pptr?: boolean): string {
+  const offsetString = typeof offset === "number" ? toHex(offset) : offset;
+  if (pptr) {
+    return `${parent}.pptr(${offset === 0 ? "" : offsetString})`;
+  }
+  return offset === 0 ? parent : `${parent}.offset(${offsetString})`;
 }
 
-function abiDecodingFunctionStruct(ctx: DecoderContext, struct: StructType): string {
-  const inner: string[] = [
-    `mPtr := mload(0x40)`,
-    `mstore(0x40, add(mPtr, ${toHex(struct.embeddedMemoryHeadSize)}))`
+function getMemberOffset(
+  ctx: CodegenContext,
+  parent: StructType,
+  type: TypeNode,
+  location: DataLocation
+) {
+  const prefix = `${parent.identifier}_${type.labelFromParent}`;
+  let middle = "";
+  if (type.calldataHeadOffset !== type.memoryHeadOffset) {
+    middle = location === DataLocation.CallData ? "_cd" : "_mem";
+  }
+  const name = `${prefix}${middle}_offset`;
+  const offset =
+    location === DataLocation.CallData ? type.calldataHeadOffset : type.memoryHeadOffset;
+  const offsetString = offset === 0 ? "" : ctx.addConstant(name, toHex(offset));
+  const parentString = location === DataLocation.CallData ? "cdPtr" : "mPtr";
+  if (type.isDynamicallyEncoded && location === DataLocation.CallData) {
+    return `${parentString}.pptr(${offsetString})`;
+  }
+  return offsetString ? `${parentString}.offset(${offsetString})` : parentString;
+}
+
+function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
+  const sizeName = `${struct.identifier}_head_size`;
+  ctx.addConstant(sizeName, toHex(struct.embeddedMemoryHeadSize));
+  const body: StructuredText[] = [
+    `mPtr = malloc(${sizeName});`
+    // `mPtr := mload(0x40)`,
+    // `mstore(0x40, add(mPtr, ${toHex(struct.embeddedMemoryHeadSize)}))`
   ];
   const segments = getSequentiallyCopyableSegments(struct);
   segments.forEach((segment) => {
-    const dst = getOffset("mPtr", segment[0].memoryHeadOffset);
-    const src = getOffset("cdPtr", segment[0].calldataHeadOffset);
-    const size = segment.length * 32;
-    inner.push(
+    let size = toHex(segment.length * 32);
+    if (segments.length === 1 && segment.length === struct.vMembers.length) {
+      size = sizeName;
+    }
+    const src = getMemberOffset(ctx, struct, segment[0], DataLocation.CallData);
+    const dst = getMemberOffset(ctx, struct, segment[0], DataLocation.Memory);
+
+    /*     const cdOffset = segment[0].calldataHeadOffset;
+    const mOffset = segment[0].memoryHeadOffset;
+    const prefix = `${struct.identifier}_${segment[0].labelFromParent}`;
+    const [cdOffsetName, mOffsetName] =
+      cdOffset === mOffset
+        ? [`${prefix}_cd_offset`, `${prefix}_mem_offset`]
+        : [`${prefix}_offset`, `${prefix}_offset`];
+
+    const src = cdOffset === 0 ? getOffset("cdPtr", 0) : getOffset();
+    const dst = getOffset("mPtr"); */
+    body.push(
       `// Copy ${segment.map((s) => s.labelFromParent).join(", ")}`,
-      `calldatacopy(${dst}, ${src}, ${toHex(size)})`
+      `${src}.copy(${dst}, ${size});`
     );
   });
 
   const referenceTypes = struct.vMembers.filter((type) => type.isReferenceType);
   for (const member of referenceTypes) {
-    const dst = getOffset("mPtr", member.memoryHeadOffset);
-    let src = getOffset("cdPtr", member.calldataHeadOffset);
+    // const dst = getOffset("mPtr", member.memoryHeadOffset);
+    // const src = getOffset("cdPtr", member.calldataHeadOffset, member.isDynamicallyEncoded);
+    const src = getMemberOffset(ctx, struct, member, DataLocation.CallData);
+    const dst = getMemberOffset(ctx, struct, member, DataLocation.Memory);
     const decodeFn = abiDecodingFunction(ctx, member);
-    if (member.isDynamicallyEncoded) {
+    /* if (member.isDynamicallyEncoded) {
       inner.push(`let ${member.labelFromParent}CdPtr := add(cdPtr, calldataload(${src}))`);
       src = `${member.labelFromParent}CdPtr`;
-    }
-    inner.push(`mstore(${dst}, ${decodeFn}(${src}))`);
+    } */
+    body.push(`${dst}.write(${decodeFn}(${src}));`);
+    // inner.push(`mstore(${dst}, ${decodeFn}(${src}))`);
   }
 
   const fnName = `abi_decode_${struct.identifier}`;
-  const code = [`function ${fnName}(cdPtr) -> mPtr {`, inner, "}"];
+  const code = getCalldataDecodingFunction(fnName, "cdPtr", "mPtr", body);
+  // [`function ${fnName}(cdPtr) -> mPtr {`, inner, "}"];
   ctx.addFunction(fnName, code);
   return fnName;
 }
 
-function abiDecodingFunctionBytes(ctx: DecoderContext): string {
+function abiDecodingFunctionBytes(ctx: CodegenContext): string {
   const fnName = `abi_decode_bytes`;
   if (ctx.hasFunction(fnName)) return fnName;
-  const code = [
-    `function abi_decode_bytes(cdPtrLength) -> mPtrLength {`,
+
+  const code = getCalldataDecodingFunction(fnName, `cdPtrLength`, `mPtrLength`, [
+    `assembly {`,
     [
       `mPtrLength := mload(0x40)`,
       `let size := ${roundUpAdd32(ctx, "calldataload(cdPtrLength)")}`,
       `calldatacopy(mPtrLength, cdPtrLength, size)`,
       `mstore(0x40, add(mPtrLength, size))`
     ],
-    "}"
-  ];
+    `}`
+  ]);
   ctx.addFunction(fnName, code);
   return fnName;
 }
 
-export function abiDecodingFunction(ctx: DecoderContext, node: TypeNode): string {
+export function abiDecodingFunction(ctx: CodegenContext, node: TypeNode): string {
   if (node instanceof ArrayType) {
     return abiDecodingFunctionArray(ctx, node);
   }
@@ -79,48 +126,43 @@ export function abiDecodingFunction(ctx: DecoderContext, node: TypeNode): string
   throw Error(`Unsupported type: ${node.identifier}`);
 }
 
-export function getDecoderForFunction(
-  fn: FunctionDefinition,
-  coderSourceUnit: SourceUnit
-): { code: string; name: string } {
-  addDependencyImports(coderSourceUnit, fn);
+export function getDecoderForFunction(ctx: CodegenContext, fn: FunctionDefinition): string {
+  addDependencyImports(ctx.decoderSourceUnit, fn);
   const type = functionDefinitionToTypeNode(fn);
   if (!type.parameters) throw Error(`Can not decode function without parameters`);
-  const ctx = new DecoderContext();
   const decoderFn = getDecodeParametersTuple(ctx, type.parameters);
-  for (const constantName of [...ctx.constants.keys()]) {
-    getConstant(
-      coderSourceUnit,
-      constantName,
-      ctx.constants
-        .get(constantName)
-        ?.replace(`uint256 constant ${constantName} = `, "")
-        .replace(";", "") as string
-    );
-  }
   return decoderFn;
 }
 
-function getDecodeParametersTuple(ctx: DecoderContext, type: TupleType) {
+function getDecodeParametersTuple(ctx: CodegenContext, type: TupleType) {
   const typeName = type.vMembers.length > 1 ? type.identifier : type.vMembers[0].identifier;
   const fnName = `abi_decode_${typeName}`;
-  if (ctx.hasFunction(fnName)) {
-    return { name: fnName, code: ctx.functions.get(fnName) as string };
-  }
+  if (ctx.hasFunction(fnName)) return fnName;
+  const returnParameters = type.vMembers
+    .map((node, i) => `MemoryPointer ${node.labelFromParent ?? `value${i}`}`)
+    .join(", ");
   const inner: StructuredText = [];
-  for (const member of type.vMembers) {
-    const headPositionSrc = 4 + type.calldataOffsetOfChild(member);
-    const name = member.labelFromParent;
-    if (!name) throw Error(`Tuple member not named: ${type.identifier} -> ${member.identifier}`);
-    const decodeFn = member.isValueType ? `calldataload` : abiDecodingFunction(ctx, member);
-    inner.push(`${name} := ${decodeFn}(${headPositionSrc})`);
-  }
-  const asmFunctions = [...ctx.functions.values()];
+  type.vMembers.forEach((member, i) => {
+    const name = member.labelFromParent ?? `value${i}`;
+    // const headPositionSrc = 4 + type.calldataOffsetOfChild(member);
+    const src = getOffset(
+      "CalldataStart",
+      type.calldataOffsetOfChild(member),
+      type.isDynamicallyEncoded
+    );
+    if (member.isValueType) {
+      const fnName = `read${member.identifier[0].toUpperCase() + member.identifier.slice(1)}`;
+      inner.push(`${name} = ${src}.${fnName}();`);
+    } else {
+      inner.push(`${name} = ${abiDecodingFunction(ctx, member)}(${src});`);
+    }
+  });
 
   const code = writeNestedStructure([
-    `function ${fnName}() pure returns ${type.writeParameter(DataLocation.Memory)} {`,
-    [`assembly {`, [...asmFunctions, inner], `}`],
+    `function ${fnName}() pure returns (${returnParameters}) {`,
+    inner,
     `}`
   ]);
-  return { code, name: fnName };
+  ctx.addFunction(fnName, code);
+  return fnName;
 }

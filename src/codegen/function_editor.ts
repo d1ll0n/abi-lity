@@ -1,38 +1,24 @@
-import path from "path";
 import {
   ASTNode,
   ASTNodeFactory,
-  ASTWriter,
   DataLocation,
-  DefaultASTWriterMapping,
   Expression,
   FunctionCall,
   FunctionCallKind,
   FunctionDefinition,
   FunctionVisibility,
   Identifier,
-  LatestCompilerVersion,
-  PrettyFormatter,
   replaceNode,
   Return,
   SourceUnit,
-  staticNodeFactory,
   VariableDeclaration
 } from "solc-typed-ast";
-import { TupleType, TypeNode } from "../ast";
+import { TypeNode } from "../ast";
 import { functionDefinitionToTypeNode } from "../readers";
-import {
-  addDependencyImports,
-  addTypeImport,
-  getConstant,
-  makeFunctionCallFor,
-  makeVariableDeclarationStatementFromFunctionCall,
-  StructuredText,
-  toHex,
-  writeNestedStructure
-} from "../utils";
+import { addDependencyImports, addTypeImport, CompileHelper, makeFunctionCallFor } from "../utils";
 import { abiDecodingFunction } from "./abi_decode";
-import { DecoderContext } from "./utils";
+import { getTypeCastFunctionName, typeCastAbiDecodingFunction } from "./type_cast";
+import { CodegenContext, getPointerOffsetExpression } from "./utils";
 
 export const isExternalFunction = (fn: FunctionDefinition): boolean =>
   [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
@@ -73,35 +59,21 @@ function getUniqueReferenceTypeParametersAndAddImports(
   return [...typeMap.values()];
 }
 
-export function buildDecoderFile(sourceUnit: SourceUnit): string {
+export function buildDecoderFile(helper: CompileHelper, primaryFileName: string): CodegenContext {
+  const ctx = new CodegenContext(helper, primaryFileName.replace(".sol", "Decoder.sol"));
+  const sourceUnit = helper.getSourceUnit(primaryFileName);
   const functions = getExternalFunctionsWithReferenceTypeParameters(
     sourceUnit.getChildrenByType(FunctionDefinition)
   );
-  const absolutePath = sourceUnit.absolutePath.replace(
-    path.parse(sourceUnit.absolutePath).base,
-    "Decoder.sol"
-  );
-  const newSource = staticNodeFactory.makeSourceUnit(
-    sourceUnit.requiredContext,
-    "Decoder.sol",
-    1,
-    absolutePath,
-    new Map()
-  );
-  const typeNodes = getUniqueReferenceTypeParametersAndAddImports(newSource, functions);
-  const decodeFunctions = typeNodes.map((type) => getInternalDecodeFunction(type, newSource).code);
-
-  const writer = new ASTWriter(
-    DefaultASTWriterMapping,
-    new PrettyFormatter(2),
-    LatestCompilerVersion
-  );
-  const code = writeNestedStructure([
-    `import "./Pointers.sol";`,
-    writer.write(newSource),
-    ...decodeFunctions
-  ]);
-  return code;
+  const typeNodes = getUniqueReferenceTypeParametersAndAddImports(ctx.decoderSourceUnit, functions);
+  typeNodes.map((type) => abiDecodingFunction(ctx, type));
+  const functionTypes = functions.map(functionDefinitionToTypeNode);
+  for (const fn of functionTypes) {
+    if (fn.parameters) {
+      typeCastAbiDecodingFunction(ctx, fn.parameters);
+    }
+  }
+  return ctx;
 }
 
 function getParametersAndTypes(fn: FunctionDefinition): [VariableDeclaration[], TypeNode[]] {
@@ -142,15 +114,33 @@ function makeParameterAssignmentFromDecodeFunctionCall(
   }
 
   const decodeFunctionName = `abi_decode_${parameterType.identifier}`;
+  const typecastFunctionName = getTypeCastFunctionName(parameterType);
   const decodeFunction = findFunctionDefinition(decoderSourceUnit, decodeFunctionName);
+  const typeCastFunction = findFunctionDefinition(decoderSourceUnit, typecastFunctionName);
   addTypeImport(sourceUnit, decodeFunction);
+  addTypeImport(sourceUnit, typeCastFunction);
 
-  const offsetLiteral = staticNodeFactory.makeLiteralUint256(
+  /*   const offsetLiteral = staticNodeFactory.makeLiteralUint256(
     sourceUnit.requiredContext,
     toHex(parameterType.calldataHeadOffset + 4)
+  ); */
+  const cdStart = factory.makeIdentifier("CalldataPointer", "CalldataStart", -1);
+  const cdPtr = getPointerOffsetExpression(factory, cdStart, parameterType, DataLocation.CallData);
+  const functionCall = makeFunctionCallFor(
+    makeFunctionCallFor(typeCastFunction, [factory.makeIdentifierFor(decodeFunction)]),
+    [cdPtr]
   );
-  const functionCall = makeFunctionCallFor(decodeFunction, [offsetLiteral]);
-  const statement = makeVariableDeclarationStatementFromFunctionCall(factory, functionCall);
+  const variableDeclaration = factory.copy(parameter);
+  variableDeclaration.storageLocation =
+    DataLocation.Memory; /* decodeFunction.vReturnParameters.vParameters.map((param) =>
+    factory.copy(param)
+  ); */
+  const statement = factory.makeVariableDeclarationStatement(
+    [variableDeclaration].map((v) => v.id),
+    [variableDeclaration],
+    functionCall
+  );
+  // const statement = makeVariableDeclarationStatementFromFunctionCall(factory, functionCall);
   statement.vDeclarations[0].name = parameter.name;
   parameter.name = "";
   fn.vBody.insertAtBeginning(statement);
@@ -245,36 +235,34 @@ export function replaceReturnStatementsWithCall(
   }
 }
 
-function getInternalDecodeFunction(type: TypeNode, sourceUnit: SourceUnit) {
-  const typeName = type.identifier;
-  const fnName = `abi_decode_${typeName}`;
+// function getInternalDecodeFunctionCall(ctx: CodegenContext, type: TypeNode) {
+//   const typeName = type.identifier;
+//   const fnName = `abi_decode_${typeName}`;
 
-  const ctx = new DecoderContext();
-  const headPositionSrc = type.isDynamicallyEncoded
-    ? `add(4, calldataload(calldataPointer))`
-    : `calldataPointer`;
+//   const headPositionSrc = type.isDynamicallyEncoded
+//     ? `add(4, calldataload(calldataPointer))`
+//     : `calldataPointer`;
 
-  const outputType = type.writeParameter(DataLocation.Memory, "ret");
-  const decodeFn = abiDecodingFunction(ctx, type);
-  const asmFunctions = [...ctx.functions.values()];
-  const code = writeNestedStructure([
-    `function ${fnName}(uint256 calldataPointer) pure returns (${outputType}) {`,
-    [`assembly {`, [...asmFunctions, `ret := ${decodeFn}(${headPositionSrc})`], `}`],
-    `}`
-  ]);
-  addConstantsToSource(sourceUnit, ctx);
-  return { code, name: fnName };
-}
+//   const outputType = type.writeParameter(DataLocation.Memory, "ret");
+//   const decodeFn = abiDecodingFunction(ctx, type);
+//   // const asmFunctions = [...ctx.functions.values()];
+//   const code = writeNestedStructure([
+//     `function ${fnName}(CalldataPointer cdPtr) pure returns (MemoryPointer mPtr) {`,
+//     // [`assembly {`, [...asmFunctions, `ret := ${decodeFn}(${headPositionSrc})`], `}`],
+//     `}`
+//   ]);
+//   return { code, name: fnName };
+// }
 
-function addConstantsToSource(sourceUnit: SourceUnit, ctx: DecoderContext) {
-  for (const constantName of [...ctx.constants.keys()]) {
-    getConstant(
-      sourceUnit,
-      constantName,
-      ctx.constants
-        .get(constantName)
-        ?.replace(`uint256 constant ${constantName} = `, "")
-        .replace(";", "") as string
-    );
-  }
-}
+// function addConstantsToSource(sourceUnit: SourceUnit, ctx: CodegenContext) {
+//   for (const constantName of [...ctx.constants.keys()]) {
+//     getConstant(
+//       sourceUnit,
+//       constantName,
+//       ctx.constants
+//         .get(constantName)
+//         ?.replace(`uint256 constant ${constantName} = `, "")
+//         .replace(";", "") as string
+//     );
+//   }
+// }

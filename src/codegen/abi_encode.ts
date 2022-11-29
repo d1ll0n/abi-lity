@@ -4,23 +4,12 @@ import {
   DataLocation,
   FunctionCallKind,
   FunctionDefinition,
-  isInstanceOf,
   Mutability,
   SourceUnit,
-  StateVariableVisibility,
-  VariableDeclaration,
-  YulExpression,
-  YulLiteralKind
+  StateVariableVisibility
 } from "solc-typed-ast";
-import { ArrayType, BytesType, FunctionType, TupleType, TypeNode } from "../ast";
-import {
-  getYulConstant,
-  makeGlobalFunctionDefinition,
-  makeVariableDeclarationStatement,
-  StructuredText,
-  toHex
-} from "../utils";
-import { DecoderContext, roundUpAdd32 } from "./utils";
+import { FunctionType, TupleType } from "../ast";
+import { makeGlobalFunctionDefinition, makeVariableDeclarationStatement } from "../utils";
 
 export function createReturnFunctionForReturnParameters(
   factory: ASTNodeFactory,
