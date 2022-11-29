@@ -1,5 +1,18 @@
+import { findIndex } from "lodash";
+import {
+  assert,
+  ASTNodeFactory,
+  Compiler,
+  compileSourceStringSync,
+  DataLocation,
+  Expression,
+  FunctionCall,
+  FunctionCallKind,
+  SourceUnit,
+  YulExpression
+} from "solc-typed-ast";
 import { ArrayType, StructType, TupleType, TypeNode } from "../ast";
-import { StructuredText, toHex } from "../utils";
+import { getInclusiveRangeWith, getYulConstant, StructuredText, toHex } from "../utils";
 
 export function canDeriveSizeInOneStep(type: TypeNode): boolean {
   return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
@@ -7,11 +20,24 @@ export function canDeriveSizeInOneStep(type: TypeNode): boolean {
 
 const PointerRoundUp32Mask = `0xffffe0`;
 
-export const roundUpAdd32 = (ctx: DecoderContext, value: string): string =>
-  `and(add(${value}, ${ctx.addConstant("AlmostTwoWords", toHex(63))}), ${ctx.addConstant(
-    "OnlyFullWordMask",
-    PointerRoundUp32Mask
-  )})`;
+export function roundUpAdd32(ctx: DecoderContext, value: string): string;
+export function roundUpAdd32(ctx: SourceUnit, value: YulExpression): YulExpression;
+export function roundUpAdd32(
+  ctx: SourceUnit | DecoderContext,
+  value: YulExpression | string
+): string | YulExpression {
+  if (ctx instanceof DecoderContext && typeof value === "string") {
+    return `and(add(${value}, ${ctx.addConstant("AlmostTwoWords", toHex(63))}), ${ctx.addConstant(
+      "OnlyFullWordMask",
+      PointerRoundUp32Mask
+    )})`;
+  } else if (ctx instanceof SourceUnit && value instanceof YulExpression) {
+    const mask = getYulConstant(ctx, `OnlyFullWordMask`, PointerRoundUp32Mask);
+    const almostTwoWords = getYulConstant(ctx, `AlmostTwoWords`, toHex(63));
+    return value.add(almostTwoWords).and(mask);
+  }
+  throw Error(`Unsupported input types`);
+}
 
 export function canCombineTailCopies(type: TypeNode): boolean {
   // Has to be one of:
@@ -20,6 +46,55 @@ export function canCombineTailCopies(type: TypeNode): boolean {
   // bytes or string
   // value type
   return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
+}
+
+export function abiEncodingMatchesMemoryLayout(type: TypeNode): boolean {
+  return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
+}
+
+export function getSequentiallyCopyableSegments(struct: StructType): TypeNode[][] {
+  const types = struct.vMembers;
+  const firstValueIndex = findIndex(types, (t) => t.isValueType);
+  if (firstValueIndex < 0) return [];
+  const segments: TypeNode[][] = [];
+  let currentSegment: TypeNode[] = [];
+  let numDynamic = 0;
+  const endSegment = () => {
+    if (currentSegment.length) {
+      const filtered = getInclusiveRangeWith(currentSegment, (t) => t.isValueType);
+      // Sanity check: all types in segment are sequential in calldata/memory
+      for (let i = 1; i < filtered.length; i++) {
+        const { calldataHeadOffset: cdHead, memoryHeadOffset: mHead } = filtered[i];
+        const { calldataHeadOffset: cdHeadLast, memoryHeadOffset: mHeadLast } = filtered[i - 1];
+        assert(
+          cdHeadLast + 32 === cdHead,
+          `Got non-sequential calldata heads: [${i - 1}] = ${cdHeadLast}, [${i}] = ${cdHead}`
+        );
+        assert(
+          mHeadLast + 32 === mHead,
+          `Got non-sequential memory heads: [${i - 1}] = ${mHeadLast}, [${i}] = ${mHead}`
+        );
+      }
+      segments.push(filtered);
+      currentSegment = [];
+    }
+    numDynamic = 0;
+  };
+  for (let i = firstValueIndex; i < types.length; i++) {
+    const type = types[i];
+    if (type.calldataHeadSize !== 32 || (type.isReferenceType && ++numDynamic > 4)) {
+      endSegment();
+      continue;
+    }
+    if (type.isValueType) {
+      numDynamic = 0;
+    }
+    currentSegment.push(type);
+    if (i === types.length - 1) {
+      endSegment();
+    }
+  }
+  return segments;
 }
 
 function convertToTuple(node: ArrayType) {
@@ -80,4 +155,30 @@ export class DecoderContext {
     this.functions.set(name, code);
     return name;
   }
+}
+
+export function getPointerOffsetExpression(
+  factory: ASTNodeFactory,
+  ptr: Expression,
+  type: TypeNode,
+  location: DataLocation
+): Expression {
+  const fnName =
+    location === DataLocation.CallData && type.isDynamicallyEncoded ? "pptr" : "offset";
+  const offsetFunction = factory.makeMemberAccess("tuple(uint256)", ptr, fnName, -1);
+  const headOffset =
+    location === DataLocation.CallData ? type.calldataHeadOffset : type.memoryHeadOffset;
+  if (headOffset === 0) {
+    if (fnName === "pptr") {
+      return factory.makeFunctionCall("", FunctionCallKind.FunctionCall, offsetFunction, []);
+    }
+    return ptr;
+  }
+  const offsetLiteral = factory.makeLiteralUint256(
+    location === DataLocation.CallData ? type.calldataHeadOffset : type.memoryHeadOffset
+  );
+  const offsetCall = factory.makeFunctionCall("", FunctionCallKind.FunctionCall, offsetFunction, [
+    offsetLiteral
+  ]);
+  return offsetCall;
 }
