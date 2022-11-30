@@ -103,6 +103,7 @@ export class CompileHelper {
   }
 
   getContractForFile(fileName: string): ContractOutput & { name: string } {
+    fileName = path.normalize(fileName);
     let contracts = this.fileContractsMap.get(fileName);
     if (!contracts) {
       const fileNames = [...this.fileContractsMap.keys()].filter((f) => f.includes(fileName));
