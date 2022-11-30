@@ -1,12 +1,19 @@
 {
   "name": "abi-lity",
   "version": "1.0.0",
+  "license": "MIT",
+  "author": {
+    "name": "d1ll0n",
+    "url": "https://github.com/d1ll0n"
+  },
+  "homepage": "https://github.com/d1ll0n/abi-lity",
+  "bugs": "https://github.com/d1ll0n/abi-lity/issues",
+  "bin": "dist/cli.js",
   "files": [
     "dist"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "license": "MIT",
   "dependencies": {
     "@solidity-parser/parser": "^0.14.5",
     "@types/lodash": "^4.14.189",
@@ -40,9 +47,5 @@
     "lint:fix": "eslint src/ test/ --ext=ts --fix",
     "test": "NODE_OPTIONS='--max-old-space-size=2048' mocha",
     "prepare": "npm run build"
-  },
-  "author": {
-    "name": "d1ll0n",
-    "url": "https://github.com/d1ll0n"
   }
 }
