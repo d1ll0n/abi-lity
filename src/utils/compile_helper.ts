@@ -26,7 +26,7 @@ import path from "path";
 import { writeFileSync } from "fs";
 import { coerceArray, writeNestedStructure } from "./text";
 import { addImports, findFunctionDefinition } from "./solc_ast_utils";
-import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
+import { getCommonBasePath, getRelativePath, mkdirIfNotExists } from "./path_utils";
 
 function compile(
   compiler: NativeCompiler,
@@ -48,11 +48,19 @@ const compilerOutputs = [
   CompilationOutput.AST,
   "evm.deployedBytecode.object" as any,
   CompilationOutput.EVM_BYTECODE_OBJECT,
-  "irOptimized" as any
+  "irOptimized" as any,
+  "ir" as any
 ];
 
 const compilerOptions = {
   viaIR: true,
+  metadata: {
+    bytecodeHash: "none"
+  }
+};
+
+const optimizedCompilerOptions = {
+  ...compilerOptions,
   optimizer: {
     enabled: true,
     runs: 20000
@@ -64,6 +72,7 @@ type ContractOutput = {
   creationCode: string;
   runtimeCode: string;
   irOptimized: string;
+  ir: string;
 };
 
 export class CompileHelper {
@@ -91,6 +100,30 @@ export class CompileHelper {
 
   get context(): ASTContext {
     return this.sourceUnits[0].requiredContext;
+  }
+
+  getContractForFile(fileName: string): ContractOutput & { name: string } {
+    let contracts = this.fileContractsMap.get(fileName);
+    if (!contracts) {
+      const fileNames = [...this.fileContractsMap.keys()].filter((f) => f.includes(fileName));
+      if (fileNames.length === 0) {
+        throw Error(`Source unit ${fileName} does not exist or has no contracts`);
+      }
+      if (fileNames.length > 1) {
+        throw Error(`Multiple source units include ${fileName}:\n${fileNames.join(", ")}`);
+      }
+      fileName = fileNames[0];
+      contracts = this.fileContractsMap.get(fileName) as string[];
+    }
+
+    if (contracts.length > 1) {
+      throw Error(`Multiple contracts in ${fileName}`);
+    }
+    const contractName = contracts[0];
+    return {
+      name: contractName,
+      ...(this.contractsMap.get(contractName) as ContractOutput)
+    };
   }
 
   findSourceUnit(fileName: string): SourceUnit | undefined {
@@ -212,20 +245,26 @@ export class CompileHelper {
             throw Error(`Duplicate contract name ${contractName}`);
           }
           const contract = fileContracts[contractName];
-          const { irOptimized, abi } = contract;
+          const { ir, irOptimized, abi } = contract;
           const creationCode = contract.evm?.bytecode?.object ?? "";
           const runtimeCode = contract.evm?.deployedBytecode?.object ?? "";
-          this.contractsMap.set(contractName, { irOptimized, abi, creationCode, runtimeCode });
+          this.contractsMap.set(contractName, { ir, irOptimized, abi, creationCode, runtimeCode });
         }
       }
     }
   }
 
-  recompile(): void {
+  recompile(optimize?: boolean): void {
     const files = this.getFiles();
     const resolvedFileNames = new Map<string, string>();
     findAllFiles(files, resolvedFileNames, [], []);
-    const compileResult = compile(this.compiler, files, []);
+    const compileResult = compile(
+      this.compiler,
+      files,
+      [],
+      compilerOutputs,
+      optimize ? optimizedCompilerOptions : compilerOptions
+    );
     this.update(compileResult);
   }
 
@@ -236,7 +275,13 @@ export class CompileHelper {
     files.set(currentSourceUnit.absolutePath, updatedSource);
     const resolvedFileNames = new Map<string, string>();
     findAllFiles(files, resolvedFileNames, [], []);
-    const compileResult = compile(this.compiler, files, []);
+    const compileResult = compile(
+      this.compiler,
+      files,
+      [],
+      [CompilationOutput.AST],
+      compilerOptions
+    );
     const reader = new ASTReader();
     const sourceUnits = reader.read(compileResult);
     const factory = new ASTNodeFactory(this.context);
@@ -265,7 +310,7 @@ export class CompileHelper {
       files,
       [],
       compilerOutputs,
-      optimize && compilerOptions
+      optimize ? optimizedCompilerOptions : compilerOptions
     );
     return new CompileHelper(compiler, compileResult, basePath);
   }
@@ -277,7 +322,29 @@ export class CompileHelper {
     optimize?: boolean
   ): Promise<CompileHelper> {
     fileNames = coerceArray(fileNames);
-    const { files, remapping } = getFilesAndRemappings(fileNames, { basePath });
+    const includePath: string[] = [];
+    if (basePath) {
+      let parent = path.dirname(basePath);
+      while (parent !== path.dirname(parent)) {
+        includePath.push(parent);
+        parent = path.dirname(parent);
+      }
+    }
+    const { files, remapping } = getFilesAndRemappings(fileNames, {
+      basePath,
+      includePath
+    });
+    const filePaths = [...files.keys()];
+    if (
+      basePath &&
+      filePaths.some(
+        (p) => path.isAbsolute(p) && path.relative(basePath as string, p).startsWith("..")
+      )
+    ) {
+      const commonPath = getCommonBasePath(filePaths);
+      basePath = commonPath ? path.normalize(commonPath) : basePath;
+    }
+
     const compiler = await getCompilerForVersion(version, CompilerKind.Native);
     if (!(compiler instanceof NativeCompiler)) {
       throw Error(`NativeCompiler not found for ${version}`);
@@ -287,7 +354,7 @@ export class CompileHelper {
       files,
       remapping,
       compilerOutputs,
-      optimize && compilerOptions
+      optimize ? optimizedCompilerOptions : compilerOptions
     );
     return new CompileHelper(compiler, compileResult, basePath);
   }
@@ -300,4 +367,31 @@ export class CompileHelper {
     this.update(compileResult);
     this.resolver = new FileSystemResolver(this.basePath);
   }
+}
+
+export function writeFilesTo(basePath: string, files: Map<string, string>): void {
+  const filePaths = [...files.keys()];
+  const allAbsolutePaths = filePaths.every(path.isAbsolute);
+  const commonPath = allAbsolutePaths && getCommonBasePath(filePaths);
+  if (basePath !== undefined) {
+    mkdirIfNotExists(basePath);
+  }
+  assert(
+    commonPath !== undefined || basePath !== undefined,
+    `Can not write files with non-absolute paths and no base path provided`
+  );
+  filePaths.forEach((filePath) => {
+    // If the existing file paths are absolute, replace the common base path
+    // with `basePath` if they are different.
+    // If they are relative, resolve with `basePath`
+    const file = files.get(filePath) as string;
+    let absolutePath: string = filePath;
+    if (basePath && commonPath !== basePath) {
+      const relativePath = commonPath ? path.relative(commonPath, filePath) : filePath;
+      absolutePath = path.resolve(basePath as string, relativePath);
+    }
+
+    mkdirIfNotExists(path.dirname(absolutePath));
+    writeFileSync(absolutePath, file);
+  });
 }
