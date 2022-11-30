@@ -45,7 +45,6 @@
     "build": "npm run clean && tsc",
     "lint": "eslint src/ test/ --ext=ts",
     "lint:fix": "eslint src/ test/ --ext=ts --fix",
-    "test": "NODE_OPTIONS='--max-old-space-size=2048' mocha",
-    "prepare": "npm run build"
+    "test": "NODE_OPTIONS='--max-old-space-size=2048' mocha"
   }
 }
