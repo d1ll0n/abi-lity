@@ -181,7 +181,7 @@ function abiDecodingFunctionValueArray(ctx: CodegenContext, type: ArrayType): st
     body.push(
       `unchecked {`,
       [
-        `uint256 arrLength := cdPtrLength.readUint256();`,
+        `uint256 arrLength = cdPtrLength.readUint256();`,
         `uint256 arrSize = (arrLength + 1) * 32;`,
         `mPtrLength = malloc(arrSize);`,
         `cdPtrLength.copy(mPtrLength, arrSize);`
