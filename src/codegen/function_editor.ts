@@ -1,13 +1,18 @@
 import {
   ASTNode,
   ASTNodeFactory,
+  ASTWriter,
   DataLocation,
+  DefaultASTWriterMapping,
   Expression,
   FunctionCall,
   FunctionCallKind,
   FunctionDefinition,
   FunctionVisibility,
   Identifier,
+  LatestCompilerVersion,
+  pp,
+  PrettyFormatter,
   replaceNode,
   Return,
   SourceUnit,
@@ -70,7 +75,10 @@ export function buildDecoderFile(helper: CompileHelper, primaryFileName: string)
   const functionTypes = functions.map(functionDefinitionToTypeNode);
   for (const fn of functionTypes) {
     if (fn.parameters) {
-      typeCastAbiDecodingFunction(ctx, fn.parameters);
+      for (const member of fn.parameters.vMembers) {
+        typeCastAbiDecodingFunction(ctx, member);
+      }
+      // typeCastAbiDecodingFunction(ctx, fn.parameters);
     }
   }
   return ctx;
@@ -89,7 +97,13 @@ function findFunctionDefinition(node: ASTNode, name: string): FunctionDefinition
     .getChildrenByType(FunctionDefinition)
     .find((fn) => fn.name === name);
   if (!functionDefinition) {
-    throw Error(`${name} not found in ${node.print(2)}`);
+    const writer = new ASTWriter(
+      DefaultASTWriterMapping,
+      new PrettyFormatter(2),
+      LatestCompilerVersion
+    );
+    console.log(writer.write(node));
+    throw Error(`${name} not found in ${pp(node)}`);
   }
   return functionDefinition;
 }
