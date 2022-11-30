@@ -1,4 +1,3 @@
-import path from "path";
 import {
   ASTContext,
   ASTNode,
@@ -27,6 +26,7 @@ import {
   YulIdentifier
 } from "solc-typed-ast";
 import { EnumType, StructType } from "../ast";
+import { getDirectory, getRelativePath } from "./path_utils";
 
 export const symbolAliasToId = (symbolAlias: SymbolAlias): number =>
   typeof symbolAlias.foreign === "number"
@@ -332,12 +332,3 @@ export function addRequiredImports(fn: FunctionDefinition): void {
     addImports(sourceUnit, importSource, symbolAliases);
   }
 }
-
-const getDirectory = (_path: string): string =>
-  !path.parse(_path).ext ? _path : path.parse(_path).dir;
-
-export const getRelativePath = (from: string, to: string): string => {
-  let relative = path.relative(from, to);
-  if (!relative.startsWith("../")) relative = `./${relative}`;
-  return relative;
-};
