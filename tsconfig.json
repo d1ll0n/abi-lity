@@ -25,5 +25,5 @@
     "resolveJsonModule": true
   },
 
-  "include": ["src/**/*", "old/decoders"]
+  "include": ["src/**/*", "src/**/*.json"]
 }
