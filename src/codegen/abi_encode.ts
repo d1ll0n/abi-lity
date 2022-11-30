@@ -4,23 +4,19 @@ import {
   DataLocation,
   FunctionCallKind,
   FunctionDefinition,
-  isInstanceOf,
   Mutability,
   SourceUnit,
   StateVariableVisibility,
-  VariableDeclaration,
-  YulExpression,
-  YulLiteralKind
+  VariableDeclaration
 } from "solc-typed-ast";
-import { ArrayType, BytesType, FunctionType, TupleType, TypeNode } from "../ast";
-import {
-  getYulConstant,
-  makeGlobalFunctionDefinition,
-  makeVariableDeclarationStatement,
-  StructuredText,
-  toHex
-} from "../utils";
-import { DecoderContext, roundUpAdd32 } from "./utils";
+import { FunctionType, TupleType } from "../ast";
+import { makeGlobalFunctionDefinition, makeVariableDeclarationStatement } from "../utils";
+
+const ensureHasName = (parameter: VariableDeclaration, i: number) => {
+  if (!parameter.name) {
+    parameter.name = `value${i}`;
+  }
+};
 
 export function createReturnFunctionForReturnParameters(
   factory: ASTNodeFactory,
@@ -38,17 +34,14 @@ export function createReturnFunctionForReturnParameters(
 
   const parametersList = factory.copy(fn.vReturnParameters);
   const parameters = parametersList.vParameters;
+  parameters.forEach(ensureHasName);
   const returnFn = makeGlobalFunctionDefinition(
     decoderSourceUnit,
     name,
     factory.copy(fn.vReturnParameters)
   );
+  returnFn.vParameters.vParameters.forEach(ensureHasName);
   const body = returnFn.vBody as Block;
-  parameters.forEach((returnParameter, i) => {
-    if (!returnParameter.name) {
-      returnParameter.name = `value${i}`;
-    }
-  });
 
   const paramTypeStrings = parameters.map((v) => v.typeString);
   const returnTypeString = (

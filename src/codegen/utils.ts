@@ -2,31 +2,69 @@ import { findIndex } from "lodash";
 import {
   assert,
   ASTNodeFactory,
-  Compiler,
-  compileSourceStringSync,
   DataLocation,
   Expression,
-  FunctionCall,
   FunctionCallKind,
+  Identifier,
   SourceUnit,
-  YulExpression
+  YulExpression,
+  YulIdentifier
 } from "solc-typed-ast";
 import { ArrayType, StructType, TupleType, TypeNode } from "../ast";
-import { getInclusiveRangeWith, getYulConstant, StructuredText, toHex } from "../utils";
+import {
+  CompileHelper,
+  findFunctionDefinition,
+  getConstant,
+  getInclusiveRangeWith,
+  getYulConstant,
+  StructuredText,
+  toHex,
+  writeNestedStructure
+} from "../utils";
 
-export function canDeriveSizeInOneStep(type: TypeNode): boolean {
-  return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
+const PointerLibraries = require("./PointerLibraries.json");
+
+export class CodegenContext {
+  constructor(public helper: CompileHelper, public decoderSourceUnitName: string) {
+    this.helper.addSourceUnit("PointerLibraries.sol", writeNestedStructure(PointerLibraries));
+    this.helper.addSourceUnit(decoderSourceUnitName);
+    this.helper.addImport(decoderSourceUnitName, "PointerLibraries.sol");
+  }
+
+  get decoderSourceUnit(): SourceUnit {
+    return this.helper.getSourceUnit(this.decoderSourceUnitName);
+  }
+
+  getConstant(name: string, value: number | string): Identifier {
+    return getConstant(this.decoderSourceUnit, name, value);
+  }
+
+  addConstant(name: string, value: number | string): string {
+    return this.getConstant(name, value).name;
+  }
+
+  getYulConstant(name: string, value: number | string): YulIdentifier {
+    return getYulConstant(this.decoderSourceUnit, name, value);
+  }
+
+  hasFunction(name: string): boolean {
+    return Boolean(findFunctionDefinition(this.decoderSourceUnit, name));
+  }
+
+  addFunction(name: string, code: StructuredText): string {
+    this.helper.addFunctionCode(this.decoderSourceUnitName, writeNestedStructure(code), name);
+    return name;
+  }
 }
-
 const PointerRoundUp32Mask = `0xffffe0`;
 
-export function roundUpAdd32(ctx: DecoderContext, value: string): string;
+export function roundUpAdd32(ctx: CodegenContext, value: string): string;
 export function roundUpAdd32(ctx: SourceUnit, value: YulExpression): YulExpression;
 export function roundUpAdd32(
-  ctx: SourceUnit | DecoderContext,
+  ctx: SourceUnit | CodegenContext,
   value: YulExpression | string
 ): string | YulExpression {
-  if (ctx instanceof DecoderContext && typeof value === "string") {
+  if (ctx instanceof CodegenContext && typeof value === "string") {
     return `and(add(${value}, ${ctx.addConstant("AlmostTwoWords", toHex(63))}), ${ctx.addConstant(
       "OnlyFullWordMask",
       PointerRoundUp32Mask
@@ -37,6 +75,23 @@ export function roundUpAdd32(
     return value.add(almostTwoWords).and(mask);
   }
   throw Error(`Unsupported input types`);
+}
+
+export function getCalldataDecodingFunction(
+  fnName: string,
+  inPtr: string,
+  outPtr: string,
+  body: StructuredText[]
+): StructuredText[] {
+  return [
+    `function ${fnName}(CalldataPointer ${inPtr}) pure returns (MemoryPointer ${outPtr}) {`,
+    body,
+    `}`
+  ];
+}
+
+export function canDeriveSizeInOneStep(type: TypeNode): boolean {
+  return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
 }
 
 export function canCombineTailCopies(type: TypeNode): boolean {
@@ -131,32 +186,6 @@ export function convertFixedLengthArraysToTuples<T extends ArrayType | StructTyp
   return type;
 }
 
-export class DecoderContext {
-  constants: Map<string, string> = new Map();
-  functions: Map<string, StructuredText> = new Map();
-
-  hasConstant(name: string): boolean {
-    return this.constants.has(name);
-  }
-
-  hasFunction(name: string): boolean {
-    return this.functions.has(name);
-  }
-
-  addConstant(name: string, value: string | number): string {
-    if (this.hasConstant(name)) return name;
-    if (typeof value === "number") value = toHex(value);
-    this.constants.set(name, `uint256 constant ${name} = ${value};`);
-    return name;
-  }
-
-  addFunction(name: string, code: StructuredText): string {
-    if (this.hasFunction(name)) return name;
-    this.functions.set(name, code);
-    return name;
-  }
-}
-
 export function getPointerOffsetExpression(
   factory: ASTNodeFactory,
   ptr: Expression,
@@ -181,4 +210,18 @@ export function getPointerOffsetExpression(
     offsetLiteral
   ]);
   return offsetCall;
+}
+
+export function cleanIR(irOptimized: string): string {
+  irOptimized = irOptimized
+    .replace(/[^]+object ".+_\d+_deployed"\s\{\s+code\s+\{([^]+)\}\s*data ".metadata"[^]+/, "$1")
+    .replace(/\/\*\*[^*]+?\*\//g, "")
+    .replace(/(\n\s+)?\/\/\/.+/g, "")
+    .replace(/(\n\s+)?\/\/.+/g, "");
+  const irOptimizedLines = irOptimized.split("\n").filter((ln) => ln.trim().length > 0);
+  const numTabs = (/^\s*/.exec(irOptimizedLines[0]) as string[])[0].length;
+  irOptimizedLines.forEach((ln, i) => {
+    irOptimizedLines[i] = ln.slice(numTabs);
+  });
+  return irOptimizedLines.join("\n");
 }

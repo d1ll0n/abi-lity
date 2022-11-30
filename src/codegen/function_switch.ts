@@ -148,7 +148,7 @@ export function getFunctionSelectorSwitch(
         if (type.isReferenceType) {
           throw Error(
             `Unexpected reference-type parameter ${type.canonicalName} in ${fn.name}.` +
-              ` Reference types must already be removed prior to generating function selector switch.`
+              `Reference types must already be removed prior to generating function selector switch.`
           );
         }
         const readCall = getCalldataReadExpression(factory, type);

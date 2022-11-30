@@ -1,5 +1,6 @@
 {
-    "package": "./package.json",
-    "timeout": false,
-    "require": "ts-node/register"
+  "package": "./package.json",
+  "timeout": false,
+  "require": "ts-node/register",
+  "spec": ["./test/**/*.spec.ts"]
 }
