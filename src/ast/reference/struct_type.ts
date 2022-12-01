@@ -13,7 +13,11 @@ export class StructType extends TupleLikeType {
 
   copy(): StructType {
     const struct = new StructType(
-      this.vMembers.map((member) => member.copy()),
+      this.vMembers.map((member) => {
+        const copy = member.copy();
+        copy.labelFromParent = member.labelFromParent;
+        return copy;
+      }),
       this.name
     );
     struct.labelFromParent = this.labelFromParent;
