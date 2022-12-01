@@ -2,6 +2,10 @@
 
 Solidity codegen tool for efficient ABI encoding/decoding.
 
+Currently supports decoding calldata. Returndata decoding and ABI encoding are target features.
+
+**Warning** This tool does not currently perform any overflow checks when decoding and is thus unsafe for production use.
+
 ## Build
 
 ```
