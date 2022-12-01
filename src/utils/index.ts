@@ -7,3 +7,4 @@ export * from "./text";
 export * from "./compile_helper";
 export * from "./path_utils";
 export * from "./loggers";
+export * from "./type_extractor";

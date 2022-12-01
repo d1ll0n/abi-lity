@@ -1,8 +1,8 @@
 import { DataLocation } from "solc-typed-ast";
-import { TupleType, TypeNode } from "../ast";
-import { writeNestedStructure } from "../utils";
-import NameGen from "./names";
-import { CodegenContext } from "./utils";
+import { TupleType, TypeNode } from "../../ast";
+import { writeNestedStructure } from "../../utils";
+import NameGen from "../names";
+import { CodegenContext } from "../utils";
 
 export function typeCastAbiDecodingFunction(ctx: CodegenContext, type: TypeNode): string {
   const name = NameGen.typeCast(type);
