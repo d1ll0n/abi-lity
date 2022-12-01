@@ -1,3 +1,4 @@
+import { flatten } from "lodash";
 import {
   ASTContext,
   ASTNode,
@@ -253,18 +254,17 @@ export function addTypeImport(
   const parentSourceUnit = getParentSourceUnit(type);
   if (parentSourceUnit === sourceUnit) return;
 
-  // If child scoped to file, import child directly.
-  // If contract, import contract.
-  const foreignSymbol = staticNodeFactory.makeIdentifierFor(
-    type.vScope.type === "SourceUnit" ? type : (type.vScope as ContractDefinition)
-  );
-  addImports(sourceUnit, parentSourceUnit, [
-    /* { foreign: foreignSymbol } as SymbolAlias */
-  ]);
+  addImports(sourceUnit, parentSourceUnit, []);
 }
 
-export function addDependencyImports(sourceUnit: SourceUnit, fn: FunctionDefinition): void {
-  const typeDependencies = fn.getChildrenByType(UserDefinedTypeName);
+export function addDependencyImports(
+  sourceUnit: SourceUnit,
+  functions: FunctionDefinition | FunctionDefinition[]
+): void {
+  functions = coerceArray(functions);
+  const typeDependencies = flatten(
+    functions.map((fn) => fn.getChildrenByType(UserDefinedTypeName))
+  );
   const importsNeeded = typeDependencies.reduce((importDirectives, typeName) => {
     const type = typeName.vReferencedDeclaration as UserDefinition;
     const parent = getParentSourceUnit(type);
@@ -286,8 +286,9 @@ export function addDependencyImports(sourceUnit: SourceUnit, fn: FunctionDefinit
     return importDirectives;
   }, {} as Record<string, SymbolAlias[]>);
   const entries = Object.entries(importsNeeded);
+  const ctx = sourceUnit.requiredContext;
   for (const [sourceId, symbolAliases] of entries) {
-    const importSource = fn.requiredContext.locate(+sourceId) as SourceUnit;
+    const importSource = ctx.locate(+sourceId) as SourceUnit;
     addImports(sourceUnit, importSource, symbolAliases);
   }
 }
@@ -331,4 +332,13 @@ export function addRequiredImports(fn: FunctionDefinition): void {
     const importSource = fn.requiredContext.locate(+sourceId) as SourceUnit;
     addImports(sourceUnit, importSource, symbolAliases);
   }
+}
+
+export function getParametersTypeString(parameters: VariableDeclaration[]): string {
+  const paramTypeStrings = parameters.map((v) => v.typeString);
+  return (
+    paramTypeStrings.length > 1 ? `tuple(${paramTypeStrings.join(",")})` : paramTypeStrings[0]
+  )
+    .replace(/(struct\s+)([\w\d]+)/g, "$1$2 memory")
+    .replace(/\[\]/g, "[] memory");
 }
