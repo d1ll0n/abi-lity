@@ -6,11 +6,20 @@ import {
   Expression,
   FunctionCallKind,
   Identifier,
+  isInstanceOf,
   SourceUnit,
   YulExpression,
   YulIdentifier
 } from "solc-typed-ast";
-import { ArrayType, StructType, TupleType, TypeNode } from "../ast";
+import {
+  ArrayType,
+  ErrorType,
+  EventType,
+  FunctionType,
+  StructType,
+  TupleType,
+  TypeNode
+} from "../ast";
 import {
   CompileHelper,
   findFunctionDefinition,
@@ -239,4 +248,37 @@ export function cleanIR(irOptimized: string): string {
     irOptimizedLines[i] = ln.slice(numTabs);
   });
   return irOptimizedLines.join("\n");
+}
+
+export function getUniqueTypeNodes(typeNodes: TypeNode[]): TypeNode[] {
+  const typeMap = new Map<string, TypeNode>();
+  typeNodes.forEach((type) => {
+    if (typeMap.has(type.identifier)) return;
+    typeMap.set(type.identifier, type);
+  });
+  return [...typeMap.values()];
+}
+
+/**
+ * Extract all types which can be used with ABI coders.
+ * Events, errors, functions will have their parameters unrolled.
+ * Currently, tuple types are unrolled.
+ */
+export function extractCoderTypes(inputType: TypeNode): TypeNode[] {
+  if (isInstanceOf(inputType, FunctionType, ErrorType, EventType)) {
+    if (inputType.parameters) {
+      return extractCoderTypes(inputType.parameters);
+    }
+    return [];
+  }
+  if (inputType instanceof TupleType) {
+    if (inputType.vMembers.length === 1) {
+      return extractCoderTypes(inputType.vMembers[0]);
+    }
+    return inputType.vMembers.reduce(
+      (arr, member) => [...arr, ...extractCoderTypes(member)],
+      [] as TypeNode[]
+    );
+  }
+  return [inputType];
 }
