@@ -126,8 +126,8 @@ export function getDecoderForFunction(ctx: CodegenContext, fn: FunctionDefinitio
 }
 
 function getDecodeParametersTuple(ctx: CodegenContext, type: TupleType) {
-  const typeName = type.vMembers.length > 1 ? type.identifier : type.vMembers[0].identifier;
-  const fnName = `abi_decode_${typeName}`;
+  const decodeType = type.vMembers.length > 1 ? type : type.vMembers[0];
+  const fnName = NameGen.abiDecode(decodeType);
   if (ctx.hasFunction(fnName)) return fnName;
   const returnParameters = type.vMembers
     .map((node, i) => `MemoryPointer ${node.labelFromParent ?? `value${i}`}`)
