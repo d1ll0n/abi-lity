@@ -5,12 +5,17 @@ import {
   FunctionCallKind,
   FunctionDefinition,
   Mutability,
+  ParameterList,
   SourceUnit,
   StateVariableVisibility,
   VariableDeclaration
 } from "solc-typed-ast";
-import { FunctionType, TupleType } from "../ast";
-import { makeGlobalFunctionDefinition, makeVariableDeclarationStatement } from "../utils";
+import { FunctionType, TupleType } from "../../ast";
+import {
+  getParametersTypeString,
+  makeGlobalFunctionDefinition,
+  makeVariableDeclarationStatement
+} from "../../utils";
 
 const ensureHasName = (parameter: VariableDeclaration, i: number) => {
   if (!parameter.name) {
@@ -20,7 +25,7 @@ const ensureHasName = (parameter: VariableDeclaration, i: number) => {
 
 export function createReturnFunctionForReturnParameters(
   factory: ASTNodeFactory,
-  fn: FunctionDefinition,
+  returnParameters: ParameterList,
   fnType: FunctionType,
   decoderSourceUnit: SourceUnit
 ): FunctionDefinition {
@@ -32,23 +37,22 @@ export function createReturnFunctionForReturnParameters(
     tuple.vMembers.length === 1 ? tuple.vMembers[0].identifier : tuple.identifier;
   const name = `return_${paramIdentifier}`;
 
-  const parametersList = factory.copy(fn.vReturnParameters);
+  // Get parameters with names
+  const parametersList = factory.copy(returnParameters);
   const parameters = parametersList.vParameters;
   parameters.forEach(ensureHasName);
+
+  // Define return function
   const returnFn = makeGlobalFunctionDefinition(
     decoderSourceUnit,
     name,
-    factory.copy(fn.vReturnParameters)
+    factory.copy(returnParameters)
   );
   returnFn.vParameters.vParameters.forEach(ensureHasName);
   const body = returnFn.vBody as Block;
 
-  const paramTypeStrings = parameters.map((v) => v.typeString);
-  const returnTypeString = (
-    paramTypeStrings.length > 1 ? `tuple(${paramTypeStrings.join(",")})` : paramTypeStrings[0]
-  )
-    .replace(/(struct\s+)([\w\d]+)/g, "$1$2 memory")
-    .replace(/\[\]/g, "[] memory");
+  const returnTypeString = getParametersTypeString(parameters);
+
   const ids = parameters.map((p) => factory.makeIdentifierFor(p));
   const abiEncode = factory.makeIdentifier(returnTypeString, `abi.encode`, -1);
   const encodeCall = factory.makeFunctionCall(
@@ -72,6 +76,7 @@ export function createReturnFunctionForReturnParameters(
     undefined,
     bytesTypeName
   );
+
   const returnDataDecl = makeVariableDeclarationStatement(returnData, encodeCall);
   body.appendChild(returnDataDecl);
   const returnDataId = factory.makeYulIdentifierFor(returnData);
