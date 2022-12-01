@@ -6,3 +6,4 @@ export * from "./solc_ast_utils";
 export * from "./text";
 export * from "./compile_helper";
 export * from "./path_utils";
+export * from "./loggers";
