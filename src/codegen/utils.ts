@@ -14,6 +14,7 @@ import { ArrayType, StructType, TupleType, TypeNode } from "../ast";
 import {
   CompileHelper,
   findFunctionDefinition,
+  FunctionAddition,
   getConstant,
   getInclusiveRangeWith,
   getYulConstant,
@@ -25,6 +26,8 @@ import {
 const PointerLibraries = require("./PointerLibraries.json");
 
 export class CodegenContext {
+  pendingFunctions: FunctionAddition[] = [];
+
   constructor(public helper: CompileHelper, public decoderSourceUnitName: string) {
     this.helper.addSourceUnit("PointerLibraries.sol", writeNestedStructure(PointerLibraries));
     this.helper.addSourceUnit(decoderSourceUnitName);
@@ -51,8 +54,20 @@ export class CodegenContext {
     return Boolean(findFunctionDefinition(this.decoderSourceUnit, name));
   }
 
-  addFunction(name: string, code: StructuredText): string {
-    this.helper.addFunctionCode(this.decoderSourceUnitName, writeNestedStructure(code), name);
+  applyPendingFunctions(): void {
+    const fns = this.pendingFunctions;
+    if (fns.length === 0) return;
+    this.helper.addFunctionCode(this.decoderSourceUnitName, fns);
+    this.pendingFunctions = [];
+  }
+
+  addFunction(name: string, code: StructuredText, applyImmediately?: boolean): string {
+    if (!this.pendingFunctions.find((fn) => fn.name === name)) {
+      this.pendingFunctions.push({ code: writeNestedStructure(code), name });
+    }
+    if (applyImmediately) {
+      this.applyPendingFunctions();
+    }
     return name;
   }
 }
