@@ -1,10 +1,11 @@
 import { DataLocation } from "solc-typed-ast";
 import { TupleType, TypeNode } from "../ast";
 import { writeNestedStructure } from "../utils";
+import NameGen from "./names";
 import { CodegenContext } from "./utils";
 
 export function typeCastAbiDecodingFunction(ctx: CodegenContext, type: TypeNode): string {
-  const name = getTypeCastFunctionName(type);
+  const name = NameGen.typeCast(type);
   if (ctx.hasFunction(name)) {
     return name;
   }
@@ -28,14 +29,4 @@ export function typeCastAbiDecodingFunction(ctx: CodegenContext, type: TypeNode)
   ]);
   ctx.addFunction(name, code);
   return name;
-}
-
-export function getTypeCastFunctionName(type: TypeNode): string {
-  const typeName =
-    type instanceof TupleType
-      ? type.vMembers.length > 1
-        ? type.identifier
-        : type.vMembers[0].identifier
-      : type.identifier;
-  return `to_${typeName}_ReturnType`;
 }

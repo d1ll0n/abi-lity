@@ -1,5 +1,5 @@
-import { StructuredText, toHex } from "../utils";
-import { ArrayType, BytesType, StructType, TypeNode } from "../ast";
+import { StructuredText, toHex } from "../../utils";
+import { ArrayType, BytesType, StructType, TypeNode } from "../../ast";
 import { abiDecodingFunction } from "./abi_decode";
 import {
   CodegenContext,
@@ -7,7 +7,8 @@ import {
   roundUpAdd32,
   canCombineTailCopies,
   canDeriveSizeInOneStep
-} from "./utils";
+} from "../utils";
+import NameGen from "../names";
 
 function buildGetTailSize(ctx: CodegenContext, type: TypeNode, ptr: string) {
   if (type.maxNestedReferenceTypes > 1) {
@@ -41,7 +42,7 @@ function abiDecodingFunctionArrayCombinedDynamicTail(ctx: CodegenContext, type: 
     );
   }
   const typeName = type.identifier;
-  const fnName = `abi_decode_${typeName}`;
+  const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
   const tailSizeExpression = buildGetTailSize(ctx, type.baseType, `cdPtrItemLength`);
 
@@ -103,8 +104,7 @@ function abiDecodingFunctionArrayCombinedDynamicTail(ctx: CodegenContext, type: 
  * that can be combined into a single copy (no embedded reference types).
  */
 function abiDecodingFunctionArrayCombinedStaticTail(ctx: CodegenContext, type: ArrayType): string {
-  const typeName = type.identifier;
-  const fnName = `abi_decode_${typeName}`;
+  const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
   const tailSizeName = ctx.addConstant(
     `${type.baseType.identifier}_mem_tail_size`,
@@ -172,7 +172,7 @@ function abiDecodingFunctionValueArray(ctx: CodegenContext, type: ArrayType): st
     throw Error(`Array with non-value baseType passed to abiDecodingFunctionValueArray`);
   }
   const typeName = type.identifier;
-  const fnName = `abi_decode_${typeName}`;
+  const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
   let inPtr = "cdPtrLength";
   let outPtr = "mPtrLength";
@@ -206,7 +206,7 @@ function abiDecodingFunctionValueArray(ctx: CodegenContext, type: ArrayType): st
  */
 function abiDecodingFunctionArraySeparateTail(ctx: CodegenContext, type: ArrayType) {
   const typeName = type.identifier;
-  const fnName = `abi_decode_${typeName}`;
+  const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
   let inPtr = "cdPtrLength";
   let outPtr = "mPtrLength";

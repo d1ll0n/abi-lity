@@ -1,14 +1,15 @@
 import { DataLocation, FunctionDefinition } from "solc-typed-ast";
 import { abiDecodingFunctionArray } from "./abi_decode_array";
-import { ArrayType, BytesType, StructType, TupleType, TypeNode } from "../ast";
-import { functionDefinitionToTypeNode } from "../readers/read_solc_ast";
-import { StructuredText, toHex, writeNestedStructure, addDependencyImports } from "../utils";
+import { ArrayType, BytesType, StructType, TupleType, TypeNode } from "../../ast";
+import { functionDefinitionToTypeNode } from "../../readers/read_solc_ast";
+import { StructuredText, toHex, writeNestedStructure, addDependencyImports } from "../../utils";
 import {
   CodegenContext,
   getCalldataDecodingFunction,
   getSequentiallyCopyableSegments,
   roundUpAdd32
-} from "./utils";
+} from "../utils";
+import NameGen from "../names";
 
 function getOffset(parent: string, offset: number | string, pptr?: boolean): string {
   const offsetString = typeof offset === "number" ? toHex(offset) : offset;
@@ -18,18 +19,8 @@ function getOffset(parent: string, offset: number | string, pptr?: boolean): str
   return offset === 0 ? parent : `${parent}.offset(${offsetString})`;
 }
 
-function getMemberOffset(
-  ctx: CodegenContext,
-  parent: StructType,
-  type: TypeNode,
-  location: DataLocation
-) {
-  const prefix = `${parent.identifier}_${type.labelFromParent}`;
-  let middle = "";
-  if (type.calldataHeadOffset !== type.memoryHeadOffset) {
-    middle = location === DataLocation.CallData ? "_cd" : "_mem";
-  }
-  const name = `${prefix}${middle}_offset`;
+function getMemberOffset(ctx: CodegenContext, type: TypeNode, location: DataLocation) {
+  const name = NameGen.structMemberOffset(type, location);
   const offset =
     location === DataLocation.CallData ? type.calldataHeadOffset : type.memoryHeadOffset;
   const offsetString = offset === 0 ? "" : ctx.addConstant(name, toHex(offset));
@@ -54,8 +45,8 @@ function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): str
     if (segments.length === 1 && segment.length === struct.vMembers.length) {
       size = sizeName;
     }
-    const src = getMemberOffset(ctx, struct, segment[0], DataLocation.CallData);
-    const dst = getMemberOffset(ctx, struct, segment[0], DataLocation.Memory);
+    const src = getMemberOffset(ctx, segment[0], DataLocation.CallData);
+    const dst = getMemberOffset(ctx, segment[0], DataLocation.Memory);
 
     /*     const cdOffset = segment[0].calldataHeadOffset;
     const mOffset = segment[0].memoryHeadOffset;
@@ -77,8 +68,8 @@ function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): str
   for (const member of referenceTypes) {
     // const dst = getOffset("mPtr", member.memoryHeadOffset);
     // const src = getOffset("cdPtr", member.calldataHeadOffset, member.isDynamicallyEncoded);
-    const src = getMemberOffset(ctx, struct, member, DataLocation.CallData);
-    const dst = getMemberOffset(ctx, struct, member, DataLocation.Memory);
+    const src = getMemberOffset(ctx, member, DataLocation.CallData);
+    const dst = getMemberOffset(ctx, member, DataLocation.Memory);
     const decodeFn = abiDecodingFunction(ctx, member);
     /* if (member.isDynamicallyEncoded) {
       inner.push(`let ${member.labelFromParent}CdPtr := add(cdPtr, calldataload(${src}))`);
