@@ -67,12 +67,17 @@ const optimizedCompilerOptions = {
   }
 };
 
-type ContractOutput = {
+export type ContractOutput = {
   abi: JsonFragment[];
   creationCode: string;
   runtimeCode: string;
   irOptimized: string;
   ir: string;
+};
+
+export type FunctionAddition = {
+  code: string;
+  name: string;
 };
 
 export class CompileHelper {
@@ -135,6 +140,10 @@ export class CompileHelper {
     return sourceUnit;
   }
 
+  hasSourceUnit(fileName: string): boolean {
+    return this.findSourceUnit(fileName) !== undefined;
+  }
+
   getSourceUnit(fileName: string): SourceUnit {
     const sourceUnit = this.findSourceUnit(fileName);
     if (!sourceUnit) {
@@ -179,21 +188,31 @@ export class CompileHelper {
 
   addFunctionCode(
     sourceUnit: string,
-    functionCode: string,
-    functionName: string
-  ): FunctionDefinition {
-    let fnDefinition = findFunctionDefinition(this.getSourceUnit(sourceUnit), functionName);
-    if (fnDefinition) return fnDefinition;
-    const newSource = this.compileCodeInContext(sourceUnit, functionCode);
-    fnDefinition = newSource
-      .getChildrenByType(FunctionDefinition)
-      .find((fn) => fn.name === functionName);
-    if (!fnDefinition) {
-      throw Error(`${functionName} not found in compiled source unit`);
-    }
+    _functions: FunctionAddition | FunctionAddition[]
+  ): FunctionDefinition[] {
+    const functions = coerceArray(_functions);
     const oldSource = this.getSourceUnit(sourceUnit);
-    oldSource.appendChild(fnDefinition);
-    return fnDefinition;
+    const functionDefinitions = functions.map(({ name }) =>
+      findFunctionDefinition(oldSource, name)
+    );
+    const uniqueFunctions = functions.filter((fn, i) => functionDefinitions[i] === undefined);
+    if (uniqueFunctions.length === 0) {
+      return functionDefinitions as FunctionDefinition[];
+    }
+    const newFunctionCode = uniqueFunctions.map((fn) => fn.code).join("\n");
+    const newSource = this.compileCodeInContext(sourceUnit, newFunctionCode);
+
+    functionDefinitions.forEach((fnDefinition, i) => {
+      if (fnDefinition) return;
+      const { name } = functions[i];
+      fnDefinition = newSource.getChildrenByType(FunctionDefinition).find((fn) => fn.name === name);
+      if (!fnDefinition) {
+        throw Error(`${name} not found in compiled source unit`);
+      }
+      oldSource.appendChild(fnDefinition);
+      functionDefinitions[i] = fnDefinition;
+    });
+    return functionDefinitions as FunctionDefinition[];
   }
 
   addImport(dstSourceUnit: string, srcSourceUnit: string): void {
