@@ -21,8 +21,13 @@ import { ABIEncoderVersion } from "solc-typed-ast/dist/types/abi";
 import { TupleType, TypeNode } from "../ast";
 import { functionDefinitionToTypeNode } from "../readers";
 import { makeFunctionCallFor } from "../utils";
-import { createReturnFunctionForReturnParameters } from "./abi_encode";
-import { isExternalFunction, replaceReturnStatementsWithCall } from "./function_editor";
+import {
+  createReturnFunctionForReturnParameters,
+  replaceReturnStatementsWithCall
+} from "./abi_encode";
+
+const isExternalFunction = (fn: FunctionDefinition): boolean =>
+  [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
 
 function getFunctionSelectorDeclaration(
   factory: ASTNodeFactory,
@@ -166,12 +171,16 @@ export function getFunctionSelectorSwitch(
       fn.vParameters.appendChild(paramsDoc as any);
     }
     if (fn.vOverrideSpecifier) {
+      const overrides = fn.vOverrideSpecifier.vOverrides;
+      if (overrides.length === 0) {
+        console.log(`${fn.name} has no override data`);
+      }
       fn.vOverrideSpecifier = undefined;
     }
     if (fn.vReturnParameters.vParameters.length) {
       const returnFn = createReturnFunctionForReturnParameters(
         factory,
-        fn,
+        fn.vReturnParameters,
         fnType,
         decoderSourceUnit
       );
