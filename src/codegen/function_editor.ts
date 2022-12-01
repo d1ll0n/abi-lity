@@ -78,7 +78,6 @@ export function buildDecoderFile(helper: CompileHelper, primaryFileName: string)
       for (const member of fn.parameters.vMembers) {
         typeCastAbiDecodingFunction(ctx, member);
       }
-      // typeCastAbiDecodingFunction(ctx, fn.parameters);
     }
   }
   return ctx;
