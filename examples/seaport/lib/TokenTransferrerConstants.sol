@@ -1,5 +1,4 @@
 pragma solidity ^0.8.7;
-
 uint256 constant AlmostOneWord = 0x1f;
 uint256 constant OneWord = 0x20;
 uint256 constant TwoWords = 0x40;

@@ -1,5 +1,4 @@
 pragma solidity ^0.8.7;
-
 uint256 constant NameLengthPtr = 77;
 uint256 constant NameWithLength = 0x0d436F6E73696465726174696F6E;
 uint256 constant information_version_offset = 0;

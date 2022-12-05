@@ -1,7 +1,5 @@
 pragma solidity ^0.8.7;
-
 import { OrderType, BasicOrderType, ItemType, Side } from "./ConsiderationEnums.sol";
-
 struct OrderComponents {
   address offerer;
   address zone;
@@ -15,7 +13,6 @@ struct OrderComponents {
   bytes32 conduitKey;
   uint256 counter;
 }
-
 struct OfferItem {
   ItemType itemType;
   address token;
@@ -23,7 +20,6 @@ struct OfferItem {
   uint256 startAmount;
   uint256 endAmount;
 }
-
 struct ConsiderationItem {
   ItemType itemType;
   address token;
@@ -32,14 +28,12 @@ struct ConsiderationItem {
   uint256 endAmount;
   address payable recipient;
 }
-
 struct SpentItem {
   ItemType itemType;
   address token;
   uint256 identifier;
   uint256 amount;
 }
-
 struct ReceivedItem {
   ItemType itemType;
   address token;
@@ -47,7 +41,6 @@ struct ReceivedItem {
   uint256 amount;
   address payable recipient;
 }
-
 struct BasicOrderParameters {
   address considerationToken;
   uint256 considerationIdentifier;
@@ -68,12 +61,10 @@ struct BasicOrderParameters {
   AdditionalRecipient[] additionalRecipients;
   bytes signature;
 }
-
 struct AdditionalRecipient {
   uint256 amount;
   address payable recipient;
 }
-
 struct OrderParameters {
   address offerer;
   address zone;
@@ -87,12 +78,10 @@ struct OrderParameters {
   bytes32 conduitKey;
   uint256 totalOriginalConsiderationItems;
 }
-
 struct Order {
   OrderParameters parameters;
   bytes signature;
 }
-
 struct AdvancedOrder {
   OrderParameters parameters;
   uint120 numerator;
@@ -100,14 +89,12 @@ struct AdvancedOrder {
   bytes signature;
   bytes extraData;
 }
-
 struct OrderStatus {
   bool isValidated;
   bool isCancelled;
   uint120 numerator;
   uint120 denominator;
 }
-
 struct CriteriaResolver {
   uint256 orderIndex;
   Side side;
@@ -115,23 +102,19 @@ struct CriteriaResolver {
   uint256 identifier;
   bytes32[] criteriaProof;
 }
-
 struct Fulfillment {
   FulfillmentComponent[] offerComponents;
   FulfillmentComponent[] considerationComponents;
 }
-
 struct FulfillmentComponent {
   uint256 orderIndex;
   uint256 itemIndex;
 }
-
 struct Execution {
   ReceivedItem item;
   address offerer;
   bytes32 conduitKey;
 }
-
 struct ZoneParameters {
   bytes32 orderHash;
   address fulfiller;

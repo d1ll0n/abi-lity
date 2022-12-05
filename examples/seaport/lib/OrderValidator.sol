@@ -1,5 +1,4 @@
 pragma solidity ^0.8.13;
-
 import { OrderType, ItemType } from "./ConsiderationEnums.sol";
 import { OrderParameters, Order, AdvancedOrder, OrderComponents, OrderStatus, CriteriaResolver, OfferItem, ConsiderationItem, SpentItem, ReceivedItem } from "./ConsiderationStructs.sol";
 import "./ConsiderationErrors.sol";
@@ -7,26 +6,12 @@ import { Executor } from "./Executor.sol";
 import { ZoneInteraction } from "./ZoneInteraction.sol";
 import { ContractOffererInterface } from "../interfaces/ContractOffererInterface.sol";
 
-/// @title OrderValidator
-///   @author 0age
-///   @notice OrderValidator contains functionality related to validating orders
-///           and updating their status.
 contract OrderValidator is Executor, ZoneInteraction {
   mapping(bytes32 => OrderStatus) private _orderStatus;
   mapping(address => uint256) internal _contractNonces;
 
-  /// @dev Derive and set hashes, reference chainId, and associated domain
-  ///        separator during deployment.
-  ///   @param conduitController A contract that deploys conduits, or proxies
-  ///                            that may optionally be used to transfer approved
-  ///                            ERC20/721/1155 tokens.
   constructor(address conduitController) Executor(conduitController) {}
 
-  /// @dev Internal function to verify and update the status of a basic order.
-  ///   @param orderHash The hash of the order.
-  ///   @param offerer   The offerer of the order.
-  ///   @param signature A signature from the offerer indicating that the order
-  ///                    has been approved.
   function _validateBasicOrderAndUpdateStatus(bytes32 orderHash, address offerer, bytes memory signature) internal {
     OrderStatus storage orderStatus = _orderStatus[orderHash];
     _verifyOrderStatus(orderHash, orderStatus, true, true);
@@ -39,19 +24,6 @@ contract OrderValidator is Executor, ZoneInteraction {
     orderStatus.denominator = 1;
   }
 
-  /// @dev Internal function to validate an order, determine what portion to
-  ///        fill, and update its status. The desired fill amount is supplied as
-  ///        a fraction, as is the returned amount to fill.
-  ///   @param advancedOrder     The order to fulfill as well as the fraction to
-  ///                            fill. Note that all offer and consideration
-  ///                            amounts must divide with no remainder in order
-  ///                            for a partial fill to be valid.
-  ///   @param revertOnInvalid   A boolean indicating whether to revert if the
-  ///                            order is invalid due to the time or status.
-  ///   @return orderHash      The order hash.
-  ///   @return newNumerator   A value indicating the portion of the order that
-  ///                          will be filled.
-  ///   @return newDenominator A value indicating the total size of the order.
   function _validateOrderAndUpdateStatus(AdvancedOrder memory advancedOrder, bool revertOnInvalid) internal returns (bytes32 orderHash, uint256 newNumerator, uint256 newDenominator) {
     OrderParameters memory orderParameters = advancedOrder.parameters;
     if (!_verifyTime(orderParameters.startTime, orderParameters.endTime, revertOnInvalid)) {
@@ -129,7 +101,6 @@ contract OrderValidator is Executor, ZoneInteraction {
     }
     return (orderHash, numerator, denominator);
   }
-
   function _getGeneratedOrder(OrderParameters memory orderParameters, bytes memory context, bool revertOnInvalid) internal returns (bytes32 orderHash, uint256 numerator, uint256 denominator) {
     SpentItem[] memory offer;
     ReceivedItem[] memory consideration;
@@ -223,13 +194,6 @@ contract OrderValidator is Executor, ZoneInteraction {
     return (orderHash, 1, 1);
   }
 
-  /// @dev Internal function to cancel an arbitrary number of orders. Note that
-  ///        only the offerer or the zone of a given order may cancel it. Callers
-  ///        should ensure that the intended order was cancelled by calling
-  ///        `getOrderStatus` and confirming that `isCancelled` returns `true`.
-  ///   @param orders The orders to cancel.
-  ///   @return cancelled A boolean indicating whether the supplied orders were
-  ///                     successfully cancelled.
   function _cancel(OrderComponents[] calldata orders) internal returns (bool cancelled) {
     _assertNonReentrant();
     OrderStatus storage orderStatus;
@@ -255,17 +219,6 @@ contract OrderValidator is Executor, ZoneInteraction {
     cancelled = true;
   }
 
-  /// @dev Internal function to validate an arbitrary number of orders, thereby
-  ///        registering their signatures as valid and allowing the fulfiller to
-  ///        skip signature verification on fulfillment. Note that validated
-  ///        orders may still be unfulfillable due to invalid item amounts or
-  ///        other factors; callers should determine whether validated orders are
-  ///        fulfillable by simulating the fulfillment call prior to execution.
-  ///        Also note that anyone can validate a signed order, but only the
-  ///        offerer can validate an order without supplying a signature.
-  ///   @param orders The orders to validate.
-  ///   @return validated A boolean indicating whether the supplied orders were
-  ///                     successfully validated.
   function _validate(Order[] calldata orders) internal returns (bool validated) {
     _assertNonReentrant();
     OrderStatus storage orderStatus;
@@ -291,24 +244,10 @@ contract OrderValidator is Executor, ZoneInteraction {
     validated = true;
   }
 
-  /// @dev Internal view function to retrieve the status of a given order by
-  ///        hash, including whether the order has been cancelled or validated
-  ///        and the fraction of the order that has been filled.
-  ///   @param orderHash The order hash in question.
-  ///   @return isValidated A boolean indicating whether the order in question
-  ///                       has been validated (i.e. previously approved or
-  ///                       partially filled).
-  ///   @return isCancelled A boolean indicating whether the order in question
-  ///                       has been cancelled.
-  ///   @return totalFilled The total portion of the order that has been filled
-  ///                       (i.e. the "numerator").
-  ///   @return totalSize   The total size of the order that is either filled or
-  ///                       unfilled (i.e. the "denominator").
   function _getOrderStatus(bytes32 orderHash) internal view returns (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize) {
     OrderStatus storage orderStatus = _orderStatus[orderHash];
     return (orderStatus.isValidated, orderStatus.isCancelled, orderStatus.numerator, orderStatus.denominator);
   }
-
   function _check(OfferItem memory originalOffer, SpentItem memory newOffer, uint256 valueOne, uint256 valueTwo, uint256 errorBuffer) internal pure returns (uint256 updatedErrorBuffer) {
     if ((_cast(uint256(originalOffer.itemType) > 3) & _cast(originalOffer.identifierOrCriteria == 0)) != 0) {
       originalOffer.itemType = _replaceCriteriaItemType(originalOffer.itemType);
@@ -318,28 +257,23 @@ contract OrderValidator is Executor, ZoneInteraction {
     originalOffer.startAmount = newOffer.amount;
     originalOffer.endAmount = newOffer.amount;
   }
-
   function _cast(bool b) internal pure returns (uint256 u) {
     assembly {
       u := b
     }
   }
-
   function _revertOrReturnEmpty(bool revertOnInvalid, bytes32 contractOrderHash) internal pure returns (bytes32 orderHash, uint256 numerator, uint256 denominator) {
     if (!revertOnInvalid) {
       return (contractOrderHash, 0, 0);
     }
     _revertInvalidContractOrder(contractOrderHash);
   }
-
   function _replaceCriteriaItemType(ItemType originalItemType) internal pure returns (ItemType newItemType) {
     assembly {
       newItemType := sub(3, eq(originalItemType, 4))
     }
   }
 
-  /// @dev Internal pure function to convert both offer and consideration items
-  ///        to spent items.
   function _convertToSpent(OfferItem[] memory offer, ConsiderationItem[] memory consideration) internal pure returns (SpentItem[] memory spentItems, SpentItem[] memory receivedItems) {
     assembly {
       spentItems := offer
@@ -347,12 +281,6 @@ contract OrderValidator is Executor, ZoneInteraction {
     }
   }
 
-  /// @dev Internal pure function to check whether a given order type indicates
-  ///        that partial fills are not supported (e.g. only "full fills" are
-  ///        allowed for the order in question).
-  ///   @param orderType The order type in question.
-  ///   @return isFullOrder A boolean indicating whether the order type only
-  ///                       supports full fills.
   function _doesNotSupportPartialFills(OrderType orderType) internal pure returns (bool isFullOrder) {
     assembly {
       isFullOrder := iszero(and(orderType, 1))
