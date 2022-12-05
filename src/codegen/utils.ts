@@ -286,3 +286,25 @@ export function extractCoderTypes(inputType: TypeNode): TypeNode[] {
   }
   return [inputType];
 }
+
+export function dependsOnCalldataLocation(fn: FunctionDefinition): boolean {
+  const internalCalls = fn.getChildrenByType(FunctionCall);
+  for (const call of internalCalls) {
+    const inputArguments = call.vArguments;
+    const referencedFunction = call.vReferencedDeclaration as FunctionDefinition;
+    // Ignore function if it is external or public
+    // @todo This can falsely determine an internal call to a public function is actually external
+    if (!referencedFunction || isExternalFunction(referencedFunction)) continue;
+    const functionParameters = referencedFunction.vParameters.vParameters;
+    for (let i = 0; i < inputArguments.length; i++) {
+      // Check if the function requires calldata input
+      if (functionParameters[i].storageLocation !== DataLocation.CallData) continue;
+      // Check if input argument is one of the function parameters
+      const arg = inputArguments[i];
+      if (arg instanceof Identifier && arg.vReferencedDeclaration?.parent === fn.vParameters) {
+        return true;
+      }
+    }
+  }
+  return false;
+}

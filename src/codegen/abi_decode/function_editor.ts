@@ -4,7 +4,6 @@ import {
   ASTWriter,
   DataLocation,
   DefaultASTWriterMapping,
-  FunctionCall,
   FunctionDefinition,
   FunctionVisibility,
   LatestCompilerVersion,
@@ -17,7 +16,7 @@ import { TypeNode } from "../../ast";
 import { functionDefinitionToTypeNode } from "../../readers";
 import { addTypeImport, makeFunctionCallFor } from "../../utils";
 import NameGen from "../names";
-import { getPointerOffsetExpression } from "../utils";
+import { dependsOnCalldataLocation, getPointerOffsetExpression } from "../utils";
 
 export const isExternalFunction = (fn: FunctionDefinition): boolean =>
   [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
@@ -120,14 +119,7 @@ export function replaceExternalFunctionReferenceTypeParameters(
   const factory = new ASTNodeFactory(context);
   for (const fn of functions) {
     const [parameters, parameterTypes] = getParametersAndTypes(fn);
-    const internalCalls = fn.getChildrenByType(FunctionCall);
-    if (
-      internalCalls.some((call) =>
-        (call.vReferencedDeclaration as FunctionDefinition)?.vParameters?.vParameters.some(
-          (arg) => arg.storageLocation === DataLocation.CallData
-        )
-      )
-    ) {
+    if (dependsOnCalldataLocation(fn)) {
       continue;
     }
     fn.documentation = undefined;
