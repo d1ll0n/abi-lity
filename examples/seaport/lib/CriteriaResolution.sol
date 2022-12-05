@@ -5,22 +5,22 @@ import { OfferItem, ConsiderationItem, OrderParameters, AdvancedOrder, CriteriaR
 import "./ConsiderationErrors.sol";
 import { CriteriaResolutionErrors } from "../interfaces/CriteriaResolutionErrors.sol";
 
-///  @title CriteriaResolution
-///  @author 0age
-///  @notice CriteriaResolution contains a collection of pure functions related to
-///          resolving criteria-based items.
+/// @title CriteriaResolution
+///   @author 0age
+///   @notice CriteriaResolution contains a collection of pure functions related to
+///           resolving criteria-based items.
 contract CriteriaResolution is CriteriaResolutionErrors {
-  ///  @dev Internal pure function to apply criteria resolvers containing
-  ///       specific token identifiers and associated proofs to order items.
-  ///  @param advancedOrders     The orders to apply criteria resolvers to.
-  ///  @param criteriaResolvers  An array where each element contains a
-  ///                            reference to a specific order as well as that
-  ///                            order's offer or consideration, a token
-  ///                            identifier, and a proof that the supplied token
-  ///                            identifier is contained in the order's merkle
-  ///                            root. Note that a root of zero indicates that
-  ///                            any transferable token identifier is valid and
-  ///                            that no proof needs to be supplied.
+  /// @dev Internal pure function to apply criteria resolvers containing
+  ///        specific token identifiers and associated proofs to order items.
+  ///   @param advancedOrders     The orders to apply criteria resolvers to.
+  ///   @param criteriaResolvers  An array where each element contains a
+  ///                             reference to a specific order as well as that
+  ///                             order's offer or consideration, a token
+  ///                             identifier, and a proof that the supplied token
+  ///                             identifier is contained in the order's merkle
+  ///                             root. Note that a root of zero indicates that
+  ///                             any transferable token identifier is valid and
+  ///                             that no proof needs to be supplied.
   function _applyCriteriaResolvers(AdvancedOrder[] memory advancedOrders, CriteriaResolver[] memory criteriaResolvers) internal pure {
     unchecked {
       uint256 totalCriteriaResolvers = criteriaResolvers.length;
@@ -96,24 +96,24 @@ contract CriteriaResolution is CriteriaResolutionErrors {
     }
   }
 
-  ///  @dev Internal pure function to check whether a given item type represents
-  ///       a criteria-based ERC721 or ERC1155 item (e.g. an item that can be
-  ///       resolved to one of a number of different identifiers at the time of
-  ///       order fulfillment).
-  ///  @param itemType The item type in question.
-  ///  @return withCriteria A boolean indicating that the item type in question
-  ///                       represents a criteria-based item.
+  /// @dev Internal pure function to check whether a given item type represents
+  ///        a criteria-based ERC721 or ERC1155 item (e.g. an item that can be
+  ///        resolved to one of a number of different identifiers at the time of
+  ///        order fulfillment).
+  ///   @param itemType The item type in question.
+  ///   @return withCriteria A boolean indicating that the item type in question
+  ///                        represents a criteria-based item.
   function _isItemWithCriteria(ItemType itemType) internal pure returns (bool withCriteria) {
     assembly {
       withCriteria := gt(itemType, 3)
     }
   }
 
-  ///  @dev Internal pure function to ensure that a given element is contained
-  ///       in a merkle root via a supplied proof.
-  ///  @param leaf  The element for which to prove inclusion.
-  ///  @param root  The merkle root that inclusion will be proved against.
-  ///  @param proof The merkle proof.
+  /// @dev Internal pure function to ensure that a given element is contained
+  ///        in a merkle root via a supplied proof.
+  ///   @param leaf  The element for which to prove inclusion.
+  ///   @param root  The merkle root that inclusion will be proved against.
+  ///   @param proof The merkle proof.
   function _verifyProof(uint256 leaf, uint256 root, bytes32[] memory proof) internal pure {
     bool isValid;
     assembly {

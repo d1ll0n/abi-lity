@@ -5,18 +5,18 @@ import { SignatureVerificationErrors } from "../interfaces/SignatureVerification
 import { LowLevelHelpers } from "./LowLevelHelpers.sol";
 import "./ConsiderationErrors.sol";
 
-///  @title SignatureVerification
-///  @author 0age
-///  @notice SignatureVerification contains logic for verifying signatures.
+/// @title SignatureVerification
+///   @author 0age
+///   @notice SignatureVerification contains logic for verifying signatures.
 contract SignatureVerification is SignatureVerificationErrors, LowLevelHelpers {
-  ///  @dev Internal view function to verify the signature of an order. An
-  ///       ERC-1271 fallback will be attempted if either the signature length
-  ///       is not 64 or 65 bytes or if the recovered signer does not match the
-  ///       supplied signer.
-  ///  @param signer    The signer for the order.
-  ///  @param digest    The digest to verify the signature against.
-  ///  @param signature A signature from the signer indicating that the order
-  ///                   has been approved.
+  /// @dev Internal view function to verify the signature of an order. An
+  ///        ERC-1271 fallback will be attempted if either the signature length
+  ///        is not 64 or 65 bytes or if the recovered signer does not match the
+  ///        supplied signer.
+  ///   @param signer    The signer for the order.
+  ///   @param digest    The digest to verify the signature against.
+  ///   @param signature A signature from the signer indicating that the order
+  ///                    has been approved.
   function _assertValidSignature(address signer, bytes32 digest, bytes memory signature) internal view {
     bool success;
     assembly {

@@ -6,40 +6,40 @@ import { AdditionalRecipient, BasicOrderParameters, OfferItem, ConsiderationItem
 import { OrderValidator } from "./OrderValidator.sol";
 import "./ConsiderationErrors.sol";
 
-///  @title BasicOrderFulfiller
-///  @author 0age
-///  @notice BasicOrderFulfiller contains functionality for fulfilling "basic"
-///          orders with minimal overhead. See documentation for details on what
-///          qualifies as a basic order.
+/// @title BasicOrderFulfiller
+///   @author 0age
+///   @notice BasicOrderFulfiller contains functionality for fulfilling "basic"
+///           orders with minimal overhead. See documentation for details on what
+///           qualifies as a basic order.
 contract BasicOrderFulfiller is OrderValidator {
-  ///  @dev Derive and set hashes, reference chainId, and associated domain
-  ///       separator during deployment.
-  ///  @param conduitController A contract that deploys conduits, or proxies
-  ///                           that may optionally be used to transfer approved
-  ///                           ERC20/721/1155 tokens.
+  /// @dev Derive and set hashes, reference chainId, and associated domain
+  ///        separator during deployment.
+  ///   @param conduitController A contract that deploys conduits, or proxies
+  ///                            that may optionally be used to transfer approved
+  ///                            ERC20/721/1155 tokens.
   constructor(address conduitController) OrderValidator(conduitController) {}
 
-  ///  @dev Internal function to fulfill an order offering an ERC20, ERC721, or
-  ///       ERC1155 item by supplying Ether (or other native tokens), ERC20
-  ///       tokens, an ERC721 item, or an ERC1155 item as consideration. Six
-  ///       permutations are supported: Native token to ERC721, Native token to
-  ///       ERC1155, ERC20 to ERC721, ERC20 to ERC1155, ERC721 to ERC20, and
-  ///       ERC1155 to ERC20 (with native tokens supplied as msg.value). For an
-  ///       order to be eligible for fulfillment via this method, it must
-  ///       contain a single offer item (though that item may have a greater
-  ///       amount if the item is not an ERC721). An arbitrary number of
-  ///       "additional recipients" may also be supplied which will each receive
-  ///       native tokens or ERC20 items from the fulfiller as consideration.
-  ///       Refer to the documentation for a more comprehensive summary of how
-  ///       to utilize this method and what orders are compatible with it.
-  ///  @param parameters Additional information on the fulfilled order. Note
-  ///                    that the offerer and the fulfiller must first approve
-  ///                    this contract (or their chosen conduit if indicated)
-  ///                    before any tokens can be transferred. Also note that
-  ///                    contract recipients of ERC1155 consideration items must
-  ///                    implement `onERC1155Received` in order to receive those
-  ///                    items.
-  ///  @return A boolean indicating whether the order has been fulfilled.
+  /// @dev Internal function to fulfill an order offering an ERC20, ERC721, or
+  ///        ERC1155 item by supplying Ether (or other native tokens), ERC20
+  ///        tokens, an ERC721 item, or an ERC1155 item as consideration. Six
+  ///        permutations are supported: Native token to ERC721, Native token to
+  ///        ERC1155, ERC20 to ERC721, ERC20 to ERC1155, ERC721 to ERC20, and
+  ///        ERC1155 to ERC20 (with native tokens supplied as msg.value). For an
+  ///        order to be eligible for fulfillment via this method, it must
+  ///        contain a single offer item (though that item may have a greater
+  ///        amount if the item is not an ERC721). An arbitrary number of
+  ///        "additional recipients" may also be supplied which will each receive
+  ///        native tokens or ERC20 items from the fulfiller as consideration.
+  ///        Refer to the documentation for a more comprehensive summary of how
+  ///        to utilize this method and what orders are compatible with it.
+  ///   @param parameters Additional information on the fulfilled order. Note
+  ///                     that the offerer and the fulfiller must first approve
+  ///                     this contract (or their chosen conduit if indicated)
+  ///                     before any tokens can be transferred. Also note that
+  ///                     contract recipients of ERC1155 consideration items must
+  ///                     implement `onERC1155Received` in order to receive those
+  ///                     items.
+  ///   @return A boolean indicating whether the order has been fulfilled.
   function _validateAndFulfillBasicOrder(BasicOrderParameters calldata parameters) internal returns (bool) {
     BasicOrderRouteType route;
     OrderType orderType;
@@ -102,51 +102,51 @@ contract BasicOrderFulfiller is OrderValidator {
     return true;
   }
 
-  ///  @dev Internal function to prepare fulfillment of a basic order with
-  ///       manual calldata and memory access. This calculates the order hash,
-  ///       emits an OrderFulfilled event, and asserts basic order validity.
-  ///       Note that calldata offsets must be validated as this function
-  ///       accesses constant calldata pointers for dynamic types that match
-  ///       default ABI encoding, but valid ABI encoding can use arbitrary
-  ///       offsets. Checking that the offsets were produced by default encoding
-  ///       will ensure that other functions using Solidity's calldata accessors
-  ///       (which calculate pointers from the stored offsets) are reading the
-  ///       same data as the order hash is derived from. Also note that This
-  ///       function accesses memory directly.
-  ///  @param parameters                   The parameters of the basic order.
-  ///  @param orderType                    The order type.
-  ///  @param receivedItemType             The item type of the initial
-  ///                                      consideration item on the order.
-  ///  @param additionalRecipientsItemType The item type of any additional
-  ///                                      consideration item on the order.
-  ///  @param additionalRecipientsToken    The ERC20 token contract address (if
-  ///                                      applicable) for any additional
-  ///                                      consideration item on the order.
-  ///  @param offeredItemType              The item type of the offered item on
-  ///                                      the order.
+  /// @dev Internal function to prepare fulfillment of a basic order with
+  ///        manual calldata and memory access. This calculates the order hash,
+  ///        emits an OrderFulfilled event, and asserts basic order validity.
+  ///        Note that calldata offsets must be validated as this function
+  ///        accesses constant calldata pointers for dynamic types that match
+  ///        default ABI encoding, but valid ABI encoding can use arbitrary
+  ///        offsets. Checking that the offsets were produced by default encoding
+  ///        will ensure that other functions using Solidity's calldata accessors
+  ///        (which calculate pointers from the stored offsets) are reading the
+  ///        same data as the order hash is derived from. Also note that This
+  ///        function accesses memory directly.
+  ///   @param parameters                   The parameters of the basic order.
+  ///   @param orderType                    The order type.
+  ///   @param receivedItemType             The item type of the initial
+  ///                                       consideration item on the order.
+  ///   @param additionalRecipientsItemType The item type of any additional
+  ///                                       consideration item on the order.
+  ///   @param additionalRecipientsToken    The ERC20 token contract address (if
+  ///                                       applicable) for any additional
+  ///                                       consideration item on the order.
+  ///   @param offeredItemType              The item type of the offered item on
+  ///                                       the order.
   function _prepareBasicFulfillmentFromCalldata(BasicOrderParameters calldata parameters, OrderType orderType, ItemType receivedItemType, ItemType additionalRecipientsItemType, address additionalRecipientsToken, ItemType offeredItemType) internal returns (bytes32 orderHash) {
     _setReentrancyGuard();
     _verifyTime(parameters.startTime, parameters.endTime, true);
     _assertValidBasicOrderParameters();
     _assertConsiderationLengthIsNotLessThanOriginalConsiderationLength(parameters.additionalRecipients.length, parameters.totalOriginalAdditionalRecipients);
     {
-      ///  First, handle consideration items. Memory Layout:
-      ///   0x60: final hash of the array of consideration item hashes
-      ///   0x80-0x160: reused space for EIP712 hashing of each item
-      ///    - 0x80: ConsiderationItem EIP-712 typehash (constant)
-      ///    - 0xa0: itemType
-      ///    - 0xc0: token
-      ///    - 0xe0: identifier
-      ///    - 0x100: startAmount
-      ///    - 0x120: endAmount
-      ///    - 0x140: recipient
-      ///   0x160-END_ARR: array of consideration item hashes
-      ///    - 0x160: primary consideration item EIP712 hash
-      ///    - 0x180-END_ARR: additional recipient item EIP712 hashes
-      ///   END_ARR: beginning of data for OrderFulfilled event
-      ///    - END_ARR + 0x120: length of ReceivedItem array
-      ///    - END_ARR + 0x140: beginning of data for first ReceivedItem
-      ///  (Note: END_ARR = 0x180 + RECIPIENTS_LENGTH * 0x20)
+      /// First, handle consideration items. Memory Layout:
+      ///    0x60: final hash of the array of consideration item hashes
+      ///    0x80-0x160: reused space for EIP712 hashing of each item
+      ///     - 0x80: ConsiderationItem EIP-712 typehash (constant)
+      ///     - 0xa0: itemType
+      ///     - 0xc0: token
+      ///     - 0xe0: identifier
+      ///     - 0x100: startAmount
+      ///     - 0x120: endAmount
+      ///     - 0x140: recipient
+      ///    0x160-END_ARR: array of consideration item hashes
+      ///     - 0x160: primary consideration item EIP712 hash
+      ///     - 0x180-END_ARR: additional recipient item EIP712 hashes
+      ///    END_ARR: beginning of data for OrderFulfilled event
+      ///     - END_ARR + 0x120: length of ReceivedItem array
+      ///     - END_ARR + 0x140: beginning of data for first ReceivedItem
+      ///   (Note: END_ARR = 0x180 + RECIPIENTS_LENGTH * 0x20)
       bytes32 typeHash = _CONSIDERATION_ITEM_TYPEHASH;
       assembly {
         mstore(BasicOrder_considerationItem_typeHash_ptr, typeHash)
@@ -193,14 +193,14 @@ contract BasicOrderFulfiller is OrderValidator {
       }
     }
     {
-      ///  Next, handle offered items. Memory Layout:
-      ///   EIP712 data for OfferItem
-      ///    - 0x80:  OfferItem EIP-712 typehash (constant)
-      ///    - 0xa0:  itemType
-      ///    - 0xc0:  token
-      ///    - 0xe0:  identifier (reused for offeredItemsHash)
-      ///    - 0x100: startAmount
-      ///    - 0x120: endAmount
+      /// Next, handle offered items. Memory Layout:
+      ///    EIP712 data for OfferItem
+      ///     - 0x80:  OfferItem EIP-712 typehash (constant)
+      ///     - 0xa0:  itemType
+      ///     - 0xc0:  token
+      ///     - 0xe0:  identifier (reused for offeredItemsHash)
+      ///     - 0x100: startAmount
+      ///     - 0x120: endAmount
       bytes32 typeHash = _OFFER_ITEM_TYPEHASH;
       assembly {
         mstore(BasicOrder_offerItem_typeHash_ptr, typeHash)
@@ -216,21 +216,21 @@ contract BasicOrderFulfiller is OrderValidator {
       }
     }
     {
-      ///  Once consideration items and offer items have been handled,
-      ///  derive the final order hash. Memory Layout:
-      ///   0x80-0x1c0: EIP712 data for order
-      ///    - 0x80:   Order EIP-712 typehash (constant)
-      ///    - 0xa0:   orderParameters.offerer
-      ///    - 0xc0:   orderParameters.zone
-      ///    - 0xe0:   keccak256(abi.encodePacked(offerHashes))
-      ///    - 0x100:  keccak256(abi.encodePacked(considerationHashes))
-      ///    - 0x120:  orderParameters.basicOrderType (% 4 = orderType)
-      ///    - 0x140:  orderParameters.startTime
-      ///    - 0x160:  orderParameters.endTime
-      ///    - 0x180:  orderParameters.zoneHash
-      ///    - 0x1a0:  orderParameters.salt
-      ///    - 0x1c0:  orderParameters.conduitKey
-      ///    - 0x1e0:  _counters[orderParameters.offerer] (from storage)
+      /// Once consideration items and offer items have been handled,
+      ///   derive the final order hash. Memory Layout:
+      ///    0x80-0x1c0: EIP712 data for order
+      ///     - 0x80:   Order EIP-712 typehash (constant)
+      ///     - 0xa0:   orderParameters.offerer
+      ///     - 0xc0:   orderParameters.zone
+      ///     - 0xe0:   keccak256(abi.encodePacked(offerHashes))
+      ///     - 0x100:  keccak256(abi.encodePacked(considerationHashes))
+      ///     - 0x120:  orderParameters.basicOrderType (% 4 = orderType)
+      ///     - 0x140:  orderParameters.startTime
+      ///     - 0x160:  orderParameters.endTime
+      ///     - 0x180:  orderParameters.zoneHash
+      ///     - 0x1a0:  orderParameters.salt
+      ///     - 0x1c0:  orderParameters.conduitKey
+      ///     - 0x1e0:  _counters[orderParameters.offerer] (from storage)
       address offerer;
       assembly {
         offerer := calldataload(BasicOrder_offerer_cdPtr)
@@ -262,13 +262,13 @@ contract BasicOrderFulfiller is OrderValidator {
     return orderHash;
   }
 
-  ///  @dev Internal function to transfer Ether (or other native tokens) to a
-  ///       given recipient as part of basic order fulfillment. Note that
-  ///       conduits are not utilized for native tokens as the transferred
-  ///       amount must be provided as msg.value.
-  ///  @param amount               The amount to transfer.
-  ///  @param to                   The recipient of the native token transfer.
-  ///  @param additionalRecipients The additional recipients of the order.
+  /// @dev Internal function to transfer Ether (or other native tokens) to a
+  ///        given recipient as part of basic order fulfillment. Note that
+  ///        conduits are not utilized for native tokens as the transferred
+  ///        amount must be provided as msg.value.
+  ///   @param amount               The amount to transfer.
+  ///   @param to                   The recipient of the native token transfer.
+  ///   @param additionalRecipients The additional recipients of the order.
   function _transferEthAndFinalize(uint256 amount, address payable to, AdditionalRecipient[] calldata additionalRecipients) internal {
     uint256 etherRemaining = msg.value;
     uint256 totalAdditionalRecipients = additionalRecipients.length;
@@ -294,14 +294,14 @@ contract BasicOrderFulfiller is OrderValidator {
     }
   }
 
-  ///  @dev Internal function to transfer ERC20 tokens to a given recipient as
-  ///       part of basic order fulfillment.
-  ///  @param offerer     The offerer of the fulfiller order.
-  ///  @param parameters  The basic order parameters.
-  ///  @param fromOfferer A boolean indicating whether to decrement amount from
-  ///                     the offered amount.
-  ///  @param accumulator An open-ended array that collects transfers to execute
-  ///                     against a given conduit in a single call.
+  /// @dev Internal function to transfer ERC20 tokens to a given recipient as
+  ///        part of basic order fulfillment.
+  ///   @param offerer     The offerer of the fulfiller order.
+  ///   @param parameters  The basic order parameters.
+  ///   @param fromOfferer A boolean indicating whether to decrement amount from
+  ///                      the offered amount.
+  ///   @param accumulator An open-ended array that collects transfers to execute
+  ///                      against a given conduit in a single call.
   function _transferERC20AndFinalize(address offerer, BasicOrderParameters calldata parameters, bool fromOfferer, bytes memory accumulator) internal {
     address from;
     address to;

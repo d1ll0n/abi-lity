@@ -5,24 +5,24 @@ import { Assertions } from "./Assertions.sol";
 import { SignatureVerification } from "./SignatureVerification.sol";
 import "./ConsiderationErrors.sol";
 
-///  @title Verifiers
-///  @author 0age
-///  @notice Verifiers contains functions for performing verifications.
+/// @title Verifiers
+///   @author 0age
+///   @notice Verifiers contains functions for performing verifications.
 contract Verifiers is Assertions, SignatureVerification {
-  ///  @dev Derive and set hashes, reference chainId, and associated domain
-  ///       separator during deployment.
-  ///  @param conduitController A contract that deploys conduits, or proxies
-  ///                           that may optionally be used to transfer approved
-  ///                           ERC20/721/1155 tokens.
+  /// @dev Derive and set hashes, reference chainId, and associated domain
+  ///        separator during deployment.
+  ///   @param conduitController A contract that deploys conduits, or proxies
+  ///                            that may optionally be used to transfer approved
+  ///                            ERC20/721/1155 tokens.
   constructor(address conduitController) Assertions(conduitController) {}
 
-  ///  @dev Internal view function to ensure that the current time falls within
-  ///       an order's valid timespan.
-  ///  @param startTime       The time at which the order becomes active.
-  ///  @param endTime         The time at which the order becomes inactive.
-  ///  @param revertOnInvalid A boolean indicating whether to revert if the
-  ///                         order is not active.
-  ///  @return valid A boolean indicating whether the order is active.
+  /// @dev Internal view function to ensure that the current time falls within
+  ///        an order's valid timespan.
+  ///   @param startTime       The time at which the order becomes active.
+  ///   @param endTime         The time at which the order becomes inactive.
+  ///   @param revertOnInvalid A boolean indicating whether to revert if the
+  ///                          order is not active.
+  ///   @return valid A boolean indicating whether the order is active.
   function _verifyTime(uint256 startTime, uint256 endTime, bool revertOnInvalid) internal view returns (bool valid) {
     assembly {
       valid := and(iszero(gt(startTime, timestamp())), gt(endTime, timestamp()))
@@ -32,16 +32,16 @@ contract Verifiers is Assertions, SignatureVerification {
     }
   }
 
-  ///  @dev Internal view function to verify the signature of an order. An
-  ///       ERC-1271 fallback will be attempted if either the signature length
-  ///       is not 64 or 65 bytes or if the recovered signer does not match the
-  ///       supplied offerer. Note that in cases where a 64 or 65 byte signature
-  ///       is supplied, only standard ECDSA signatures that recover to a
-  ///       non-zero address are supported.
-  ///  @param offerer   The offerer for the order.
-  ///  @param orderHash The order hash.
-  ///  @param signature A signature from the offerer indicating that the order
-  ///                   has been approved.
+  /// @dev Internal view function to verify the signature of an order. An
+  ///        ERC-1271 fallback will be attempted if either the signature length
+  ///        is not 64 or 65 bytes or if the recovered signer does not match the
+  ///        supplied offerer. Note that in cases where a 64 or 65 byte signature
+  ///        is supplied, only standard ECDSA signatures that recover to a
+  ///        non-zero address are supported.
+  ///   @param offerer   The offerer for the order.
+  ///   @param orderHash The order hash.
+  ///   @param signature A signature from the offerer indicating that the order
+  ///                    has been approved.
   function _verifySignature(address offerer, bytes32 orderHash, bytes memory signature) internal view {
     if (_unmaskedAddressComparison(offerer, msg.sender)) {
       return;
@@ -98,17 +98,17 @@ contract Verifiers is Assertions, SignatureVerification {
     }
   }
 
-  ///  @dev Internal view function to validate that a given order is fillable
-  ///       and not cancelled based on the order status.
-  ///  @param orderHash       The order hash.
-  ///  @param orderStatus     The status of the order, including whether it has
-  ///                         been cancelled and the fraction filled.
-  ///  @param onlyAllowUnused A boolean flag indicating whether partial fills
-  ///                         are supported by the calling function.
-  ///  @param revertOnInvalid A boolean indicating whether to revert if the
-  ///                         order has been cancelled or filled beyond the
-  ///                         allowable amount.
-  ///  @return valid A boolean indicating whether the order is valid.
+  /// @dev Internal view function to validate that a given order is fillable
+  ///        and not cancelled based on the order status.
+  ///   @param orderHash       The order hash.
+  ///   @param orderStatus     The status of the order, including whether it has
+  ///                          been cancelled and the fraction filled.
+  ///   @param onlyAllowUnused A boolean flag indicating whether partial fills
+  ///                          are supported by the calling function.
+  ///   @param revertOnInvalid A boolean indicating whether to revert if the
+  ///                          order has been cancelled or filled beyond the
+  ///                          allowable amount.
+  ///   @return valid A boolean indicating whether the order is valid.
   function _verifyOrderStatus(bytes32 orderHash, OrderStatus storage orderStatus, bool onlyAllowUnused, bool revertOnInvalid) internal view returns (bool valid) {
     if (orderStatus.isCancelled) {
       if (revertOnInvalid) {

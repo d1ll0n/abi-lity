@@ -4,24 +4,24 @@ import "./TokenTransferrerConstants.sol";
 import { TokenTransferrerErrors } from "../interfaces/TokenTransferrerErrors.sol";
 import { ConduitBatch1155Transfer } from "../conduit/lib/ConduitStructs.sol";
 
-///  @title TokenTransferrer
-///  @author 0age
-///  @custom:coauthor d1ll0n
-///  @custom:coauthor transmissions11
-///  @notice TokenTransferrer is a library for performing optimized ERC20, ERC721,
-///          ERC1155, and batch ERC1155 transfers, used by both Seaport as well as
-///          by conduits deployed by the ConduitController. Use great caution when
-///          considering these functions for use in other codebases, as there are
-///          significant side effects and edge cases that need to be thoroughly
-///          understood and carefully addressed.
+/// @title TokenTransferrer
+///   @author 0age
+///   @custom:coauthor d1ll0n
+///   @custom:coauthor transmissions11
+///   @notice TokenTransferrer is a library for performing optimized ERC20, ERC721,
+///           ERC1155, and batch ERC1155 transfers, used by both Seaport as well as
+///           by conduits deployed by the ConduitController. Use great caution when
+///           considering these functions for use in other codebases, as there are
+///           significant side effects and edge cases that need to be thoroughly
+///           understood and carefully addressed.
 contract TokenTransferrer is TokenTransferrerErrors {
-  ///  @dev Internal function to transfer ERC20 tokens from a given originator
-  ///       to a given recipient. Sufficient approvals must be set on the
-  ///       contract performing the transfer.
-  ///  @param token      The ERC20 token to transfer.
-  ///  @param from       The originator of the transfer.
-  ///  @param to         The recipient of the transfer.
-  ///  @param amount     The amount to transfer.
+  /// @dev Internal function to transfer ERC20 tokens from a given originator
+  ///        to a given recipient. Sufficient approvals must be set on the
+  ///        contract performing the transfer.
+  ///   @param token      The ERC20 token to transfer.
+  ///   @param from       The originator of the transfer.
+  ///   @param to         The recipient of the transfer.
+  ///   @param amount     The amount to transfer.
   function _performERC20Transfer(address token, address from, address to, uint256 amount) internal {
     assembly {
       let memPointer := mload(FreeMemoryPointerSlot)
@@ -72,15 +72,15 @@ contract TokenTransferrer is TokenTransferrerErrors {
     }
   }
 
-  ///  @dev Internal function to transfer an ERC721 token from a given
-  ///       originator to a given recipient. Sufficient approvals must be set on
-  ///       the contract performing the transfer. Note that this function does
-  ///       not check whether the receiver can accept the ERC721 token (i.e. it
-  ///       does not use `safeTransferFrom`).
-  ///  @param token      The ERC721 token to transfer.
-  ///  @param from       The originator of the transfer.
-  ///  @param to         The recipient of the transfer.
-  ///  @param identifier The tokenId to transfer.
+  /// @dev Internal function to transfer an ERC721 token from a given
+  ///        originator to a given recipient. Sufficient approvals must be set on
+  ///        the contract performing the transfer. Note that this function does
+  ///        not check whether the receiver can accept the ERC721 token (i.e. it
+  ///        does not use `safeTransferFrom`).
+  ///   @param token      The ERC721 token to transfer.
+  ///   @param from       The originator of the transfer.
+  ///   @param to         The recipient of the transfer.
+  ///   @param identifier The tokenId to transfer.
   function _performERC721Transfer(address token, address from, address to, uint256 identifier) internal {
     assembly {
       if iszero(extcodesize(token)) {
@@ -120,16 +120,16 @@ contract TokenTransferrer is TokenTransferrerErrors {
     }
   }
 
-  ///  @dev Internal function to transfer ERC1155 tokens from a given
-  ///       originator to a given recipient. Sufficient approvals must be set on
-  ///       the contract performing the transfer and contract recipients must
-  ///       implement the ERC1155TokenReceiver interface to indicate that they
-  ///       are willing to accept the transfer.
-  ///  @param token      The ERC1155 token to transfer.
-  ///  @param from       The originator of the transfer.
-  ///  @param to         The recipient of the transfer.
-  ///  @param identifier The id to transfer.
-  ///  @param amount     The amount to transfer.
+  /// @dev Internal function to transfer ERC1155 tokens from a given
+  ///        originator to a given recipient. Sufficient approvals must be set on
+  ///        the contract performing the transfer and contract recipients must
+  ///        implement the ERC1155TokenReceiver interface to indicate that they
+  ///        are willing to accept the transfer.
+  ///   @param token      The ERC1155 token to transfer.
+  ///   @param from       The originator of the transfer.
+  ///   @param to         The recipient of the transfer.
+  ///   @param identifier The id to transfer.
+  ///   @param amount     The amount to transfer.
   function _performERC1155Transfer(address token, address from, address to, uint256 identifier, uint256 amount) internal {
     assembly {
       if iszero(extcodesize(token)) {
@@ -178,18 +178,18 @@ contract TokenTransferrer is TokenTransferrerErrors {
     }
   }
 
-  ///  @dev Internal function to transfer ERC1155 tokens from a given
-  ///       originator to a given recipient. Sufficient approvals must be set on
-  ///       the contract performing the transfer and contract recipients must
-  ///       implement the ERC1155TokenReceiver interface to indicate that they
-  ///       are willing to accept the transfer. NOTE: this function is not
-  ///       memory-safe; it will overwrite existing memory, restore the free
-  ///       memory pointer to the default value, and overwrite the zero slot.
-  ///       This function should only be called once memory is no longer
-  ///       required and when uninitialized arrays are not utilized, and memory
-  ///       should be considered fully corrupted (aside from the existence of a
-  ///       default-value free memory pointer) after calling this function.
-  ///  @param batchTransfers The group of 1155 batch transfers to perform.
+  /// @dev Internal function to transfer ERC1155 tokens from a given
+  ///        originator to a given recipient. Sufficient approvals must be set on
+  ///        the contract performing the transfer and contract recipients must
+  ///        implement the ERC1155TokenReceiver interface to indicate that they
+  ///        are willing to accept the transfer. NOTE: this function is not
+  ///        memory-safe; it will overwrite existing memory, restore the free
+  ///        memory pointer to the default value, and overwrite the zero slot.
+  ///        This function should only be called once memory is no longer
+  ///        required and when uninitialized arrays are not utilized, and memory
+  ///        should be considered fully corrupted (aside from the existence of a
+  ///        default-value free memory pointer) after calling this function.
+  ///   @param batchTransfers The group of 1155 batch transfers to perform.
   function _performERC1155BatchTransfers(ConduitBatch1155Transfer[] calldata batchTransfers) internal {
     assembly {
       let len := batchTransfers.length

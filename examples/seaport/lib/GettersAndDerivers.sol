@@ -4,25 +4,25 @@ import { OrderParameters } from "./ConsiderationStructs.sol";
 import { ConsiderationBase } from "./ConsiderationBase.sol";
 import "./ConsiderationConstants.sol";
 
-///  @title GettersAndDerivers
-///  @author 0age
-///  @notice ConsiderationInternal contains pure and internal view functions
-///          related to getting or deriving various values.
+/// @title GettersAndDerivers
+///   @author 0age
+///   @notice ConsiderationInternal contains pure and internal view functions
+///           related to getting or deriving various values.
 contract GettersAndDerivers is ConsiderationBase {
-  ///  @dev Derive and set hashes, reference chainId, and associated domain
-  ///       separator during deployment.
-  ///  @param conduitController A contract that deploys conduits, or proxies
-  ///                           that may optionally be used to transfer approved
-  ///                           ERC20/721/1155 tokens.
+  /// @dev Derive and set hashes, reference chainId, and associated domain
+  ///        separator during deployment.
+  ///   @param conduitController A contract that deploys conduits, or proxies
+  ///                            that may optionally be used to transfer approved
+  ///                            ERC20/721/1155 tokens.
   constructor(address conduitController) ConsiderationBase(conduitController) {}
 
-  ///  @dev Internal view function to derive the order hash for a given order.
-  ///       Note that only the original consideration items are included in the
-  ///       order hash, as additional consideration items may be supplied by the
-  ///       caller.
-  ///  @param orderParameters The parameters of the order to hash.
-  ///  @param counter           The counter of the order to hash.
-  ///  @return orderHash The hash.
+  /// @dev Internal view function to derive the order hash for a given order.
+  ///        Note that only the original consideration items are included in the
+  ///        order hash, as additional consideration items may be supplied by the
+  ///        caller.
+  ///   @param orderParameters The parameters of the order to hash.
+  ///   @param counter           The counter of the order to hash.
+  ///   @return orderHash The hash.
   function _deriveOrderHash(OrderParameters memory orderParameters, uint256 counter) internal view returns (bytes32 orderHash) {
     uint256 originalConsiderationLength = (orderParameters.totalOriginalConsiderationItems);
     bytes32 offerHash;
@@ -88,14 +88,14 @@ contract GettersAndDerivers is ConsiderationBase {
     }
   }
 
-  ///  @dev Internal view function to derive the address of a given conduit
-  ///       using a corresponding conduit key.
-  ///  @param conduitKey A bytes32 value indicating what corresponding conduit,
-  ///                    if any, to source token approvals from. This value is
-  ///                    the "salt" parameter supplied by the deployer (i.e. the
-  ///                    conduit controller) when deploying the given conduit.
-  ///  @return conduit The address of the conduit associated with the given
-  ///                  conduit key.
+  /// @dev Internal view function to derive the address of a given conduit
+  ///        using a corresponding conduit key.
+  ///   @param conduitKey A bytes32 value indicating what corresponding conduit,
+  ///                     if any, to source token approvals from. This value is
+  ///                     the "salt" parameter supplied by the deployer (i.e. the
+  ///                     conduit controller) when deploying the given conduit.
+  ///   @return conduit The address of the conduit associated with the given
+  ///                   conduit key.
   function _deriveConduit(bytes32 conduitKey) internal view returns (address conduit) {
     address conduitController = address(_CONDUIT_CONTROLLER);
     bytes32 conduitCreationCodeHash = _CONDUIT_CREATION_CODE_HASH;
@@ -109,20 +109,20 @@ contract GettersAndDerivers is ConsiderationBase {
     }
   }
 
-  ///  @dev Internal view function to get the EIP-712 domain separator. If the
-  ///       chainId matches the chainId set on deployment, the cached domain
-  ///       separator will be returned; otherwise, it will be derived from
-  ///       scratch.
-  ///  @return The domain separator.
+  /// @dev Internal view function to get the EIP-712 domain separator. If the
+  ///        chainId matches the chainId set on deployment, the cached domain
+  ///        separator will be returned; otherwise, it will be derived from
+  ///        scratch.
+  ///   @return The domain separator.
   function _domainSeparator() internal view returns (bytes32) {
     return (block.chainid == _CHAIN_ID) ? _DOMAIN_SEPARATOR : _deriveDomainSeparator();
   }
 
-  ///  @dev Internal view function to retrieve configuration information for
-  ///       this contract.
-  ///  @return The contract version.
-  ///  @return The domain separator for this contract.
-  ///  @return The conduit Controller set for this contract.
+  /// @dev Internal view function to retrieve configuration information for
+  ///        this contract.
+  ///   @return The contract version.
+  ///   @return The domain separator for this contract.
+  ///   @return The conduit Controller set for this contract.
   function _information() internal view returns (string memory, bytes32, address) {
     bytes32 domainSeparator = _domainSeparator();
     address conduitController = address(_CONDUIT_CONTROLLER);
@@ -135,11 +135,11 @@ contract GettersAndDerivers is ConsiderationBase {
     }
   }
 
-  ///  @dev Internal pure function to efficiently derive an digest to sign for
-  ///       an order in accordance with EIP-712.
-  ///  @param domainSeparator The domain separator.
-  ///  @param orderHash       The order hash.
-  ///  @return value The hash.
+  /// @dev Internal pure function to efficiently derive an digest to sign for
+  ///        an order in accordance with EIP-712.
+  ///   @param domainSeparator The domain separator.
+  ///   @param orderHash       The order hash.
+  ///   @return value The hash.
   function _deriveEIP712Digest(bytes32 domainSeparator, bytes32 orderHash) internal pure returns (bytes32 value) {
     assembly {
       mstore(0, EIP_712_PREFIX)

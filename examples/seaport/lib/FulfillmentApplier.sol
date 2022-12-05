@@ -5,24 +5,24 @@ import { OfferItem, ConsiderationItem, ReceivedItem, OrderParameters, AdvancedOr
 import "./ConsiderationErrors.sol";
 import { FulfillmentApplicationErrors } from "../interfaces/FulfillmentApplicationErrors.sol";
 
-///  @title FulfillmentApplier
-///  @author 0age
-///  @notice FulfillmentApplier contains logic related to applying fulfillments,
-///          both as part of order matching (where offer items are matched to
-///          consideration items) as well as fulfilling available orders (where
-///          order items and consideration items are independently aggregated).
+/// @title FulfillmentApplier
+///   @author 0age
+///   @notice FulfillmentApplier contains logic related to applying fulfillments,
+///           both as part of order matching (where offer items are matched to
+///           consideration items) as well as fulfilling available orders (where
+///           order items and consideration items are independently aggregated).
 contract FulfillmentApplier is FulfillmentApplicationErrors {
-  ///  @dev Internal pure function to match offer items to consideration items
-  ///       on a group of orders via a supplied fulfillment.
-  ///  @param advancedOrders          The orders to match.
-  ///  @param offerComponents         An array designating offer components to
-  ///                                 match to consideration components.
-  ///  @param considerationComponents An array designating consideration
-  ///                                 components to match to offer components.
-  ///                                 Note that each consideration amount must
-  ///                                 be zero in order for the match operation
-  ///                                 to be valid.
-  ///  @return execution The transfer performed as a result of the fulfillment.
+  /// @dev Internal pure function to match offer items to consideration items
+  ///        on a group of orders via a supplied fulfillment.
+  ///   @param advancedOrders          The orders to match.
+  ///   @param offerComponents         An array designating offer components to
+  ///                                  match to consideration components.
+  ///   @param considerationComponents An array designating consideration
+  ///                                  components to match to offer components.
+  ///                                  Note that each consideration amount must
+  ///                                  be zero in order for the match operation
+  ///                                  to be valid.
+  ///   @return execution The transfer performed as a result of the fulfillment.
   function _applyFulfillment(AdvancedOrder[] memory advancedOrders, FulfillmentComponent[] calldata offerComponents, FulfillmentComponent[] calldata considerationComponents) internal pure returns (Execution memory execution) {
     if ((offerComponents.length == 0) || (considerationComponents.length == 0)) {
       _revertOfferAndConsiderationRequiredOnFulfillment();
@@ -51,22 +51,22 @@ contract FulfillmentApplier is FulfillmentApplicationErrors {
     return execution;
   }
 
-  ///  @dev Internal view function to aggregate offer or consideration items
-  ///       from a group of orders into a single execution via a supplied array
-  ///       of fulfillment components. Items that are not available to aggregate
-  ///       will not be included in the aggregated execution.
-  ///  @param advancedOrders        The orders to aggregate.
-  ///  @param side                  The side (i.e. offer or consideration).
-  ///  @param fulfillmentComponents An array designating item components to
-  ///                               aggregate if part of an available order.
-  ///  @param fulfillerConduitKey   A bytes32 value indicating what conduit, if
-  ///                               any, to source the fulfiller's token
-  ///                               approvals from. The zero hash signifies that
-  ///                               no conduit should be used, with approvals
-  ///                               set directly on this contract.
-  ///  @param recipient             The intended recipient for all received
-  ///                               items.
-  ///  @return execution The transfer performed as a result of the fulfillment.
+  /// @dev Internal view function to aggregate offer or consideration items
+  ///        from a group of orders into a single execution via a supplied array
+  ///        of fulfillment components. Items that are not available to aggregate
+  ///        will not be included in the aggregated execution.
+  ///   @param advancedOrders        The orders to aggregate.
+  ///   @param side                  The side (i.e. offer or consideration).
+  ///   @param fulfillmentComponents An array designating item components to
+  ///                                aggregate if part of an available order.
+  ///   @param fulfillerConduitKey   A bytes32 value indicating what conduit, if
+  ///                                any, to source the fulfiller's token
+  ///                                approvals from. The zero hash signifies that
+  ///                                no conduit should be used, with approvals
+  ///                                set directly on this contract.
+  ///   @param recipient             The intended recipient for all received
+  ///                                items.
+  ///   @return execution The transfer performed as a result of the fulfillment.
   function _aggregateAvailable(AdvancedOrder[] memory advancedOrders, Side side, FulfillmentComponent[] memory fulfillmentComponents, bytes32 fulfillerConduitKey, address recipient) internal view returns (Execution memory execution) {
     unchecked {
       if (fulfillmentComponents.length == 0) {
@@ -87,14 +87,14 @@ contract FulfillmentApplier is FulfillmentApplicationErrors {
     }
   }
 
-  ///  @dev Internal pure function to aggregate a group of offer items using
-  ///       supplied directives on which component items are candidates for
-  ///       aggregation, skipping items on orders that are not available.
-  ///  @param advancedOrders  The orders to aggregate offer items from.
-  ///  @param offerComponents An array of FulfillmentComponent structs
-  ///                         indicating the order index and item index of each
-  ///                         candidate offer item for aggregation.
-  ///  @param execution       The execution to apply the aggregation to.
+  /// @dev Internal pure function to aggregate a group of offer items using
+  ///        supplied directives on which component items are candidates for
+  ///        aggregation, skipping items on orders that are not available.
+  ///   @param advancedOrders  The orders to aggregate offer items from.
+  ///   @param offerComponents An array of FulfillmentComponent structs
+  ///                          indicating the order index and item index of each
+  ///                          candidate offer item for aggregation.
+  ///   @param execution       The execution to apply the aggregation to.
   function _aggregateValidFulfillmentOfferItems(AdvancedOrder[] memory advancedOrders, FulfillmentComponent[] memory offerComponents, Execution memory execution) internal pure {
     assembly {
       function throwInvalidFulfillmentComponentData () {
@@ -172,16 +172,16 @@ contract FulfillmentApplier is FulfillmentApplicationErrors {
     }
   }
 
-  ///  @dev Internal pure function to aggregate a group of consideration items
-  ///       using supplied directives on which component items are candidates
-  ///       for aggregation, skipping items on orders that are not available.
-  ///  @param advancedOrders          The orders to aggregate consideration
-  ///                                 items from.
-  ///  @param considerationComponents An array of FulfillmentComponent structs
-  ///                                 indicating the order index and item index
-  ///                                 of each candidate consideration item for
-  ///                                 aggregation.
-  ///  @param execution       The execution to apply the aggregation to.
+  /// @dev Internal pure function to aggregate a group of consideration items
+  ///        using supplied directives on which component items are candidates
+  ///        for aggregation, skipping items on orders that are not available.
+  ///   @param advancedOrders          The orders to aggregate consideration
+  ///                                  items from.
+  ///   @param considerationComponents An array of FulfillmentComponent structs
+  ///                                  indicating the order index and item index
+  ///                                  of each candidate consideration item for
+  ///                                  aggregation.
+  ///   @param execution       The execution to apply the aggregation to.
   function _aggregateValidFulfillmentConsiderationItems(AdvancedOrder[] memory advancedOrders, FulfillmentComponent[] memory considerationComponents, Execution memory execution) internal pure {
     assembly {
       function throwInvalidFulfillmentComponentData () {

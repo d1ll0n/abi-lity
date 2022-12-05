@@ -9,17 +9,17 @@ import { LowLevelHelpers } from "./LowLevelHelpers.sol";
 import "./ConsiderationConstants.sol";
 import "./ConsiderationErrors.sol";
 
-///  @title ZoneInteraction
-///  @author 0age
-///  @notice ZoneInteraction contains logic related to interacting with zones.
+/// @title ZoneInteraction
+///   @author 0age
+///   @notice ZoneInteraction contains logic related to interacting with zones.
 contract ZoneInteraction is ZoneInteractionErrors, LowLevelHelpers {
-  ///  @dev Internal view function to determine if an order has a restricted
-  ///       order type and, if so, to ensure that either the offerer or the zone
-  ///       are the fulfiller or that a staticcall to `isValidOrder` on the zone
-  ///       returns a magic value indicating that the order is currently valid.
-  ///  @param orderHash   The hash of the order.
-  ///  @param orderType   The order type.
-  ///  @param parameters  The parameters of the basic order.
+  /// @dev Internal view function to determine if an order has a restricted
+  ///        order type and, if so, to ensure that either the offerer or the zone
+  ///        are the fulfiller or that a staticcall to `isValidOrder` on the zone
+  ///        returns a magic value indicating that the order is currently valid.
+  ///   @param orderHash   The hash of the order.
+  ///   @param orderType   The order type.
+  ///   @param parameters  The parameters of the basic order.
   function _assertRestrictedBasicOrderValidity(bytes32 orderHash, OrderType orderType, BasicOrderParameters calldata parameters) internal {
     if (uint256(orderType) < 2) {
       return;
@@ -58,18 +58,18 @@ contract ZoneInteraction is ZoneInteractionErrors, LowLevelHelpers {
     }
   }
 
-  ///  @dev Internal view function to determine whether an order is a restricted
-  ///       order and, if so, to ensure that it was either submitted by the
-  ///       offerer or the zone for the order, or that the zone returns the
-  ///       expected magic value upon performing a staticcall to `isValidOrder`
-  ///       or `isValidOrderIncludingExtraData` depending on whether the order
-  ///       fulfillment specifies extra data or criteria resolvers.
-  ///  @param advancedOrder     The advanced order in question.
-  ///  @param orderHashes       The order hashes of each order supplied prior to
-  ///                           the current order as part of a "match" variety
-  ///                           of order fulfillment (e.g. this array will be
-  ///                           empty for single or "fulfill available").
-  ///  @param orderHash         The hash of the order.
+  /// @dev Internal view function to determine whether an order is a restricted
+  ///        order and, if so, to ensure that it was either submitted by the
+  ///        offerer or the zone for the order, or that the zone returns the
+  ///        expected magic value upon performing a staticcall to `isValidOrder`
+  ///        or `isValidOrderIncludingExtraData` depending on whether the order
+  ///        fulfillment specifies extra data or criteria resolvers.
+  ///   @param advancedOrder     The advanced order in question.
+  ///   @param orderHashes       The order hashes of each order supplied prior to
+  ///                            the current order as part of a "match" variety
+  ///                            of order fulfillment (e.g. this array will be
+  ///                            empty for single or "fulfill available").
+  ///   @param orderHash         The hash of the order.
   function _assertRestrictedAdvancedOrderValidity(AdvancedOrder memory advancedOrder, bytes32[] memory orderHashes, bytes32 orderHash) internal {
     bytes memory callData;
     address target;
