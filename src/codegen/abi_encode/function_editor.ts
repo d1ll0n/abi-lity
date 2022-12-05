@@ -28,7 +28,7 @@ export function replaceReturnStatementsWithCall(
   const statements = vBody?.vStatements ?? [];
   const lastStatement = last(statements);
   const lastStatementIsReturn = returnStatements.some(
-    (st) => st.getParentsBySelector((p) => p === lastStatement).length > 0
+    (st) => st === lastStatement || st.getParentsBySelector((p) => p === lastStatement).length > 0
   );
 
   const makeReturnCallStatement = (args: Expression[]) =>
