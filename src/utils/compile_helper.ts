@@ -16,7 +16,7 @@ import {
   getCompilerForVersion,
   getFilesAndRemappings,
   LatestCompilerVersion,
-  NativeCompiler,
+  WasmCompiler,
   PrettyFormatter,
   SourceUnit,
   staticNodeFactory
@@ -26,10 +26,10 @@ import path from "path";
 import { writeFileSync } from "fs";
 import { coerceArray, writeNestedStructure } from "./text";
 import { addImports, findFunctionDefinition } from "./solc_ast_utils";
-import { getCommonBasePath, getRelativePath, mkdirIfNotExists } from "./path_utils";
+import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
 
 function compile(
-  compiler: NativeCompiler,
+  compiler: WasmCompiler,
   files: Map<string, string>,
   remapping: string[],
   compilationOutput: CompilationOutput[] = compilerOutputs,
@@ -321,9 +321,9 @@ export class CompileHelper {
     basePath?: string,
     optimize?: boolean
   ): Promise<CompileHelper> {
-    const compiler = await getCompilerForVersion(version, CompilerKind.Native);
-    if (!(compiler instanceof NativeCompiler)) {
-      throw Error(`NativeCompiler not found for ${version}`);
+    const compiler = await getCompilerForVersion(version, CompilerKind.WASM);
+    if (!(compiler instanceof WasmCompiler)) {
+      throw Error(`WasmCompiler not found for ${version}`);
     }
     const compileResult = compile(
       compiler,
@@ -365,9 +365,9 @@ export class CompileHelper {
       basePath = commonPath ? path.normalize(commonPath) : basePath;
     }
 
-    const compiler = await getCompilerForVersion(version, CompilerKind.Native);
-    if (!(compiler instanceof NativeCompiler)) {
-      throw Error(`NativeCompiler not found for ${version}`);
+    const compiler = await getCompilerForVersion(version, CompilerKind.WASM);
+    if (!(compiler instanceof WasmCompiler)) {
+      throw Error(`WasmCompiler not found for ${version}`);
     }
     const compileResult = compile(
       compiler,
@@ -380,7 +380,7 @@ export class CompileHelper {
   }
 
   constructor(
-    public compiler: NativeCompiler,
+    public compiler: WasmCompiler,
     public compileResult: any,
     private _basePath?: string
   ) {
