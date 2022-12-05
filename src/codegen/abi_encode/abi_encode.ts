@@ -10,12 +10,14 @@ import {
   StateVariableVisibility,
   VariableDeclaration
 } from "solc-typed-ast";
-import { FunctionType, TupleType } from "../../ast";
+import { FunctionType, TupleType, TypeNode } from "../../ast";
 import {
+  addUniqueFunctionDefinition,
   getParametersTypeString,
   makeGlobalFunctionDefinition,
   makeVariableDeclarationStatement
 } from "../../utils";
+import { CodegenContext } from "../utils";
 
 const ensureHasName = (parameter: VariableDeclaration, i: number) => {
   if (!parameter.name) {
@@ -86,9 +88,12 @@ export function createReturnFunctionForReturnParameters(
   ]);
   const asm = factory.makeYulBlock([returnCall]);
   body.appendChild(factory.makeInlineAssembly([], undefined, asm));
-  decoderSourceUnit.appendChild(returnFn);
+  addUniqueFunctionDefinition(decoderSourceUnit, returnFn);
 
   return returnFn;
+}
+export function abiEncodingFunction(ctx: CodegenContext, type: TypeNode): string {
+  return "";
 }
 
 // function createReturnForSimpleReferenceType(
@@ -225,11 +230,10 @@ export function createReturnFunctionForReturnParameters(
 //   type: ArrayType,
 //   decoderSourceUnit: SourceUnit
 // ) {
-//   if (!type.baseType.isValueType) {
-//     throw Error(
-//       `Can not make value-array encoding function for array of ${type.baseType.identifier}`
-//     );
-//   }
+//   assert(
+//     type.baseType.isValueType,
+//     `Can not make value-array encoding function for array of ${type.baseType.identifier}`
+//   );
 //   const typeName = type.identifier;
 //   const fnName = `abi_encode_${typeName}`;
 //   const inner: StructuredText[] = [];
