@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 import { writeFileSync } from "fs";
 import path from "path";
-import { ContractDefinition, LatestCompilerVersion } from "solc-typed-ast";
+import { ContractDefinition, FunctionDefinition, LatestCompilerVersion } from "solc-typed-ast";
 import yargs from "yargs";
-import { buildDecoderFile, replaceExternalFunctionReferenceTypeParameters } from "./codegen";
-import { getFunctionSelectorSwitch } from "./codegen/function_switch";
+import { StructType, TupleType } from "./ast";
+import { isExternalFunction } from "./codegen";
+import { upgradeSourceCoders } from "./codegen/generate";
 import { cleanIR } from "./codegen/utils";
+import { functionDefinitionToTypeNode, readTypeNodesFromSolcAST } from "./readers";
+import { createCalldataCopiers, testCopiers } from "./test_utils";
 import {
   CompileHelper,
+  DebugLogger,
   getCommonBasePath,
   getRelativePath,
   mkdirIfNotExists,
+  StructuredText,
   writeFilesTo,
   writeNestedStructure
 } from "./utils";
@@ -23,14 +28,15 @@ async function handlePathArgs({ input, output }: { input: string; output?: strin
   if (!output) {
     output = basePath;
   }
-  mkdirIfNotExists(output);
   let fileName = path.parse(input).base;
+  console.log(`compiling...`);
   const helper = await CompileHelper.fromFileSystem(
     LatestCompilerVersion,
     fileName,
     basePath,
     true
   );
+
   basePath = helper.basePath as string;
   fileName = getRelativePath(basePath, input);
   return {
@@ -175,23 +181,16 @@ yargs
       }
     },
     async ({ decoderOnly, irUnoptimized: unoptimized, ir: irFlag, verbose, ...args }) => {
-      const { basePath, input, output, fileName, helper } = await handlePathArgs(args);
+      const { basePath, output, fileName, helper } = await handlePathArgs(args);
       if (output === basePath && !decoderOnly) {
         throw Error(`Output can not match basePath when decoderOnly is false.`);
       }
-      const ctx = buildDecoderFile(helper, fileName);
-      const sourceUnit = helper.getSourceUnit(fileName);
-      replaceExternalFunctionReferenceTypeParameters(sourceUnit, ctx.decoderSourceUnit);
-      const contractDefinition = sourceUnit.getChildrenByType(ContractDefinition)[0];
-
-      if (!contractDefinition) {
-        throw Error(`No contracts found in ${fileName}`);
-      }
-      if (!decoderOnly) {
-        getFunctionSelectorSwitch(contractDefinition, ctx.decoderSourceUnit);
-      }
+      const logger = new DebugLogger();
+      upgradeSourceCoders(helper, fileName, { functionSwitch: !decoderOnly }, logger);
 
       if (unoptimized || irFlag) {
+        mkdirIfNotExists(output);
+        console.log(`re-compiling for IR output...`);
         helper.recompile(true);
 
         const contract = helper.getContractForFile(fileName);
@@ -211,9 +210,159 @@ yargs
           writeFileSync(filePath, data);
         }
       }
-
+      console.log(`writing files...`);
       const files = helper.getFiles();
       writeFilesTo(output, files);
+      console.log(`done!`);
+    }
+  )
+  .command(
+    "size <input>",
+    writeNestedStructure([
+      "Print the size in bytes of the runtime code of a contract.",
+      "By default, prints the runtime code size when compiled with 20,000 optimizer runs."
+    ]),
+    {
+      input: {
+        alias: ["i"],
+        describe: "Input Solidity file.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      unoptimized: {
+        alias: ["u"],
+        describe: "Print the unoptimized code size.",
+        default: false,
+        type: "boolean"
+      },
+      creationCode: {
+        alias: ["c"],
+        describe: "Print the creation code size.",
+        default: false,
+        type: "boolean"
+      }
+    },
+    async ({ input, unoptimized }) => {
+      if (!path.isAbsolute(input) || path.extname(input) !== ".sol") {
+        throw Error(`${input} is not a Solidity file or was not found.`);
+      }
+      const basePath = path.dirname(input);
+      const fileName = path.parse(input).base;
+      const helper = await CompileHelper.fromFileSystem(
+        LatestCompilerVersion,
+        fileName,
+        basePath,
+        !unoptimized
+      );
+      const contract = helper.getContractForFile(fileName);
+      const contractCode = contract.runtimeCode;
+      if (!contractCode) {
+        throw Error(
+          `Compiled contract has no code - it is likely an interface or abstract contract`
+        );
+      }
+      const codeBuffer = Buffer.from(contractCode, "hex");
+      const codeSize = codeBuffer.byteLength;
+      const output: StructuredText[] = [`Runtime code size: ${codeSize} bytes`];
+      const maxSize = 24577;
+      const diff = maxSize - codeSize;
+      if (diff > 0) {
+        output.push(`${diff} bytes below contract size limit`);
+      } else if (diff === 0) {
+        output.push(`Exactly at contract size limit`);
+      } else {
+        output.push(`${-diff} bytes over contract size limit`);
+      }
+
+      console.log(
+        writeNestedStructure([
+          `Contract: ${contract.name}`,
+          [
+            ...output,
+            `Settings:`,
+            [
+              `Version: ${LatestCompilerVersion}`,
+              `viaIR: true`,
+              unoptimized ? `Optimizer Off` : `Optimizer Runs: 20000`
+            ]
+          ]
+        ])
+      );
+    }
+  )
+  .command(
+    "copy-test <input> [output]",
+    writeNestedStructure([
+      "Print the size in bytes of the runtime code of a contract.",
+      "By default, prints the runtime code size when compiled with 20,000 optimizer runs."
+    ]),
+    {
+      input: {
+        alias: ["i"],
+        describe: "Input Solidity or JSON file.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      output: {
+        alias: ["o"],
+        describe: "Output directory, defaults to directory of input.",
+        demandOption: false,
+        coerce: path.resolve
+      },
+      ir: {
+        alias: ["y"],
+        describe: "Also generate irOptimized for contract.",
+        default: false,
+        type: "boolean"
+      }
+    },
+    async ({ input, output, ir }) => {
+      if (!path.isAbsolute(input) || path.extname(input) !== ".sol") {
+        throw Error(`${input} is not a Solidity file or was not found.`);
+      }
+      let basePath = path.dirname(input);
+
+      let fileName = path.parse(input).base;
+      console.log(`compiling ${fileName}...`);
+      const helper = await CompileHelper.fromFileSystem(
+        LatestCompilerVersion,
+        fileName,
+        basePath,
+        true
+      );
+      basePath = helper.basePath as string;
+      fileName = getRelativePath(basePath, input);
+      const sourceUnit = helper.getSourceUnit(fileName);
+      const types: Array<StructType | TupleType> = [];
+      const contract = sourceUnit.getChildrenByType(ContractDefinition)[0];
+      if (contract) {
+        const functions = contract
+          .getChildrenByType(FunctionDefinition)
+          .filter(isExternalFunction)
+          .map(functionDefinitionToTypeNode);
+        const tuples = functions.map((fn) => fn.parameters).filter(Boolean) as TupleType[];
+        types.push(...tuples);
+      } else {
+        const { structs } = readTypeNodesFromSolcAST(sourceUnit);
+        types.push(...structs);
+      }
+      const copyHelpers = await createCalldataCopiers(types);
+      await testCopiers(copyHelpers, types);
+      if (output) {
+        copyHelpers.writeFilesTo(output);
+        if (ir) {
+          const contracts = [...copyHelpers.contractsMap.entries()];
+          if (contracts.length < 3) {
+            throw Error(`Unexpected number of contracts`);
+          }
+          for (const [name, contract] of contracts) {
+            writeFileSync(
+              path.join(output, name.replace(`.sol`, `.optimized.yul`)),
+              contract.irOptimized
+            );
+          }
+        }
+      }
     }
   )
   .help("h")
