@@ -20,11 +20,12 @@ import {
 import { ABIEncoderVersion } from "solc-typed-ast/dist/types/abi";
 import { TupleType, TypeNode } from "../ast";
 import { functionDefinitionToTypeNode } from "../readers";
-import { makeFunctionCallFor } from "../utils";
+import { addImports, getParentSourceUnit, makeFunctionCallFor } from "../utils";
 import {
   createReturnFunctionForReturnParameters,
   replaceReturnStatementsWithCall
 } from "./abi_encode";
+import { dependsOnCalldataLocation } from "./utils";
 
 const isExternalFunction = (fn: FunctionDefinition): boolean =>
   [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
@@ -74,7 +75,12 @@ function getCalldataReadExpression(factory: ASTNodeFactory, type: TypeNode): Fun
   } else {
     cdPtr = cdStart;
   }
-  const cdRead = factory.makeMemberAccess("tuple()", cdPtr, "read", -1);
+  const cdRead = factory.makeMemberAccess(
+    "tuple()",
+    cdPtr,
+    `read${type.identifier[0].toUpperCase() + type.identifier.slice(1)}`,
+    -1
+  );
   const readCall = factory.makeFunctionCall("", FunctionCallKind.FunctionCall, cdRead, []);
   return readCall;
 }
@@ -87,7 +93,11 @@ export function getFunctionSelectorSwitch(
   contract: ContractDefinition,
   decoderSourceUnit: SourceUnit
 ): void {
-  const externalFunctions = contract.vFunctions.filter(isExternalFunction);
+  const externalFunctions = contract.vFunctions.filter(
+    (fn) => isExternalFunction(fn) && !dependsOnCalldataLocation(fn)
+  );
+  if (externalFunctions.length === 0) return;
+  addImports(getParentSourceUnit(contract), decoderSourceUnit, []);
   const ctx = contract.requiredContext;
   const factory = new ASTNodeFactory(ctx);
   const body = staticNodeFactory.makeBlock(ctx, []);
@@ -118,16 +128,7 @@ export function getFunctionSelectorSwitch(
   const msgSelector = factory.makeIdentifierFor(selectorDeclaration);
   for (const fn of externalFunctions) {
     if (fn.isConstructor) continue;
-    const internalCalls = fn.getChildrenByType(FunctionCall);
-    if (
-      internalCalls.some((call) =>
-        (call.vReferencedDeclaration as FunctionDefinition)?.vParameters?.vParameters.some(
-          (arg) => arg.storageLocation === DataLocation.CallData
-        )
-      )
-    ) {
-      continue;
-    }
+
     const selector = staticNodeFactory.makeLiteral(
       ctx,
       "",
