@@ -41,7 +41,6 @@ function abiDecodingFunctionArrayCombinedDynamicTail(ctx: CodegenContext, type: 
       `Can not derive size in one step for ${type.canonicalName} - ${type.baseType.maxNestedDynamicTypes} dynamic ${type.baseType.maxNestedReferenceTypes} reference`
     );
   }
-  const typeName = type.identifier;
   const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
   const tailSizeExpression = buildGetTailSize(ctx, type.baseType, `cdPtrItemLength`);
@@ -64,11 +63,11 @@ function abiDecodingFunctionArrayCombinedDynamicTail(ctx: CodegenContext, type: 
   } else {
     inPtr = "cdPtrHead";
     outPtr = "mPtrHead";
-    body.push(
-      `mPtrHead := mload(0x40)`,
-      // `let arrLength := ${type.length}`,
-      `let tailOffset := ${toHex((type.length as number) * 32)}`
+    const headSize = ctx.addConstant(
+      `${type.identifier}_mem_head_size`,
+      toHex(type.embeddedMemoryHeadSize as number)
     );
+    body.push(`mPtrHead := mload(0x40)`, `let tailOffset := ${headSize}`);
   }
   body.push(
     ` `,
@@ -144,8 +143,8 @@ function abiDecodingFunctionArrayCombinedStaticTail(ctx: CodegenContext, type: A
   body.push(
     `let mPtrTailNext := mPtrTail`,
     ` `,
-    `// Copy elements to memory`,
-    `// Calldata does not have individual offsets for array elements with a fixed size.`,
+    `/// Copy elements to memory`,
+    `/// Calldata does not have individual offsets for array elements with a fixed size.`,
     `calldatacopy(`,
     [`mPtrTail,`, `${copyStartExpression},`, tailSizeExpression],
     `)`,

@@ -34,30 +34,19 @@ function getMemberOffset(ctx: CodegenContext, type: TypeNode, location: DataLoca
 function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
   const sizeName = `${struct.identifier}_head_size`;
   ctx.addConstant(sizeName, toHex(struct.embeddedMemoryHeadSize));
-  const body: StructuredText[] = [
-    `mPtr = malloc(${sizeName});`
-    // `mPtr := mload(0x40)`,
-    // `mstore(0x40, add(mPtr, ${toHex(struct.embeddedMemoryHeadSize)}))`
-  ];
+  const body: StructuredText[] = [`mPtr = malloc(${sizeName});`];
   const segments = getSequentiallyCopyableSegments(struct);
-  segments.forEach((segment) => {
+  segments.forEach((segment, i) => {
     let size = toHex(segment.length * 32);
     if (segments.length === 1 && segment.length === struct.vMembers.length) {
       size = sizeName;
+    } else {
+      const name = `${struct.identifier}_fixed_segment_${i}`;
+      size = ctx.addConstant(name, size);
     }
     const src = getMemberOffset(ctx, segment[0], DataLocation.CallData);
     const dst = getMemberOffset(ctx, segment[0], DataLocation.Memory);
 
-    /*     const cdOffset = segment[0].calldataHeadOffset;
-    const mOffset = segment[0].memoryHeadOffset;
-    const prefix = `${struct.identifier}_${segment[0].labelFromParent}`;
-    const [cdOffsetName, mOffsetName] =
-      cdOffset === mOffset
-        ? [`${prefix}_cd_offset`, `${prefix}_mem_offset`]
-        : [`${prefix}_offset`, `${prefix}_offset`];
-
-    const src = cdOffset === 0 ? getOffset("cdPtr", 0) : getOffset();
-    const dst = getOffset("mPtr"); */
     body.push(
       `// Copy ${segment.map((s) => s.labelFromParent).join(", ")}`,
       `${src}.copy(${dst}, ${size});`
@@ -66,22 +55,14 @@ function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): str
 
   const referenceTypes = struct.vMembers.filter((type) => type.isReferenceType);
   for (const member of referenceTypes) {
-    // const dst = getOffset("mPtr", member.memoryHeadOffset);
-    // const src = getOffset("cdPtr", member.calldataHeadOffset, member.isDynamicallyEncoded);
     const src = getMemberOffset(ctx, member, DataLocation.CallData);
     const dst = getMemberOffset(ctx, member, DataLocation.Memory);
     const decodeFn = abiDecodingFunction(ctx, member);
-    /* if (member.isDynamicallyEncoded) {
-      inner.push(`let ${member.labelFromParent}CdPtr := add(cdPtr, calldataload(${src}))`);
-      src = `${member.labelFromParent}CdPtr`;
-    } */
     body.push(`${dst}.write(${decodeFn}(${src}));`);
-    // inner.push(`mstore(${dst}, ${decodeFn}(${src}))`);
   }
 
   const fnName = `abi_decode_${struct.identifier}`;
   const code = getCalldataDecodingFunction(fnName, "cdPtr", "mPtr", body);
-  // [`function ${fnName}(cdPtr) -> mPtr {`, inner, "}"];
   ctx.addFunction(fnName, code);
   return fnName;
 }
