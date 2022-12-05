@@ -4,7 +4,9 @@ import {
   ASTNodeFactory,
   DataLocation,
   Expression,
+  FunctionCall,
   FunctionCallKind,
+  FunctionDefinition,
   Identifier,
   isInstanceOf,
   SourceUnit,
@@ -31,6 +33,7 @@ import {
   toHex,
   writeNestedStructure
 } from "../utils";
+import { isExternalFunction } from "./abi_decode";
 
 const PointerLibraries = require("./PointerLibraries.json");
 
@@ -82,17 +85,18 @@ export class CodegenContext {
 }
 const PointerRoundUp32Mask = `0xffffe0`;
 
-export function roundUpAdd32(ctx: CodegenContext, value: string): string;
-export function roundUpAdd32(ctx: SourceUnit, value: YulExpression): YulExpression;
+export function roundUpAdd32(ctx: CodegenContext, value: string, asm?: boolean): string;
+export function roundUpAdd32(ctx: SourceUnit, value: YulExpression, asm?: boolean): YulExpression;
 export function roundUpAdd32(
   ctx: SourceUnit | CodegenContext,
-  value: YulExpression | string
+  value: YulExpression | string,
+  asm = true
 ): string | YulExpression {
   if (ctx instanceof CodegenContext && typeof value === "string") {
-    return `and(add(${value}, ${ctx.addConstant("AlmostTwoWords", toHex(63))}), ${ctx.addConstant(
-      "OnlyFullWordMask",
-      PointerRoundUp32Mask
-    )})`;
+    const almostTwoWords = ctx.addConstant("AlmostTwoWords", toHex(63));
+    const mask = ctx.addConstant("OnlyFullWordMask", PointerRoundUp32Mask);
+    if (asm) return `and(add(${value}, ${almostTwoWords}), ${mask})`;
+    return `((${value} + ${almostTwoWords}) & ${mask})`;
   } else if (ctx instanceof SourceUnit && value instanceof YulExpression) {
     const mask = getYulConstant(ctx, `OnlyFullWordMask`, PointerRoundUp32Mask);
     const almostTwoWords = getYulConstant(ctx, `AlmostTwoWords`, toHex(63));
@@ -250,8 +254,8 @@ export function cleanIR(irOptimized: string): string {
   return irOptimizedLines.join("\n");
 }
 
-export function getUniqueTypeNodes(typeNodes: TypeNode[]): TypeNode[] {
-  const typeMap = new Map<string, TypeNode>();
+export function getUniqueTypeNodes<T extends TypeNode>(typeNodes: T[]): T[] {
+  const typeMap = new Map<string, T>();
   typeNodes.forEach((type) => {
     if (typeMap.has(type.identifier)) return;
     typeMap.set(type.identifier, type);
