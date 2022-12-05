@@ -293,8 +293,9 @@ yargs
   .command(
     "copy-test <input> [output]",
     writeNestedStructure([
-      "Print the size in bytes of the runtime code of a contract.",
-      "By default, prints the runtime code size when compiled with 20,000 optimizer runs."
+      "Generate copy contract for types in a file as well as an optimized versions",
+      "with abi-lity encoders and a version with a function switch, then test all copy",
+      "functions in all three contracts and compare gas and code size."
     ]),
     {
       input: {
