@@ -15,6 +15,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "dependencies": {
+    "@ethereumjs/vm": "^6.2.0",
     "@solidity-parser/parser": "^0.14.5",
     "@types/lodash": "^4.14.189",
     "lodash": "^4.17.21",
@@ -22,8 +23,9 @@
     "solc-typed-ast": "npm:@d1ll0n/solc-typed-ast@10.4.3"
   },
   "devDependencies": {
-    "@ethereumjs/vm": "^6.2.0",
     "@types/chai": "^4.3.4",
+    "@types/debug": "^4.1.7",
+    "@types/lru-cache": "^7.10.10",
     "@types/mocha": "^10.0.0",
     "@types/node": "^18.11.9",
     "@types/yargs": "^17.0.15",
