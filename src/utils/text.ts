@@ -74,7 +74,8 @@ export const modifyItem = <T extends StructuredText>(
   return arrOrStr;
 };
 
-type SearchPredicate = StructuredText | ((text: StructuredText) => boolean) | RegExp;
+export type SearchPredicate = StructuredText | ((text: StructuredText) => boolean) | RegExp;
+export type ReplacePredicate = StructuredText | ((text: StructuredText) => StructuredText);
 
 const _searchAndReplace = (
   text: StructuredText,
@@ -98,7 +99,7 @@ const _searchAndReplace = (
 export const searchAndReplace = (
   text: StructuredText,
   findPredicate: SearchPredicate,
-  replacePredicate: StructuredText | ((text: StructuredText) => StructuredText)
+  replacePredicate: ReplacePredicate
 ): StructuredText | undefined => {
   const findFn =
     typeof findPredicate === "function"
@@ -109,6 +110,8 @@ export const searchAndReplace = (
   const replaceFn =
     typeof replacePredicate === "function"
       ? replacePredicate
+      : typeof replacePredicate === "string" && findPredicate instanceof RegExp
+      ? (text: StructuredText) => (text as string).replace(findPredicate, replacePredicate)
       : (text: StructuredText) => replacePredicate;
   return _searchAndReplace(text, findFn, replaceFn);
 };
