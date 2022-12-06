@@ -15,6 +15,7 @@ import {
   getCommonBasePath,
   getRelativePath,
   mkdirIfNotExists,
+  optimizedCompilerOptions,
   StructuredText,
   writeFilesTo,
   writeNestedStructure
@@ -25,9 +26,6 @@ async function handlePathArgs({ input, output }: { input: string; output?: strin
     throw Error(`${input} is not a Solidity file or was not found.`);
   }
   let basePath = path.dirname(input);
-  if (!output) {
-    output = basePath;
-  }
   let fileName = path.parse(input).base;
   console.log(`compiling...`);
   const helper = await CompileHelper.fromFileSystem(
@@ -39,6 +37,9 @@ async function handlePathArgs({ input, output }: { input: string; output?: strin
 
   basePath = helper.basePath as string;
   fileName = getRelativePath(basePath, input);
+  if (!output) {
+    output = basePath;
+  }
   return {
     basePath,
     fileName,
@@ -62,9 +63,17 @@ function renameFile(oldFileName: string, newFileName: string, files: Map<string,
   for (const filePath of filePaths) {
     if (filePath !== oldFilePath) {
       const oldRelativePath = getRelativePath(filePath, oldFilePath);
-      const newRelativePath = getRelativePath(filePath, newFilePath);
       const file = files.get(filePath) as string;
-      files.set(filePath, file.replaceAll(oldRelativePath, newRelativePath));
+      if (file.includes(oldRelativePath)) {
+        throw Error(
+          writeNestedStructure([
+            `Rename file with circular imports not supported`,
+            `Renaming ${oldFileName} to ${newFileName}`,
+            `${filePath} imports ${oldRelativePath}`
+          ])
+        );
+      }
+      // files.set(filePath, file.replaceAll(oldRelativePath, newRelativePath));
     }
   }
 }
@@ -152,7 +161,7 @@ yargs
       output: {
         alias: ["o"],
         describe: "Output directory, defaults to directory of input.",
-        demandOption: true,
+        demandOption: false,
         coerce: path.resolve
       },
       decoderOnly: {
@@ -182,9 +191,7 @@ yargs
     },
     async ({ decoderOnly, irUnoptimized: unoptimized, ir: irFlag, verbose, ...args }) => {
       const { basePath, output, fileName, helper } = await handlePathArgs(args);
-      if (output === basePath && !decoderOnly) {
-        throw Error(`Output can not match basePath when decoderOnly is false.`);
-      }
+
       const logger = new DebugLogger();
       upgradeSourceCoders(helper, fileName, { functionSwitch: !decoderOnly }, logger);
 
@@ -212,6 +219,12 @@ yargs
       }
       console.log(`writing files...`);
       const files = helper.getFiles();
+      if (output === basePath /* && !decoderOnly */) {
+        const suffix = decoderOnly ? `WithDecoders.sol` : `WithDecodersAndSwitch.sol`;
+        const newFileName = fileName.replace(".sol", suffix);
+        renameFile(fileName, newFileName, files);
+        // throw Error(`Output can not match basePath when decoderOnly is false.`);
+      }
       writeFilesTo(output, files);
       console.log(`done!`);
     }
@@ -283,7 +296,10 @@ yargs
             [
               `Version: ${LatestCompilerVersion}`,
               `viaIR: true`,
-              unoptimized ? `Optimizer Off` : `Optimizer Runs: 20000`
+              `Optimizer ${optimizedCompilerOptions.optimizer.enabled ? "On" : "Off"}`,
+              ...(optimizedCompilerOptions.optimizer.enabled
+                ? [`Optimizer Runs: ${optimizedCompilerOptions.optimizer.runs}`]
+                : [])
             ]
           ]
         ])
@@ -368,6 +384,12 @@ yargs
   )
   .help("h")
   .fail(function (msg, err) {
-    console.error(`Error: ${err.message}`);
+    if (msg) {
+      console.error(msg);
+    }
+    if (err?.message) {
+      console.error(err.message);
+    }
+    // console.error(`Error: ${err?.message}`);
     throw err;
   }).argv;
