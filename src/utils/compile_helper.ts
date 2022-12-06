@@ -52,18 +52,18 @@ const compilerOutputs = [
   "ir" as any
 ];
 
-const compilerOptions = {
+export const compilerOptions = {
   viaIR: true,
   metadata: {
     bytecodeHash: "none"
   }
 };
 
-const optimizedCompilerOptions = {
+export const optimizedCompilerOptions = {
   ...compilerOptions,
   optimizer: {
     enabled: true,
-    runs: 20000
+    runs: 200
   }
 };
 
