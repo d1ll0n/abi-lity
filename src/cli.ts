@@ -78,6 +78,44 @@ function renameFile(oldFileName: string, newFileName: string, files: Map<string,
   }
 }
 
+function printCodeSize(helper: CompileHelper, fileName: string) {
+  const contract = helper.getContractForFile(fileName);
+  const contractCode = contract.runtimeCode;
+  if (!contractCode) {
+    throw Error(`Compiled contract has no code - it is likely an interface or abstract contract`);
+  }
+  const codeBuffer = Buffer.from(contractCode, "hex");
+  const codeSize = codeBuffer.byteLength;
+  const output: StructuredText[] = [`Runtime code size: ${codeSize} bytes`];
+  const maxSize = 24577;
+  const diff = maxSize - codeSize;
+  if (diff > 0) {
+    output.push(`${diff} bytes below contract size limit`);
+  } else if (diff === 0) {
+    output.push(`Exactly at contract size limit`);
+  } else {
+    output.push(`${-diff} bytes over contract size limit`);
+  }
+
+  console.log(
+    writeNestedStructure([
+      `Contract: ${contract.name}`,
+      [
+        ...output,
+        `Settings:`,
+        [
+          `Version: ${LatestCompilerVersion}`,
+          `viaIR: true`,
+          `Optimizer ${optimizedCompilerOptions.optimizer.enabled ? "On" : "Off"}`,
+          ...(optimizedCompilerOptions.optimizer.enabled
+            ? [`Optimizer Runs: ${optimizedCompilerOptions.optimizer.runs}`]
+            : [])
+        ]
+      ]
+    ])
+  );
+}
+
 yargs
   .command(
     "ir <input> [output]",
@@ -143,6 +181,7 @@ yargs
         const filePath = path.join(output, irFileName);
         writeFileSync(filePath, data);
       }
+      printCodeSize(helper, fileName);
     }
   )
   .command(
@@ -267,43 +306,7 @@ yargs
         basePath,
         !unoptimized
       );
-      const contract = helper.getContractForFile(fileName);
-      const contractCode = contract.runtimeCode;
-      if (!contractCode) {
-        throw Error(
-          `Compiled contract has no code - it is likely an interface or abstract contract`
-        );
-      }
-      const codeBuffer = Buffer.from(contractCode, "hex");
-      const codeSize = codeBuffer.byteLength;
-      const output: StructuredText[] = [`Runtime code size: ${codeSize} bytes`];
-      const maxSize = 24577;
-      const diff = maxSize - codeSize;
-      if (diff > 0) {
-        output.push(`${diff} bytes below contract size limit`);
-      } else if (diff === 0) {
-        output.push(`Exactly at contract size limit`);
-      } else {
-        output.push(`${-diff} bytes over contract size limit`);
-      }
-
-      console.log(
-        writeNestedStructure([
-          `Contract: ${contract.name}`,
-          [
-            ...output,
-            `Settings:`,
-            [
-              `Version: ${LatestCompilerVersion}`,
-              `viaIR: true`,
-              `Optimizer ${optimizedCompilerOptions.optimizer.enabled ? "On" : "Off"}`,
-              ...(optimizedCompilerOptions.optimizer.enabled
-                ? [`Optimizer Runs: ${optimizedCompilerOptions.optimizer.runs}`]
-                : [])
-            ]
-          ]
-        ])
-      );
+      printCodeSize(helper, fileName);
     }
   )
   .command(
