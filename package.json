@@ -48,6 +48,7 @@
     "build": "npm run clean && tsc",
     "lint": "eslint src/ test/ --ext=ts",
     "lint:fix": "eslint src/ test/ --ext=ts --fix",
-    "test": "NODE_OPTIONS='--max-old-space-size=2048' mocha"
+    "test": "NODE_OPTIONS='--max-old-space-size=2048' mocha",
+    "update:ptrs": "node scripts/update_pointer_libraries.js"
   }
 }
