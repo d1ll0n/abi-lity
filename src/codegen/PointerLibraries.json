@@ -922,7 +922,7 @@
   "",
   "library ReturndataReaders {",
   "  /// @dev Reads the value at `rdPtr` and applies a mask to return only the last 4 bytes",
-  "  function readMaskedUint256(CalldataPointer rdPtr) internal pure returns (uint256 value) {",
+  "  function readMaskedUint256(ReturndataPointer rdPtr) internal pure returns (uint256 value) {",
   "    value = rdPtr.readUint256() & OffsetOrLengthMask;",
   "  }",
   "",
