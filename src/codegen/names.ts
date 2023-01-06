@@ -2,7 +2,8 @@ import { DataLocation } from "solc-typed-ast";
 import { TupleType, TypeNode } from "../ast";
 
 export const NameGen = {
-  abiDecode: (type: TypeNode): string => `abi_decode_${type.identifier}`,
+  abiDecode: (type: TypeNode): string =>
+    `abi_decode_${type.identifier === "string" ? "bytes" : type.identifier}`,
   return: (type: TypeNode): string => `return_${type.identifier}`,
   typeCast: (type: TypeNode): string => {
     const typeName =
