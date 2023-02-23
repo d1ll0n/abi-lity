@@ -19,11 +19,7 @@ export class EnumType extends ValueType {
     return new EnumType(this.name, [...this.members]);
   }
 
-  get nBits(): number {
-    return Math.ceil(Math.log2(this.members.length));
-  }
-
-  get unpaddedSize(): number {
+  get exactBits(): number {
     return Math.ceil(Math.log2(this.members.length));
   }
 

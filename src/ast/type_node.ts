@@ -1,5 +1,6 @@
 import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../constants";
+import { sumOrUndefined } from "../utils";
 import { Node, NodeSelector } from "./node";
 
 export abstract class TypeNode extends Node<TypeNode> {
@@ -28,6 +29,10 @@ export abstract class TypeNode extends Node<TypeNode> {
     const locationString =
       location === DataLocation.Default || this.isValueType ? "" : location.toString();
     return [this.canonicalName, locationString, name].filter(Boolean).join(" ");
+  }
+
+  get exactBitsOffset(): number {
+    return this.parent?.exactBitsOffsetOfChild(this) ?? 0;
   }
 
   get memoryHeadOffset(): number {
@@ -112,8 +117,26 @@ export abstract class TypeNode extends Node<TypeNode> {
   /** @returns true if the type is dynamically encoded in the ABI */
   abstract isDynamicallyEncoded: boolean;
 
-  /** @returns bytes required for the data, irrespective of ABI encoding rules */
-  abstract unpaddedSize?: number;
+  /** @returns bits required to represent the data, irrespective of ABI encoding rules */
+  abstract exactBits?: number;
+
+  /** @returns bytes required to represent the data, irrespective of ABI encoding rules */
+  get exactBytes(): number | undefined {
+    if (this.exactBits === undefined) return undefined;
+    return Math.ceil(this.exactBits / 8) * 8;
+  }
+
+  /** @returns bits required to represent the data in packed ABI encoding*/
+  get packedBits(): number | undefined {
+    if (this.exactBits === undefined) return undefined;
+    return Math.ceil(this.exactBits / 8) * 8;
+  }
+
+  /** @returns bytes required to represent the data in packed ABI encoding*/
+  get packedSize(): number | undefined {
+    if (this.packedBits === undefined) return undefined;
+    return this.packedBits / 8;
+  }
 
   /**
    * @returns the size of this data type in bytes when stored in memory. For memory-reference
@@ -154,6 +177,10 @@ export abstract class TypeNode extends Node<TypeNode> {
   /** @returns the canonical name of this type for use in library function signatures. */
   abstract canonicalName: string;
 
+  get pascalCaseName(): string {
+    return this.identifier[0].toUpperCase().concat(this.identifier.slice(1));
+  }
+
   get identifier(): string {
     return this.canonicalName;
   }
@@ -171,6 +198,28 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
 
   get children(): readonly T[] {
     return this.ownChildren;
+  }
+
+  /** @returns bits required to represent the data, irrespective of ABI encoding rules */
+  get exactBits(): number | undefined {
+    const lastChild = this.ownChildren[this.ownChildren.length - 1];
+    const lastChildOffset = this.exactBitsOffsetOfChild(lastChild);
+    if (
+      lastChild === undefined ||
+      lastChild.exactBits === undefined ||
+      lastChildOffset === undefined
+    ) {
+      return undefined;
+    }
+    // Use last child's offset + size because some members may be padded
+    // to ensure they are readable as one word from memory.
+    return lastChildOffset + lastChild.exactBits;
+  }
+
+  /** @returns bits required to represent the data, irrespective of ABI encoding rules */
+  get packedBits(): number | undefined {
+    const childBits = this.children.map((c) => c.packedBits);
+    return sumOrUndefined(childBits);
   }
 
   requireIndexOfChild(node: T): number {
@@ -263,6 +312,24 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
     return oldNode;
   }
 
+  exactBitsOffsetOfChild(indexOrNameOrNode: string | number | T): number | undefined {
+    const index = this.requireFindChildIndex(indexOrNameOrNode);
+    let offset = 0;
+    for (let i = 0; i <= index; i++) {
+      const member = this.ownChildren[i];
+      const size = member.exactBits;
+      if (size === undefined) return undefined;
+      // For fields that can be read as a single word, pad the end of the previous
+      // field if it ends mid-byte and the additional bits would make it impossible
+      // to read the current field in one word.
+      if (size <= 256 && size + (offset % 8) > 256) {
+        offset += 8 - (offset % 8);
+      }
+      if (i < index) offset += size;
+    }
+    return offset;
+  }
+
   calldataOffsetOfChild(indexOrNameOrNode: string | number | T): number {
     const index = this.requireFindChildIndex(indexOrNameOrNode);
     let offset = 0;
@@ -286,3 +353,10 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
     return offset;
   }
 }
+
+export type Accessors = {
+  getterCoderType?: CoderType;
+  setterCoderType?: CoderType;
+};
+
+export type CoderType = "checked" | "unchecked" | "exact";

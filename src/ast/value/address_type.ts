@@ -3,7 +3,7 @@ import { ValueType } from "./value_type";
 
 export class AddressType extends ValueType {
   readonly kind = ABITypeKind.Address;
-  unpaddedSize = 20;
+  exactBits = 160;
   leftAligned = false;
   canonicalName = "address";
 

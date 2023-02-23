@@ -13,7 +13,7 @@ export class ErrorType extends ValueType {
 
   leftAligned = false;
   encodingType = undefined;
-  unpaddedSize = 24;
+  exactBits = 192;
 
   constructor(name: string, parameters?: TupleType) {
     super();

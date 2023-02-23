@@ -15,8 +15,8 @@ export class FixedBytesType extends ValueType {
     return new FixedBytesType(this.size);
   }
 
-  get unpaddedSize(): number {
-    return this.size;
+  get exactBits(): number {
+    return this.size * 8;
   }
 
   get canonicalName(): string {

@@ -17,4 +17,12 @@ export abstract class ValueType extends TypeNode {
   get calldataEncodedTailSize(): number {
     throw Error(`Value types do not have calldata tail`);
   }
+
+  max(): bigint | undefined {
+    return undefined;
+  }
+
+  min(): bigint | undefined {
+    return undefined;
+  }
 }

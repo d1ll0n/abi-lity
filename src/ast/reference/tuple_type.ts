@@ -65,7 +65,6 @@ export abstract class TupleLikeType extends TypeNodeWithChildren<TypeNode> {
   }
 
   readonly encodingType = undefined;
-  readonly unpaddedSize = undefined;
   readonly isValueType = false;
   readonly leftAligned = false;
   readonly isDynamicallySized = false;

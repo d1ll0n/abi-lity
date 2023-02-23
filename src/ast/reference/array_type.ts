@@ -1,4 +1,3 @@
-import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TypeNode, TypeNodeWithChildren } from "../type_node";
 
@@ -8,7 +7,11 @@ export class ArrayType extends TypeNodeWithChildren<TypeNode> {
   baseType: TypeNode;
   length: number | undefined;
 
-  unpaddedSize = undefined;
+  get exactBits(): number | undefined {
+    if (this.isDynamicallyEncoded) return undefined;
+    return (this.baseType.exactBits as number) * (this.length as number);
+  }
+
   leftAligned = false;
 
   constructor(baseType: TypeNode, length: number | undefined) {
@@ -105,6 +108,11 @@ export class ArrayType extends TypeNodeWithChildren<TypeNode> {
 
   get children(): TypeNode[] {
     return this.pickNodes(this.baseType);
+  }
+
+  exactBitsOffsetOfChild(indexOrNameOrNode: number): number | undefined {
+    if (this.baseType.exactBits === undefined) return undefined;
+    return indexOrNameOrNode * this.baseType.exactBits;
   }
 
   calldataOffsetOfChild(indexOrNameOrNode: number): number {

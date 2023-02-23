@@ -3,7 +3,7 @@ import { ValueType } from "./value_type";
 
 export class BoolType extends ValueType {
   readonly kind = ABITypeKind.Bool;
-  unpaddedSize = 1;
+  exactBits = 1;
   leftAligned = false;
   encodingType = undefined;
   canonicalName = "bool";

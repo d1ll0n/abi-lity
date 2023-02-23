@@ -13,7 +13,7 @@ export class BytesType extends ReferenceType {
   isDynamicallyEncoded = true;
 
   encodingType = undefined;
-  unpaddedSize = undefined;
+  exactBits = undefined;
 
   copy(): BytesType {
     return new BytesType();
