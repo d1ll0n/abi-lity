@@ -12,13 +12,14 @@ import {
   SourceUnit,
   VariableDeclaration
 } from "solc-typed-ast";
-import { TypeNode } from "../../ast";
+import { FunctionType, TypeNode } from "../../ast";
 import { functionDefinitionToTypeNode } from "../../readers";
 import { addTypeImport, makeFunctionCallFor } from "../../utils";
 import NameGen from "../names";
 import { dependsOnCalldataLocation, getPointerOffsetExpression } from "../utils";
 
-export const isExternalFunction = (fn: FunctionDefinition): boolean =>
+export const isExternalFunction = (fn: FunctionDefinition | FunctionType): boolean =>
+  fn.visibility !== undefined &&
   [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
 
 /**
