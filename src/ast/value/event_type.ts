@@ -1,3 +1,5 @@
+import { keccak256 } from "@ethersproject/keccak256";
+import { toUtf8Bytes } from "@ethersproject/strings";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
@@ -38,5 +40,14 @@ export class EventType extends ValueType {
     );
     const prefix = _structsByName ? `event ${this.name}` : `event`;
     return `${prefix} (` + memberTypeStrings.join(",") + ")";
+  }
+
+  get eventSignature(): string {
+    return [this.name, this.parameters?.signatureInExternalFunction(false) ?? "()"].join("");
+  }
+
+  get eventSelector(): string {
+    const signature = this.eventSignature;
+    return keccak256(toUtf8Bytes(signature)).slice(0, 10);
   }
 }

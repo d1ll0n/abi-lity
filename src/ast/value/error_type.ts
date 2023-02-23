@@ -1,3 +1,5 @@
+import { keccak256 } from "@ethersproject/keccak256";
+import { toUtf8Bytes } from "@ethersproject/strings";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
@@ -38,5 +40,14 @@ export class ErrorType extends ValueType {
     );
     const prefix = _structsByName ? `error ${this.name}` : `error`;
     return `${prefix} (` + memberTypeStrings.join(",") + ")";
+  }
+
+  get errorSignature(): string {
+    return [this.name, this.parameters?.signatureInExternalFunction(false) ?? "()"].join("");
+  }
+
+  get errorSelector(): string {
+    const signature = this.errorSignature;
+    return keccak256(toUtf8Bytes(signature)).slice(0, 10);
   }
 }

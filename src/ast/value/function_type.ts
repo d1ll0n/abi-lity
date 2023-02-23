@@ -1,3 +1,5 @@
+import { keccak256 } from "@ethersproject/keccak256";
+import { toUtf8Bytes } from "@ethersproject/strings";
 import { FunctionStateMutability, FunctionVisibility } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
@@ -53,6 +55,15 @@ export class FunctionType extends ValueType {
 
   signatureInExternalFunction(): string {
     return this.name;
+  }
+
+  get functionSignature(): string {
+    return [this.name, this.parameters?.signatureInExternalFunction(false) ?? "()"].join("");
+  }
+
+  get functionSelector(): string {
+    const signature = this.functionSignature;
+    return keccak256(toUtf8Bytes(signature)).slice(0, 10);
   }
 
   pp(): string {

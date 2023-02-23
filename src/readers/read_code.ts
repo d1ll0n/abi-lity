@@ -229,7 +229,6 @@ class ParserTypes implements AddMethods {
   }
 
   addFunctionDefinition(ast: FunctionDefinition) {
-    if (!["external", "public"].includes(ast.visibility)) return;
     const args = this.convertVariableDeclarations(ast.parameters);
     const rets = this.convertVariableDeclarations(ast.returnParameters || []);
     if (!(args.every(Boolean) && rets.every(Boolean) && ast.name)) {
@@ -244,19 +243,19 @@ class ParserTypes implements AddMethods {
       ast.visibility as FunctionVisibility,
       ast.stateMutability as FunctionStateMutability
     );
-    this.mappedTypes.set(ast.name, type);
+    this.mappedTypes.set(type.functionSelector, type);
   }
 
   addEventDefinition(ast: EventDefinition) {
     const parameters = this.convertVariableDeclarations(ast.parameters);
     const type = new EventType(ast.name, parameters.length ? new TupleType(parameters) : undefined);
-    this.mappedTypes.set(ast.name, type);
+    this.mappedTypes.set(type.eventSelector, type);
   }
 
   addCustomErrorDefinition(ast: CustomErrorDefinition) {
     const parameters = this.convertVariableDeclarations(ast.parameters);
     const type = new ErrorType(ast.name, parameters.length ? new TupleType(parameters) : undefined);
-    this.mappedTypes.set(ast.name, type);
+    this.mappedTypes.set(type.errorSelector, type);
   }
 
   addStateVariableDeclaration(ast: StateVariableDeclaration) {
