@@ -5,11 +5,14 @@ import {
   Interface,
   JsonFragment,
   JsonFragmentType,
-  ParamType
+  ParamType,
+  Fragment
 } from "@ethersproject/abi";
+import _ from "lodash";
 import { FunctionStateMutability, FunctionVisibility } from "solc-typed-ast";
 import {
   ArrayType,
+  EnumType,
   ErrorType,
   EventType,
   FunctionType,
@@ -23,10 +26,10 @@ import { TypeNodeReaderResult } from "./types";
 
 function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
   if (param.baseType === "tuple") {
-    const members = paramTypesToMembers(
-      param.components,
-      fragment.components as JsonFragmentType[]
-    );
+    if (fragment === undefined || fragment.components === undefined) {
+      throw Error(`Fragment components not defined for ${param.name}`);
+    }
+    const members = paramTypesToMembers(param.components, fragment?.components as JsonFragment[]);
     let type: TupleType | StructType;
     if (fragment.internalType) {
       const name = fragment.internalType.replace("struct ", "");
@@ -48,6 +51,14 @@ function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
     array.labelFromParent = param.name;
     return array;
   } else {
+    if (fragment.internalType?.includes("enum")) {
+      const type = new EnumType(fragment.internalType.replace("enum ", ""), [
+        `UnknownMember1`,
+        `UnknownMember2`
+      ]);
+      type.labelFromParent = param.name;
+      return type;
+    }
     const elementary = elementaryTypeStringToTypeNode(param.baseType);
     elementary.labelFromParent = param.name;
     return elementary;
@@ -62,11 +73,15 @@ function functionFragmentToTypeNode(fn: FunctionFragment, jsonFragment: JsonFrag
   let parameters: TupleType | undefined;
   let returnParameters: TupleType | undefined;
   if (fn.inputs?.length) {
-    const members = paramTypesToMembers(fn.inputs, jsonFragment.inputs as JsonFragmentType[]);
+    const members = paramTypesToMembers(fn.inputs, [
+      ...(jsonFragment?.inputs ?? [])
+    ] as JsonFragmentType[]);
     parameters = new TupleType(members);
   }
   if (fn.outputs?.length) {
-    const members = paramTypesToMembers(fn.outputs, jsonFragment.outputs as JsonFragmentType[]);
+    const members = paramTypesToMembers(fn.outputs, [
+      ...(jsonFragment.outputs ?? [])
+    ] as JsonFragmentType[]);
     returnParameters = new TupleType(members);
   }
   return new FunctionType(
@@ -151,8 +166,10 @@ class InterfaceTypes {
     }
   }
 
-  getJsonFragment(name: string) {
-    const fragment = this.jsonFragments.find((frag) => frag.name === name);
+  getJsonFragment(fn: FunctionFragment | ErrorFragment | EventFragment) {
+    const fragment = this.jsonFragments.find((frag) => {
+      return Fragment.from(frag).format() === fn.format();
+    });
     if (fragment === undefined) {
       throw Error(`JSON fragment not found for ${name}`);
     }
@@ -160,19 +177,19 @@ class InterfaceTypes {
   }
 }
 
-export function readTypeNodesFromABI(jsonFragments: JsonFragment[]): TypeNodeReaderResult {
+export function readTypeNodesFromABI(_jsonFragments: JsonFragment[]): TypeNodeReaderResult {
   const context = new ASTContext();
-  const parser = new InterfaceTypes(jsonFragments, context);
+  const parser = new InterfaceTypes(_jsonFragments, context);
   for (const fn of parser.interfaceFunctions) {
-    const jsonFragment = parser.getJsonFragment(fn.name);
+    const jsonFragment = parser.getJsonFragment(fn);
     parser.addTypeNode(functionFragmentToTypeNode(fn, jsonFragment));
   }
   for (const error of parser.interfaceErrors) {
-    const jsonFragment = parser.getJsonFragment(error.name);
+    const jsonFragment = parser.getJsonFragment(error);
     parser.addTypeNode(errorFragmentToTypeNode(error, jsonFragment));
   }
   for (const event of parser.interfaceEvents) {
-    const jsonFragment = parser.getJsonFragment(event.name);
+    const jsonFragment = parser.getJsonFragment(event);
     parser.addTypeNode(eventFragmentToTypeNode(event, jsonFragment));
   }
 
