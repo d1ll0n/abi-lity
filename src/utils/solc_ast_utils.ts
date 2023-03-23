@@ -1,10 +1,12 @@
 import { flatten } from "lodash";
 import {
+  assert,
   ASTContext,
   ASTNode,
   ASTNodeFactory,
   coerceArray,
   ContractDefinition,
+  DataLocation,
   EnumDefinition,
   Expression,
   FunctionCall,
@@ -15,8 +17,10 @@ import {
   FunctionVisibility,
   Identifier,
   isInstanceOf,
+  Mutability,
   ParameterList,
   SourceUnit,
+  StateVariableVisibility,
   staticNodeFactory,
   StructDefinition,
   SymbolAlias,
@@ -86,16 +90,6 @@ export function locateDefinitionForType(
   return definition as EnumDefinition | StructDefinition;
 }
 
-export const findConstantDeclaration = (
-  node: ASTNode,
-  name: string
-): VariableDeclaration | undefined => {
-  const sourceUnit = getParentSourceUnit(node);
-  return sourceUnit.getChildrenBySelector(
-    (child) => child instanceof VariableDeclaration && child.name === name && child.constant
-  )[0] as VariableDeclaration | undefined;
-};
-
 export function makeGlobalFunctionDefinition(
   sourceUnit: SourceUnit,
   name: string,
@@ -154,12 +148,56 @@ export function findFunctionDefinition(
   return getFunctionDefinitions(ctx, name)[0];
 }
 
+function getContractDefinitions(ctx: SourceUnit, name: string): ContractDefinition[] {
+  const contracts = ctx.getChildrenBySelector(
+    (child) => child instanceof ContractDefinition && child.name === name
+  ) as ContractDefinition[];
+  return contracts;
+}
+
+export function findContractDefinition(
+  ctx: SourceUnit,
+  name: string
+): ContractDefinition | undefined {
+  return getContractDefinitions(ctx, name)[0];
+}
+
+export function addUniqueContractDefinition(
+  ctx: SourceUnit,
+  node: ContractDefinition
+): ContractDefinition {
+  const existingContract = findContractDefinition(ctx, node.name);
+  if (!existingContract) {
+    return ctx.appendChild(node) as ContractDefinition;
+  }
+  return existingContract;
+}
+
+function getAllConstantDeclarations(node: ContractDefinition | SourceUnit): VariableDeclaration[] {
+  return node.getChildrenBySelector(
+    (child) => child instanceof VariableDeclaration && child.constant && child.parent === node
+  );
+}
+
+export const findConstantDeclaration = (
+  node: ContractDefinition | SourceUnit,
+  name: string
+): VariableDeclaration | undefined => {
+  const sourceUnit = getParentSourceUnit(node);
+  let declaration = getAllConstantDeclarations(node).filter((c) => c.name === name)[0];
+
+  if (!declaration && node !== sourceUnit) {
+    declaration = getAllConstantDeclarations(sourceUnit).filter((c) => c.name === name)[0];
+  }
+  return declaration;
+};
+
 /**
  * Creates a new constant VariableDeclaration in the SourceUnit containing
  * `node` if a constant variable declaration of the same name does not
  * already exist.
  */
-function addUniqueGlobalConstantDeclaration(
+export function addUniqueGlobalConstantDeclaration(
   node: ASTNode,
   name: string,
   value: string | number
@@ -170,6 +208,49 @@ function addUniqueGlobalConstantDeclaration(
   if (!existingConstant) {
     existingConstant = staticNodeFactory.makeConstantUint256(ctx, name, value, sourceUnit.id);
     sourceUnit.appendChild(existingConstant);
+  }
+  return existingConstant;
+}
+
+export function getRequiredContractDefinitionOrSourceUnit(
+  node: ASTNode
+): ContractDefinition | SourceUnit {
+  if (isInstanceOf(node, SourceUnit, ContractDefinition)) {
+    return node;
+  }
+  const parent = node.getClosestParentBySelector((p) =>
+    isInstanceOf(p, SourceUnit, ContractDefinition)
+  ) as ContractDefinition | SourceUnit;
+  assert(
+    parent !== undefined,
+    `Node not a SourceUnit or ContractDefinition and has no parent that is`
+  );
+  return parent;
+}
+
+export function addUniqueConstantDeclaration(
+  node: ASTNode,
+  name: string,
+  value: string | number
+): VariableDeclaration {
+  const targetNode = getRequiredContractDefinitionOrSourceUnit(node);
+  let existingConstant = findConstantDeclaration(targetNode, name);
+  if (!existingConstant) {
+    existingConstant = staticNodeFactory.makeConstantUint256(
+      node.requiredContext,
+      name,
+      value,
+      targetNode.id
+    );
+    existingConstant.stateVariable = true;
+    const definedConstants = targetNode
+      .getChildrenByType(VariableDeclaration)
+      .filter((decl) => decl.parent === targetNode && decl.constant);
+    if (definedConstants.length) {
+      targetNode.insertAfter(existingConstant, definedConstants[definedConstants.length - 1]);
+    } else {
+      targetNode.insertAtBeginning(existingConstant);
+    }
   }
   return existingConstant;
 }
@@ -193,13 +274,27 @@ export function getUniqueFunctionDefinition(
 }
 
 export function getConstant(node: ASTNode, name: string, value: string | number): Identifier {
-  return staticNodeFactory.makeIdentifierFor(addUniqueGlobalConstantDeclaration(node, name, value));
+  return staticNodeFactory.makeIdentifierFor(addUniqueConstantDeclaration(node, name, value));
 }
 
 export function getYulConstant(node: ASTNode, name: string, value: string | number): YulIdentifier {
-  return staticNodeFactory.makeYulIdentifierFor(
-    addUniqueGlobalConstantDeclaration(node, name, value)
-  );
+  return staticNodeFactory.makeYulIdentifierFor(addUniqueConstantDeclaration(node, name, value));
+}
+
+/**
+ * Updates the relative paths of import directives after the absolute path
+ * for `sourceUnit` is modified.
+ * Does not affect imports with non-relative paths.
+ */
+export function updateSourceUnitImports(sourceUnit: SourceUnit): void {
+  const srcPath = getDirectory(sourceUnit.absolutePath);
+  // sourceUnit.vImportDirectives.map(i => i.absolutePath)
+  sourceUnit.vImportDirectives.forEach((directive) => {
+    if (directive.file.startsWith("./") || directive.file.startsWith("../")) {
+      const relativePath = getRelativePath(srcPath, directive.absolutePath);
+      directive.file = relativePath;
+    }
+  });
 }
 
 /**
@@ -257,16 +352,8 @@ export function addTypeImport(
   addImports(sourceUnit, parentSourceUnit, []);
 }
 
-export function addDependencyImports(
-  sourceUnit: SourceUnit,
-  functions: FunctionDefinition | FunctionDefinition[]
-): void {
-  functions = coerceArray(functions);
-  const typeDependencies = flatten(
-    functions.map((fn) => fn.getChildrenByType(UserDefinedTypeName))
-  );
-  const importsNeeded = typeDependencies.reduce((importDirectives, typeName) => {
-    const type = typeName.vReferencedDeclaration as UserDefinition;
+export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDefinition[]): void {
+  const importsNeeded = definitions.reduce((importDirectives, type) => {
     const parent = getParentSourceUnit(type);
     if (parent === sourceUnit) return importDirectives;
     const foreignSymbol = staticNodeFactory.makeIdentifierFor(
@@ -281,6 +368,55 @@ export function addDependencyImports(
     ) {
       directives.push({
         foreign: foreignSymbol
+      } as SymbolAlias);
+    }
+    return importDirectives;
+  }, {} as Record<string, SymbolAlias[]>);
+  const entries = Object.entries(importsNeeded);
+  const ctx = sourceUnit.requiredContext;
+  for (const [sourceId, symbolAliases] of entries) {
+    const importSource = ctx.locate(+sourceId) as SourceUnit;
+    addImports(sourceUnit, importSource, symbolAliases);
+  }
+}
+
+export function addDependencyImports(
+  sourceUnit: SourceUnit,
+  functions: FunctionDefinition | StructDefinition | Array<FunctionDefinition | StructDefinition>
+): void {
+  functions = coerceArray(functions);
+  const typeDependencies = flatten(
+    functions.map((fn) => fn.getChildrenByType(UserDefinedTypeName))
+  );
+  const definitions = typeDependencies.map((t) => t.vReferencedDeclaration as UserDefinition);
+  addDefinitionImports(sourceUnit, definitions);
+}
+
+export function addFunctionImports(
+  sourceUnit: SourceUnit,
+  functions: FunctionDefinition | FunctionDefinition[],
+  aliases?: string | string[]
+): void {
+  functions = coerceArray(functions);
+  aliases = aliases && coerceArray(aliases);
+  const importsNeeded = functions.reduce((importDirectives, fn, i) => {
+    const parent = getParentSourceUnit(fn);
+    if (parent === sourceUnit) return importDirectives;
+    // Import function directly if it's a free function; otherwise import contract/library/interface
+    const foreignSymbol = staticNodeFactory.makeIdentifierFor(
+      fn.vScope.type === "SourceUnit" ? fn : (fn.vScope as ContractDefinition)
+    );
+    const directives = importDirectives[parent.id] ?? (importDirectives[parent.id] = []);
+    if (
+      !directives.some(
+        (f) =>
+          (f.foreign as Identifier).referencedDeclaration === foreignSymbol.referencedDeclaration
+      )
+    ) {
+      const alias = aliases?.[i];
+      directives.push({
+        foreign: foreignSymbol,
+        local: alias
       } as SymbolAlias);
     }
     return importDirectives;
