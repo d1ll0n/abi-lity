@@ -21,3 +21,26 @@ export enum ABITypeKind {
   Error = "error",
   Event = "event"
 }
+
+export enum EncodingScheme {
+  SolidityMemory,
+  ABI,
+  PackedABI,
+  SuperPacked
+}
+
+export declare enum InternalDataType {
+  Storage = "StorageSlot",
+  Memory = "MemoryPointer",
+  Calldata = "CalldataPointer",
+  Returndata = "ReturndataPointer",
+  Stack = "uint256"
+}
+
+export const InternalDataTypes = [
+  InternalDataType.Storage,
+  InternalDataType.Memory,
+  InternalDataType.Calldata,
+  InternalDataType.Returndata,
+  InternalDataType.Stack
+];
