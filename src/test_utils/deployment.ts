@@ -18,6 +18,8 @@ export type CallResult = {
 };
 
 export type TestDeployment = {
+  name?: string;
+  label?: string;
   vm: VM;
   call: (fnName: string, ...args: any[]) => Promise<CallResult>;
   encodeCall: (fnName: string, ...args: any[]) => Buffer;
@@ -31,7 +33,9 @@ export type TestDeployment = {
 
 export async function getTestDeployment(
   runtimeCode: string,
-  abi: JsonFragment[]
+  abi: JsonFragment[],
+  name?: string,
+  label?: string
 ): Promise<TestDeployment> {
   const iface = new Interface(abi);
   const types = readTypeNodesFromABI(abi);
@@ -42,6 +46,7 @@ export async function getTestDeployment(
   });
   const vm = await VM.create({ common });
   const contractCodeBuffer = Buffer.from(runtimeCode, "hex");
+
   await vm.stateManager.putContractCode(address, contractCodeBuffer);
 
   const encodeCall = (fnName: string, ...args: any[]) =>
@@ -80,6 +85,8 @@ export async function getTestDeployment(
   };
 
   return {
+    name,
+    label,
     vm,
     call,
     encodeCall,
