@@ -109,9 +109,11 @@ export function combineSequentialCalldataCopies(block: YulBlock): void {
     const prevCopy = readCopy(prevNode);
     const nextCopy = readCopy(nextNode);
     const dist = dynamicDistance(prevCopy, nextCopy);
+    // If the distance is > 4 words it is not worthwhile to combine them.
+    // If the distance can't be determined, they can't be combined.
     const mightExceedSizeLimit =
-      dist !== undefined && expressionGt(dist, maxIntermediateBytesLiteral) !== -1;
-    if (dist === undefined || mightExceedSizeLimit) {
+      dist === undefined || expressionGt(dist, maxIntermediateBytesLiteral) !== -1;
+    if (mightExceedSizeLimit) {
       newCopies.push(nextNode);
       continue;
     }
