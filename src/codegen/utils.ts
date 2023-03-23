@@ -2,14 +2,20 @@ import { findIndex } from "lodash";
 import {
   assert,
   ASTNodeFactory,
+  ContractDefinition,
+  ContractKind,
   DataLocation,
   Expression,
   FunctionCall,
   FunctionCallKind,
   FunctionDefinition,
   Identifier,
+  IdentifierPath,
   isInstanceOf,
+  LatestCompilerVersion,
   SourceUnit,
+  staticNodeFactory,
+  UserDefinedValueTypeDefinition,
   YulExpression,
   YulIdentifier
 } from "solc-typed-ast";
@@ -20,10 +26,12 @@ import {
   FunctionType,
   StructType,
   TupleType,
-  TypeNode
+  TypeNode,
+  ValueType
 } from "../ast";
 import {
   CompileHelper,
+  findContractDefinition,
   findFunctionDefinition,
   FunctionAddition,
   getConstant,
@@ -39,15 +47,74 @@ const PointerLibraries = require("./PointerLibraries.json");
 
 export class CodegenContext {
   pendingFunctions: FunctionAddition[] = [];
+  contracts: ContractCodegenContext[] = [];
 
   constructor(public helper: CompileHelper, public decoderSourceUnitName: string) {
-    this.helper.addSourceUnit("PointerLibraries.sol", writeNestedStructure(PointerLibraries));
     this.helper.addSourceUnit(decoderSourceUnitName);
-    this.helper.addImport(decoderSourceUnitName, "PointerLibraries.sol");
+    const sourceUnit = this.sourceUnit;
+    if (sourceUnit.children.length === 0) {
+      const [, major, minor] = LatestCompilerVersion.split(".");
+      sourceUnit.insertAtBeginning(
+        staticNodeFactory.makePragmaDirective(sourceUnit.requiredContext, [
+          "solidity",
+          "^",
+          `0.${major}`,
+          `.${minor}`
+        ])
+      );
+    }
+  }
+
+  addPointerLibraries(): void {
+    this.helper.addSourceUnit("PointerLibraries.sol", writeNestedStructure(PointerLibraries));
+    this.helper.addImport(this.decoderSourceUnitName, "PointerLibraries.sol");
   }
 
   get decoderSourceUnit(): SourceUnit {
     return this.helper.getSourceUnit(this.decoderSourceUnitName);
+  }
+
+  get sourceUnit(): SourceUnit {
+    return this.decoderSourceUnit;
+  }
+
+  addValueTypeDefinition(name: string): UserDefinedValueTypeDefinition {
+    const existing = this.sourceUnit.vUserDefinedValueTypes.find((v) => v.name === name);
+    if (existing) return existing;
+    const type = staticNodeFactory.makeUserDefinedValueTypeDefinition(
+      this.sourceUnit.requiredContext,
+      name,
+      staticNodeFactory.makeTypeNameUint256(this.sourceUnit.requiredContext)
+    );
+    this.sourceUnit.appendChild(type);
+
+    return type;
+  }
+
+  addCustomTypeUsingForDirective(
+    name: string,
+    libraryName?: IdentifierPath,
+    functionList?: IdentifierPath[]
+  ): void {
+    const type = this.sourceUnit
+      .getChildrenByType(UserDefinedValueTypeDefinition)
+      .find((child) => child.name === name);
+    assert(type !== undefined, `Type ${name} not found`);
+    const typeName = staticNodeFactory.makeUserDefinedTypeName(
+      this.sourceUnit.requiredContext,
+      type.name,
+      type.name,
+      type.id,
+      staticNodeFactory.makeIdentifierPath(this.sourceUnit.requiredContext, name, type.id)
+    );
+    const usingFor = staticNodeFactory.makeUsingForDirective(
+      this.sourceUnit.requiredContext,
+      true,
+      libraryName,
+      functionList,
+      typeName
+    );
+    this.sourceUnit.insertAfter(usingFor, type);
   }
 
   getConstant(name: string, value: number | string): Identifier {
@@ -82,8 +149,114 @@ export class CodegenContext {
     }
     return name;
   }
+
+  hasContract(name: string): boolean {
+    return Boolean(findContractDefinition(this.sourceUnit, name));
+  }
+
+  addContract(name: string, kind: ContractKind): ContractCodegenContext {
+    let contract = this.contracts.find((c) => c.name === name);
+    if (!contract) {
+      contract = new ContractCodegenContext(this, name, kind);
+      this.contracts.push(contract);
+    }
+    return contract;
+  }
+
+  applyPendingContracts(): void {
+    const contractFunctions: Array<{
+      contractName: string;
+      _functions: FunctionAddition[] | FunctionAddition;
+    }> = [];
+    for (const contract of this.contracts) {
+      const _functions = contract.pendingFunctions;
+      if (_functions.length === 0) continue;
+      contractFunctions.push({
+        contractName: contract.name,
+        _functions
+      });
+      contract.pendingFunctions = [];
+    }
+    if (contractFunctions.length === 0) return;
+    this.helper.updateMultipleContracts(this.decoderSourceUnitName, contractFunctions);
+  }
 }
-const PointerRoundUp32Mask = `0xffffe0`;
+
+export class ContractCodegenContext {
+  pendingFunctions: FunctionAddition[] = [];
+  contract: ContractDefinition;
+
+  constructor(
+    public sourceUnitContext: CodegenContext,
+    public name: string,
+    public kind: ContractKind
+  ) {
+    const sourceUnit = sourceUnitContext.decoderSourceUnit;
+    let contract: ContractDefinition | undefined = findContractDefinition(sourceUnit, name);
+    if (contract === undefined) {
+      contract = staticNodeFactory.makeContractDefinition(
+        sourceUnit.requiredContext,
+        name,
+        sourceUnit.id,
+        kind,
+        false,
+        true,
+        [],
+        []
+      );
+      sourceUnit.appendChild(contract);
+    }
+    this.contract = contract;
+  }
+
+  get helper(): CompileHelper {
+    return this.sourceUnitContext.helper;
+  }
+
+  get sourceUnit(): SourceUnit {
+    return this.sourceUnitContext.decoderSourceUnit;
+  }
+
+  get sourceUnitName(): string {
+    return this.sourceUnitContext.decoderSourceUnitName;
+  }
+
+  addConstant(name: string, value: number | string): string {
+    return this.getConstant(name, value).name;
+  }
+
+  getConstant(name: string, value: number | string): Identifier {
+    return getConstant(this.contract, name, value);
+  }
+
+  getYulConstant(name: string, value: number | string): YulIdentifier {
+    return getYulConstant(this.contract, name, value);
+  }
+
+  hasFunction(name: string): boolean {
+    return Boolean(findFunctionDefinition(this.contract, name));
+  }
+
+  applyPendingFunctions(): void {
+    this.sourceUnitContext.applyPendingFunctions();
+    const fns = this.pendingFunctions;
+    if (fns.length === 0) return;
+    this.helper.addFunctionsToContract(this.sourceUnitName, this.contract.name, fns);
+    this.pendingFunctions = [];
+  }
+
+  addFunction(name: string, code: StructuredText, applyImmediately?: boolean): string {
+    if (!this.pendingFunctions.find((fn) => fn.name === name)) {
+      this.pendingFunctions.push({ code: writeNestedStructure(code), name });
+    }
+    if (applyImmediately) {
+      this.applyPendingFunctions();
+    }
+    return name;
+  }
+}
+
+const PointerRoundUp32Mask = `0xffffffe0`;
 
 export function roundUpAdd32(ctx: CodegenContext, value: string, asm?: boolean): string;
 export function roundUpAdd32(ctx: SourceUnit, value: YulExpression, asm?: boolean): YulExpression;
@@ -105,6 +278,15 @@ export function roundUpAdd32(
   throw Error(`Unsupported input types`);
 }
 
+export function getMaxValueConstant(ctx: CodegenContext, type: ValueType): string {
+  const max = type.max();
+  assert(
+    max !== undefined,
+    `Can not create mask for type ${type.identifier} with undefined maximum`
+  );
+  return ctx.addConstant(`Max${type.pascalCaseName}`, toHex(max));
+}
+
 export function getCalldataDecodingFunction(
   fnName: string,
   inPtr: string,
@@ -113,6 +295,19 @@ export function getCalldataDecodingFunction(
 ): StructuredText[] {
   return [
     `function ${fnName}(CalldataPointer ${inPtr}) pure returns (MemoryPointer ${outPtr}) {`,
+    body,
+    `}`
+  ];
+}
+
+export function getEncodingFunction(
+  fnName: string,
+  inPtr: string,
+  outPtr: string,
+  body: StructuredText[]
+): StructuredText[] {
+  return [
+    `function ${fnName}(MemoryPointer ${inPtr}, MemoryPointer ${outPtr}) pure returns (uint256 size) {`,
     body,
     `}`
   ];
@@ -177,7 +372,7 @@ export function getSequentiallyCopyableSegments(struct: StructType): TypeNode[][
       endSegment();
     }
   }
-  return segments;
+  return segments.filter((s) => s.length);
 }
 
 function convertToTuple(node: ArrayType) {
