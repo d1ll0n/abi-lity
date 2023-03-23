@@ -28,6 +28,12 @@ export class StructType extends TupleLikeType {
     return this.name;
   }
 
+  signatureInExternalFunction(_structsByName: boolean): string {
+    if (_structsByName) return this.name;
+    const memberTypeStrings = this.children.map((c) => c.signatureInExternalFunction(false));
+    return "(" + memberTypeStrings.join(",") + ")";
+  }
+
   pp(): string {
     const memberTypeStrings = this.children.map(
       (c, i) => `  ` + [c.canonicalName, c.labelFromParent].filter(Boolean).join(" ") + ";"
