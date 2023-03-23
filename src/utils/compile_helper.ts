@@ -19,13 +19,14 @@ import {
   WasmCompiler,
   PrettyFormatter,
   SourceUnit,
-  staticNodeFactory
+  staticNodeFactory,
+  ContractDefinition
 } from "solc-typed-ast";
 import { JsonFragment } from "@ethersproject/abi";
 import path from "path";
 import { writeFileSync } from "fs";
-import { coerceArray, writeNestedStructure } from "./text";
-import { addImports, findFunctionDefinition } from "./solc_ast_utils";
+import { coerceArray, StructuredText, writeNestedStructure } from "./text";
+import { addImports, findContractDefinition, findFunctionDefinition } from "./solc_ast_utils";
 import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
 
 function compile(
@@ -78,6 +79,11 @@ export type ContractOutput = {
 export type FunctionAddition = {
   code: string;
   name: string;
+};
+
+export type ContractAddition = {
+  name: string;
+  code: string[];
 };
 
 export class CompileHelper {
@@ -186,12 +192,126 @@ export class CompileHelper {
     return sourceUnit;
   }
 
+  updateMultipleContracts(
+    sourceUnit: string,
+    contractAdditions: Array<{
+      contractName: string;
+      _functions: FunctionAddition[] | FunctionAddition;
+    }>
+  ): void {
+    const oldSource = this.getSourceUnit(sourceUnit);
+    const addedCode: StructuredText[] = [];
+    const contractsToDelete: string[] = [];
+    const newContractFunctions: Record<string, string[]> = {};
+    for (const { contractName, _functions } of contractAdditions) {
+      const functions = coerceArray(_functions);
+      const oldContract = findContractDefinition(oldSource, contractName);
+      assert(oldContract !== undefined, `Contract ${contractName} not found in ${sourceUnit}`);
+      // Identify functions which do not already exist in the contract
+      const uniqueFunctions = functions.filter(
+        ({ name }) => findFunctionDefinition(oldContract, name) === undefined
+      );
+      if (uniqueFunctions.length === 0) {
+        continue;
+      }
+      // Get the new function code
+      const newFunctionCode = uniqueFunctions.map((fn) => fn.code).join("\n");
+      // Write the contract with the added functions
+      let contractCode = this.writer.write(oldContract);
+      // contractCode.slice(0, contractCode.lastIndexOf("}")).concat(newFunctionCode).concat("")
+      contractCode = writeNestedStructure([
+        contractCode.slice(0, contractCode.lastIndexOf("}")),
+        newFunctionCode,
+        "}"
+      ]);
+      addedCode.push(contractCode);
+      contractsToDelete.push(contractName);
+      newContractFunctions[contractName] = uniqueFunctions.map((fn) => fn.name);
+    }
+    // Function that removes the contract definition from the source unit copy prior to compiling in context
+    const mutate = (source: SourceUnit) => {
+      for (const contractName of contractsToDelete) {
+        source.removeChild(findContractDefinition(source, contractName) as ContractDefinition);
+      }
+    };
+    const newSource = this.compileCodeInContext(
+      sourceUnit,
+      writeNestedStructure(addedCode),
+      mutate
+    );
+    for (const contractName of contractsToDelete) {
+      const newContract = findContractDefinition(newSource, contractName);
+      if (!newContract) {
+        throw Error(`Contract ${contractName} not found in ${sourceUnit}`);
+      }
+      const newFunctions = newContractFunctions[contractName] as string[];
+      newFunctions.forEach((name, i) => {
+        const fnDefinition = findFunctionDefinition(newContract, name);
+        assert(fnDefinition !== undefined, `${name} not found in compiled contract`);
+        const oldContract = findContractDefinition(oldSource, contractName) as ContractDefinition;
+        oldContract.appendChild(fnDefinition);
+      });
+    }
+  }
+
+  addFunctionsToContract(
+    sourceUnit: string,
+    contractName: string,
+    _functions: FunctionAddition | FunctionAddition[]
+  ): FunctionDefinition[] {
+    const functions = coerceArray(_functions);
+    const oldSource = this.getSourceUnit(sourceUnit);
+    const oldContract = findContractDefinition(oldSource, contractName);
+    if (!oldContract) {
+      throw Error(`Contract ${contractName} not found in ${sourceUnit}`);
+    }
+    // Identify functions which do not already exist in the contract
+    const functionDefinitions = functions.map(({ name }) =>
+      findFunctionDefinition(oldContract, name)
+    );
+    const uniqueFunctions = functions.filter((fn, i) => functionDefinitions[i] === undefined);
+    if (uniqueFunctions.length === 0) {
+      return functionDefinitions as FunctionDefinition[];
+    }
+    // Get the new function code
+    const newFunctionCode = uniqueFunctions.map((fn) => fn.code).join("\n");
+    // Write the contract with the added functions
+    let contractCode = this.writer.write(oldContract);
+    // contractCode.slice(0, contractCode.lastIndexOf("}")).concat(newFunctionCode).concat("")
+    contractCode = writeNestedStructure([
+      contractCode.slice(0, contractCode.lastIndexOf("}")),
+      newFunctionCode,
+      "}"
+    ]);
+    // Function that removes the contract definition from the source unit copy prior to compiling in context
+    const mutate = (source: SourceUnit) => {
+      source.removeChild(findContractDefinition(source, contractName) as ContractDefinition);
+    };
+    const newSource = this.compileCodeInContext(sourceUnit, contractCode, mutate);
+    const newContract = findContractDefinition(newSource, contractName);
+    if (!newContract) {
+      throw Error(`Contract ${contractName} not found in ${sourceUnit}`);
+    }
+    functionDefinitions.forEach((fnDefinition, i) => {
+      if (fnDefinition) return;
+      const { name } = functions[i];
+      fnDefinition = findFunctionDefinition(newContract, name);
+      if (!fnDefinition) {
+        throw Error(`${name} not found in compiled contract`);
+      }
+      oldContract.appendChild(fnDefinition);
+      functionDefinitions[i] = fnDefinition;
+    });
+    return functionDefinitions as FunctionDefinition[];
+  }
+
   addFunctionCode(
     sourceUnit: string,
     _functions: FunctionAddition | FunctionAddition[]
   ): FunctionDefinition[] {
     const functions = coerceArray(_functions);
     const oldSource = this.getSourceUnit(sourceUnit);
+    // Identify functions which do not already exist in the source unit
     const functionDefinitions = functions.map(({ name }) =>
       findFunctionDefinition(oldSource, name)
     );
@@ -288,9 +408,18 @@ export class CompileHelper {
     this.update(compileResult);
   }
 
-  compileCodeInContext(sourceUnitName: string, code: string): SourceUnit {
+  compileCodeInContext(
+    sourceUnitName: string,
+    code: string,
+    mutateSourceUnit?: (source: SourceUnit) => void
+  ): SourceUnit {
+    const factory = new ASTNodeFactory(this.context);
     const files = this.getFiles();
-    const currentSourceUnit = this.getSourceUnit(sourceUnitName);
+    let currentSourceUnit = this.getSourceUnit(sourceUnitName);
+    if (mutateSourceUnit) {
+      currentSourceUnit = factory.copy(currentSourceUnit);
+      mutateSourceUnit(currentSourceUnit);
+    }
     const updatedSource = writeNestedStructure([this.writer.write(currentSourceUnit), code]);
     files.set(currentSourceUnit.absolutePath, updatedSource);
     const resolvedFileNames = new Map<string, string>();
@@ -304,7 +433,6 @@ export class CompileHelper {
     );
     const reader = new ASTReader();
     const sourceUnits = reader.read(compileResult);
-    const factory = new ASTNodeFactory(this.context);
     const sourceUnit = sourceUnits.find(
       (unit) => unit.absolutePath === currentSourceUnit.absolutePath
     );
