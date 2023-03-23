@@ -1,5 +1,5 @@
 import path from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, fstatSync, lstatSync, mkdirSync, readdirSync } from "fs";
 
 export function getCommonBasePath(_paths: string[]): string | undefined {
   const paths = _paths.map((s) => path.parse(s).dir);
@@ -44,4 +44,23 @@ export const getRelativePath = (from: string, to: string): string => {
   let relative = path.relative(from, to);
   if (!relative.startsWith("../")) relative = `./${relative}`;
   return relative;
+};
+
+export const isDirectory = (_path: string): boolean => lstatSync(_path).isDirectory();
+
+export const getAllFilesInDirectory = (_path: string, ext?: string): string[] => {
+  const children = readdirSync(_path);
+  const files: string[] = [];
+  children.forEach((child) => {
+    const filePath = path.join(_path, child);
+    if (isDirectory(filePath)) {
+      const subChildren = getAllFilesInDirectory(filePath, ext).map((file) =>
+        path.join(filePath, file)
+      );
+      files.push(...subChildren);
+    } else if (ext === path.extname(filePath)) {
+      files.push(filePath);
+    }
+  });
+  return files.map((file) => getRelativePath(_path, file));
 };
