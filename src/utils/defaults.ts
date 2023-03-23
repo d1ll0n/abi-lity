@@ -33,17 +33,18 @@ function getDefaultForValueType(type: ValueType, i: number): DefaultValue {
   }
   if (type instanceof IntegerType) {
     const positive = !type.signed || i % 2;
-    return bigIntToHex(
-      bufferToBigInt(
-        Buffer.from(
-          i
-            .toString(16)
-            .padStart(type.nBits / 4, "0")
-            .slice(0, type.nBits / 4),
-          "hex"
-        )
-      ) * BigInt(positive ? 1 : -1)
+    const bi = bufferToBigInt(
+      Buffer.from(
+        i
+          .toString(16)
+          .padStart(type.exactBits / 4, "0")
+          .slice(0, type.exactBits / 4),
+        "hex"
+      )
     );
+    const hex = bigIntToHex(bi);
+    const prefix = positive ? "" : "-";
+    return `${prefix}${hex}`;
   }
   throw Error(`Unrecognized type ${type.kind}`);
 }
@@ -77,6 +78,7 @@ export function getDefaultForReferenceType(type: ReferenceType, i?: number): Def
 export function getDefaultForType(type: TypeNode, i?: number): DefaultValue {
   if (type instanceof ValueType) {
     if (type instanceof FunctionType) {
+      if (!type.parameters) return [];
       return getDefaultForType(type.parameters as TupleType, i);
     }
     return getDefaultForValueType(type, i ?? 0);
