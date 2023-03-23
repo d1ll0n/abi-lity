@@ -1,6 +1,6 @@
 import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../constants";
-import { sumOrUndefined } from "../utils";
+import { sumOrUndefined } from "../utils/array";
 import { Node, NodeSelector } from "./node";
 
 export abstract class TypeNode extends Node<TypeNode> {
@@ -178,7 +178,10 @@ export abstract class TypeNode extends Node<TypeNode> {
   abstract canonicalName: string;
 
   get pascalCaseName(): string {
-    return this.identifier[0].toUpperCase().concat(this.identifier.slice(1));
+    const identifier = this.identifier.replace(/(_\w)/g, (m) => {
+      return m[1].toUpperCase();
+    });
+    return identifier[0].toUpperCase().concat(identifier.slice(1));
   }
 
   get identifier(): string {

@@ -22,3 +22,6 @@ export const getInclusiveRangeWith = <T>(
   if (start < 0) return [];
   return array.slice(start, end + 1);
 };
+
+export const sumOrUndefined = (arr: Array<number | undefined>): number | undefined =>
+  arr.reduce((sum, n) => (sum === undefined || n === undefined ? undefined : sum + n), 0);
