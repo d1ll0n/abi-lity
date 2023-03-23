@@ -41,4 +41,12 @@ export class EnumType extends ValueType {
     const memberTypeStrings = this.members.join(", ");
     return [`enum ${this.name} { `, memberTypeStrings, " }"].join(" ");
   }
+
+  min(): bigint {
+    return 0n;
+  }
+
+  max(): bigint {
+    return BigInt(this.members.length - 1);
+  }
 }

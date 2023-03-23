@@ -24,5 +24,13 @@ export class FixedBytesType extends ValueType {
     return `bytes${this.size}`;
   }
 
+  min(): bigint {
+    return 0n;
+  }
+
+  max(): bigint {
+    return 2n ** BigInt(this.exactBits) - 1n;
+  }
+
   encodingType = undefined;
 }

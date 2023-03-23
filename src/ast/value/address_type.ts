@@ -12,4 +12,12 @@ export class AddressType extends ValueType {
   copy(): AddressType {
     return new AddressType();
   }
+
+  min(): bigint {
+    return 0n;
+  }
+
+  max(): bigint {
+    return 2n ** 160n - 1n;
+  }
 }

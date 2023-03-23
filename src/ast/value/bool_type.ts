@@ -11,4 +11,12 @@ export class BoolType extends ValueType {
   copy(): BoolType {
     return new BoolType();
   }
+
+  min(): bigint {
+    return 0n;
+  }
+
+  max(): bigint {
+    return 1n;
+  }
 }
