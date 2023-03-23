@@ -1,8 +1,16 @@
 import { TextDecoder, TextEncoder } from "util";
+import { getAddress } from "@ethersproject/address";
 
 export const toHex = (n: number | bigint): string => {
-  const bytes = n.toString(16);
-  return `0x${"0".repeat(bytes.length % 2)}${bytes}`;
+  let bytes = n.toString(16);
+  bytes = `0x${"0".repeat(bytes.length % 2)}${bytes}`;
+  // Any hex value with 20 bytes and which contains letters is interpreted
+  // as an address by Solidity and will cause a compiler error if it is not
+  // in checksum format.
+  if (bytes.length === 42) {
+    return getAddress(bytes);
+  }
+  return bytes;
 };
 
 export const isZero = (n?: number | bigint | string): boolean =>
@@ -10,7 +18,7 @@ export const isZero = (n?: number | bigint | string): boolean =>
 
 export const BI_ONE = BigInt(1);
 export const BI_TWO = BigInt(2);
-export const maxUint = (bits: number): bigint => BI_TWO ** BigInt(bits) - BI_ONE;
+export const maxUint = (bits: number): bigint => 2n ** BigInt(bits) - 1n;
 
 export const getMaxUint = (bits: number): string =>
   `0x${maxUint(bits).toString(16).padStart(64, "0")}`;
@@ -24,10 +32,10 @@ const getOmitMask = (offset: number, size: number) => {
 };
 
 export const getOmissionMask = (bitsBefore: number, size: number): string => {
-  return `0x${getOmitMask(bitsBefore, size).toString(16).padStart(64, "0")}`;
+  return toHex(getOmitMask(bitsBefore, size));
 };
 
-export const getInclusionMask = (bits: number): string => `0x${maxUint(bits).toString(16)}`;
+export const getInclusionMask = (bits: number): string => toHex(maxUint(bits));
 
 export const bitsRequired = (n: number, roundUp?: boolean): number => {
   const a = Math.ceil(Math.log2(n + 1));
