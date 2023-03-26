@@ -1,5 +1,6 @@
 import { AddressType } from "./address_type";
 import { BoolType } from "./bool_type";
+import { ContractType } from "./contract_type";
 import { EnumType } from "./enum_type";
 import { FixedBytesType } from "./fixed_bytes_type";
 import { IntegerType } from "./integer_type";
@@ -13,5 +14,12 @@ export * from "./value_type";
 export * from "./function_type";
 export * from "./error_type";
 export * from "./event_type";
+export * from "./contract_type";
 
-export type UValueType = AddressType | BoolType | FixedBytesType | IntegerType | EnumType;
+export type UValueType =
+  | AddressType
+  | ContractType
+  | BoolType
+  | FixedBytesType
+  | IntegerType
+  | EnumType;

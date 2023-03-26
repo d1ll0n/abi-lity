@@ -2,6 +2,7 @@ import {
   ArrayTypeName,
   assert,
   ASTSearch,
+  ContractDefinition,
   ElementaryTypeName,
   EnumDefinition,
   ErrorDefinition,
@@ -24,7 +25,8 @@ import {
   StructType,
   TupleType,
   TypeNode,
-  ASTContext
+  ASTContext,
+  ContractType
 } from "../ast";
 import { elementaryTypeStringToTypeNode } from "./elementary";
 import { TypeNodeReaderResult } from "./types";
@@ -66,6 +68,9 @@ export function typeNameToTypeNode(astT: TypeName): TypeNode {
     }
     if (def instanceof EnumDefinition) {
       return enumDefinitionToTypeNode(def);
+    }
+    if (def instanceof ContractDefinition) {
+      return new ContractType(def.name);
     }
 
     throw new Error(`NYI typechecking of user-defined type ${def.print()}`);
