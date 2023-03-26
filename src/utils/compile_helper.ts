@@ -20,7 +20,8 @@ import {
   PrettyFormatter,
   SourceUnit,
   staticNodeFactory,
-  ContractDefinition
+  ContractDefinition,
+  ASTKind
 } from "solc-typed-ast";
 import { JsonFragment } from "@ethersproject/abi";
 import path from "path";
@@ -28,6 +29,7 @@ import { writeFileSync } from "fs";
 import { coerceArray, StructuredText, writeNestedStructure } from "./text";
 import { addImports, findContractDefinition, findFunctionDefinition } from "./solc_ast_utils";
 import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
+import { getForgeRemappings } from "./forge_remappings";
 
 function compile(
   compiler: WasmCompiler,
@@ -39,6 +41,7 @@ function compile(
   const data = compileSync(compiler, files, remapping, compilationOutput, compilerSettings);
   const errors = detectCompileErrors(data);
   if (errors.length === 0) {
+    Object.assign(data, { files });
     return data;
   }
   throw new CompileFailedError([{ compilerVersion: compiler.version, errors }]);
@@ -53,19 +56,45 @@ const compilerOutputs = [
   "ir" as any
 ];
 
-export const compilerOptions = {
-  viaIR: true,
-  metadata: {
-    bytecodeHash: "none"
-  }
+export type UserCompilerOptions = {
+  metadata?: boolean;
+  viaIR?: boolean;
+  optimizer?: boolean;
+  runs?: number | "max";
 };
 
-export const optimizedCompilerOptions = {
+export type CompilerOptions = {
+  metadata?: { bytecodeHash: "none" };
+  viaIR?: boolean;
+  optimizer?: {
+    enabled?: boolean;
+    runs?: number;
+  };
+  runs?: number | "max";
+};
+
+function parseCompilerOptions(options: UserCompilerOptions): CompilerOptions {
+  const { metadata, viaIR, optimizer, runs } = options;
+  const opts: CompilerOptions = {
+    viaIR,
+    optimizer: {
+      enabled: optimizer || runs !== undefined,
+      runs: runs === "max" ? 4_294_967_295 : runs
+    }
+  };
+  if (!metadata) opts.metadata = { bytecodeHash: "none" };
+  return opts;
+}
+
+export const compilerOptions: UserCompilerOptions = {
+  viaIR: true,
+  metadata: false
+};
+
+export const optimizedCompilerOptions: UserCompilerOptions = {
   ...compilerOptions,
-  optimizer: {
-    enabled: true,
-    runs: 200
-  }
+  optimizer: true,
+  runs: 200
 };
 
 export type ContractOutput = {
@@ -173,7 +202,8 @@ export class CompileHelper {
   addSourceUnit(name: string, code?: string): SourceUnit {
     let sourceUnit = this.findSourceUnit(name);
     if (!sourceUnit) {
-      const absolutePath = this.basePath ? path.join(this.basePath, name) : name;
+      const absolutePath =
+        this.basePath && !path.isAbsolute(name) ? path.join(this.basePath, name) : name;
       sourceUnit = staticNodeFactory.makeSourceUnit(
         this.context,
         name,
@@ -369,7 +399,7 @@ export class CompileHelper {
 
   update(compileResult: any): void {
     const reader = new ASTReader();
-    this.sourceUnits = reader.read(compileResult);
+    this.sourceUnits = reader.read(compileResult, ASTKind.Modern, compileResult.files);
     this.contractsMap = new Map<string, ContractOutput>();
     this.fileContractsMap = new Map<string, string[]>();
 
@@ -394,17 +424,16 @@ export class CompileHelper {
     }
   }
 
-  recompile(optimize?: boolean): void {
+  recompile(optimize?: boolean, optionOverrides?: UserCompilerOptions): void {
     const files = this.getFiles();
     const resolvedFileNames = new Map<string, string>();
     findAllFiles(files, resolvedFileNames, [], []);
-    const compileResult = compile(
-      this.compiler,
-      files,
-      [],
-      compilerOutputs,
-      optimize ? optimizedCompilerOptions : compilerOptions
-    );
+    const defaultOptions = optimize ? optimizedCompilerOptions : compilerOptions;
+    const options = parseCompilerOptions({
+      ...defaultOptions,
+      ...optionOverrides
+    });
+    const compileResult = compile(this.compiler, files, [], compilerOutputs, options);
     this.update(compileResult);
   }
 
@@ -429,10 +458,10 @@ export class CompileHelper {
       files,
       [],
       [CompilationOutput.AST],
-      compilerOptions
+      parseCompilerOptions(compilerOptions)
     );
     const reader = new ASTReader();
-    const sourceUnits = reader.read(compileResult);
+    const sourceUnits = reader.read(compileResult, ASTKind.Modern, compileResult.files);
     const sourceUnit = sourceUnits.find(
       (unit) => unit.absolutePath === currentSourceUnit.absolutePath
     );
@@ -463,11 +492,14 @@ export class CompileHelper {
     return new CompileHelper(compiler, compileResult, basePath);
   }
 
+  _files?: Map<string, string>;
+
   static async fromFileSystem(
     version = LatestCompilerVersion,
     fileNames: string | string[],
     basePath?: string,
-    optimize?: boolean
+    optimize?: boolean,
+    optionOverrides?: UserCompilerOptions
   ): Promise<CompileHelper> {
     fileNames = coerceArray(fileNames);
     const includePath: string[] = [];
@@ -478,9 +510,11 @@ export class CompileHelper {
         parent = path.dirname(parent);
       }
     }
+
     const { files, remapping } = getFilesAndRemappings(fileNames, {
       basePath,
-      includePath
+      includePath,
+      remapping: getForgeRemappings(basePath as string)
     });
     const filePaths = [...files.keys()];
     if (
@@ -492,25 +526,28 @@ export class CompileHelper {
       const commonPath = getCommonBasePath(filePaths);
       basePath = commonPath ? path.normalize(commonPath) : basePath;
     }
+    console.log(basePath);
 
     const compiler = await getCompilerForVersion(version, CompilerKind.WASM);
     if (!(compiler instanceof WasmCompiler)) {
       throw Error(`WasmCompiler not found for ${version}`);
     }
-    const compileResult = compile(
-      compiler,
-      files,
-      remapping,
-      compilerOutputs,
-      optimize ? optimizedCompilerOptions : compilerOptions
-    );
-    return new CompileHelper(compiler, compileResult, basePath);
+    const defaultOptions = optimize ? optimizedCompilerOptions : compilerOptions;
+    const options = parseCompilerOptions({
+      ...defaultOptions,
+      ...optionOverrides
+    });
+    const compileResult = compile(compiler, files, remapping, compilerOutputs, options);
+    const helper = new CompileHelper(compiler, compileResult, basePath, options);
+    helper._files = files;
+    return helper;
   }
 
   constructor(
     public compiler: WasmCompiler,
     public compileResult: any,
-    private _basePath?: string
+    private _basePath?: string,
+    public compilerOptions?: CompilerOptions
   ) {
     this.update(compileResult);
     this.resolver = new FileSystemResolver(this.basePath);
