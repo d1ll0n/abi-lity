@@ -21,7 +21,9 @@ import {
   SourceUnit,
   staticNodeFactory,
   ContractDefinition,
-  ASTKind
+  ASTKind,
+  NativeCompiler,
+  parsePathRemapping
 } from "solc-typed-ast";
 import { JsonFragment } from "@ethersproject/abi";
 import path from "path";
@@ -32,7 +34,7 @@ import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
 import { getForgeRemappings } from "./forge_remappings";
 
 function compile(
-  compiler: WasmCompiler,
+  compiler: WasmCompiler | NativeCompiler,
   files: Map<string, string>,
   remapping: string[],
   compilationOutput: CompilationOutput[] = compilerOutputs,
@@ -78,7 +80,7 @@ function parseCompilerOptions(options: UserCompilerOptions): CompilerOptions {
   const opts: CompilerOptions = {
     viaIR,
     optimizer: {
-      enabled: optimizer || runs !== undefined,
+      enabled: optimizer || Boolean(runs),
       runs: runs === "max" ? 4_294_967_295 : runs
     }
   };
@@ -202,6 +204,8 @@ export class CompileHelper {
   addSourceUnit(name: string, code?: string): SourceUnit {
     let sourceUnit = this.findSourceUnit(name);
     if (!sourceUnit) {
+      // If `basePath` is defined and the provided source name is not absolute,
+      // resolve it relative to the base path.
       const absolutePath =
         this.basePath && !path.isAbsolute(name) ? path.join(this.basePath, name) : name;
       sourceUnit = staticNodeFactory.makeSourceUnit(
@@ -410,11 +414,13 @@ export class CompileHelper {
         const fileContracts = contracts[fileName];
         const contractNames = Object.keys(fileContracts);
         this.fileContractsMap.set(fileName, contractNames);
-        for (const contractName of contractNames) {
-          if (this.contractsMap.has(contractName)) {
-            throw Error(`Duplicate contract name ${contractName}`);
-          }
+        for (let contractName of contractNames) {
           const contract = fileContracts[contractName];
+          if (this.contractsMap.has(contractName)) {
+            // throw Error(`Duplicate contract name ${contractName}`);
+            console.log(`Duplicate contract name ${contractName}`);
+            contractName = `${fileName}:${contractName}`;
+          }
           const { ir, irOptimized, abi } = contract;
           const creationCode = contract.evm?.bytecode?.object ?? "";
           const runtimeCode = contract.evm?.deployedBytecode?.object ?? "";
@@ -433,7 +439,13 @@ export class CompileHelper {
       ...defaultOptions,
       ...optionOverrides
     });
-    const compileResult = compile(this.compiler, files, [], compilerOutputs, options);
+    const compileResult = compile(
+      this.compiler,
+      files,
+      this.remapping ?? [],
+      compilerOutputs,
+      options
+    );
     this.update(compileResult);
   }
 
@@ -452,11 +464,11 @@ export class CompileHelper {
     const updatedSource = writeNestedStructure([this.writer.write(currentSourceUnit), code]);
     files.set(currentSourceUnit.absolutePath, updatedSource);
     const resolvedFileNames = new Map<string, string>();
-    findAllFiles(files, resolvedFileNames, [], []);
+    findAllFiles(files, resolvedFileNames, parsePathRemapping(this.remapping ?? []), []);
     const compileResult = compile(
       this.compiler,
       files,
-      [],
+      this.remapping ?? [],
       [CompilationOutput.AST],
       parseCompilerOptions(compilerOptions)
     );
@@ -511,10 +523,11 @@ export class CompileHelper {
       }
     }
 
-    const { files, remapping } = getFilesAndRemappings(fileNames, {
+    const remappings = getForgeRemappings(basePath as string);
+    const { files, remapping, resolvedFileNames } = getFilesAndRemappings(fileNames, {
       basePath,
       includePath,
-      remapping: getForgeRemappings(basePath as string)
+      remapping: remappings
     });
     const filePaths = [...files.keys()];
     if (
@@ -526,19 +539,19 @@ export class CompileHelper {
       const commonPath = getCommonBasePath(filePaths);
       basePath = commonPath ? path.normalize(commonPath) : basePath;
     }
-    console.log(basePath);
 
-    const compiler = await getCompilerForVersion(version, CompilerKind.WASM);
-    if (!(compiler instanceof WasmCompiler)) {
-      throw Error(`WasmCompiler not found for ${version}`);
-    }
+    const compiler = await getCompilerForVersion(version, CompilerKind.Native);
+    assert(compiler !== undefined, `Compiler not found for ${version}`);
+    // if (!(compiler instanceof WasmCompiler)) {
+    //   throw Error(`WasmCompiler not found for ${version}`);
+    // }
     const defaultOptions = optimize ? optimizedCompilerOptions : compilerOptions;
     const options = parseCompilerOptions({
       ...defaultOptions,
       ...optionOverrides
     });
     const compileResult = compile(compiler, files, remapping, compilerOutputs, options);
-    const helper = new CompileHelper(compiler, compileResult, basePath, options);
+    const helper = new CompileHelper(compiler, compileResult, basePath, options, remappings);
     helper._files = files;
     return helper;
   }
@@ -547,7 +560,8 @@ export class CompileHelper {
     public compiler: WasmCompiler,
     public compileResult: any,
     private _basePath?: string,
-    public compilerOptions?: CompilerOptions
+    public compilerOptions?: CompilerOptions,
+    public remapping?: string[]
   ) {
     this.update(compileResult);
     this.resolver = new FileSystemResolver(this.basePath);

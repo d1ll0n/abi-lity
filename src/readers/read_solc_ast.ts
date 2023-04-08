@@ -148,7 +148,7 @@ export function enumDefinitionToTypeNode(ast: EnumDefinition): EnumType {
 
 export function structDefinitionToTypeNode(ast: StructDefinition): StructType {
   const members = convertVariableDeclarations(ast.vMembers);
-  return new StructType(members, ast.name);
+  return new StructType(members, ast.name, ast.canonicalName);
 }
 
 export function eventDefinitionToTypeNode(ast: EventDefinition): EventType {

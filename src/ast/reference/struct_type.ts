@@ -5,10 +5,12 @@ import { TupleLikeType } from "./tuple_type";
 export class StructType extends TupleLikeType {
   readonly kind = ABITypeKind.Struct;
   name: string;
+  canonicalNameOverride?: string;
 
-  constructor(members: TypeNode[], name: string) {
+  constructor(members: TypeNode[], name: string, canonicalNameOverride?: string) {
     super(members);
     this.name = name;
+    this.canonicalNameOverride = canonicalNameOverride;
   }
 
   copy(): StructType {
@@ -25,7 +27,7 @@ export class StructType extends TupleLikeType {
   }
 
   get canonicalName(): string {
-    return this.name;
+    return this.canonicalNameOverride ?? this.name;
   }
 
   signatureInExternalFunction(_structsByName: boolean): string {

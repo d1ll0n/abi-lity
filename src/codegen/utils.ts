@@ -48,6 +48,7 @@ const PointerLibraries = require("./PointerLibraries.json");
 export class CodegenContext {
   pendingFunctions: FunctionAddition[] = [];
   contracts: ContractCodegenContext[] = [];
+  originalFiles: string[] = [];
 
   constructor(public helper: CompileHelper, public decoderSourceUnitName: string) {
     this.helper.addSourceUnit(decoderSourceUnitName);

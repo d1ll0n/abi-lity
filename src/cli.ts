@@ -1,38 +1,124 @@
 #!/usr/bin/env node
-import { writeFileSync } from "fs";
+import { JsonFragment } from "@ethersproject/abi";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
-import { ContractDefinition, FunctionDefinition, LatestCompilerVersion } from "solc-typed-ast";
-import yargs from "yargs";
-import { StructType, TupleType } from "./ast";
-import { isExternalFunction } from "./codegen";
-import { upgradeSourceCoders } from "./codegen/generate";
-import { cleanIR } from "./codegen/utils";
-import { functionDefinitionToTypeNode, readTypeNodesFromSolcAST } from "./readers";
-import { createCalldataCopiers, testCopiers } from "./test_utils";
 import {
+  ContractDefinition,
+  FunctionDefinition,
+  FunctionVisibility,
+  getFilesAndRemappings,
+  LatestCompilerVersion
+} from "solc-typed-ast";
+import yargs, { Options } from "yargs";
+import { FunctionType, StructType, TupleType } from "./ast";
+import { isExternalFunction } from "./codegen";
+import { addExternalWrappers, generateSerializers, upgradeSourceCoders } from "./codegen/generate";
+import { cleanIR } from "./codegen/utils";
+import {
+  functionDefinitionToTypeNode,
+  readTypeNodesFromABI,
+  readTypeNodesFromSolcAST,
+  readTypeNodesFromSolidity
+} from "./readers";
+import { createCalldataCopiers, testCopiers } from "./test_utils";
+import { getAllContractDeployments, testDeployments } from "./test_utils/compare_contracts";
+import { toCommentTable } from "./test_utils/logs";
+import {
+  coerceArray,
   CompileHelper,
   DebugLogger,
+  getAllFilesInDirectory,
   getCommonBasePath,
   getRelativePath,
+  isDirectory,
   mkdirIfNotExists,
   optimizedCompilerOptions,
   StructuredText,
+  UserCompilerOptions,
   writeFilesTo,
   writeNestedStructure
 } from "./utils";
 
-async function handlePathArgs({ input, output }: { input: string; output?: string }) {
-  if (!path.isAbsolute(input) || path.extname(input) !== ".sol") {
+function resolveFiles(input: string, allowDirectory?: boolean) {
+  if (
+    !path.isAbsolute(input) ||
+    (!allowDirectory && path.extname(input) !== ".sol") ||
+    !existsSync(input)
+  ) {
     throw Error(`${input} is not a Solidity file or was not found.`);
   }
-  let basePath = path.dirname(input);
-  let fileName = path.parse(input).base;
-  console.log(`compiling...`);
+  let fileName: string | string[];
+  let basePath: string;
+  if (allowDirectory && isDirectory(input)) {
+    fileName = getAllFilesInDirectory(input, ".sol"); //.map((f) => path.join(input, f));
+    console.log(fileName);
+    basePath = input;
+  } else {
+    fileName = path.parse(input).base;
+    basePath = path.dirname(input);
+  }
+  const fileNames = coerceArray(fileName);
+  const includePath: string[] = [];
+  if (basePath) {
+    let parent = path.dirname(basePath);
+    while (parent !== path.dirname(parent)) {
+      includePath.push(parent);
+      parent = path.dirname(parent);
+    }
+  }
+  const { files, remapping } = getFilesAndRemappings(fileNames, {
+    basePath,
+    includePath
+  });
+  const filePaths = [...files.keys()];
+  if (
+    basePath &&
+    filePaths.some(
+      (p) => path.isAbsolute(p) && path.relative(basePath as string, p).startsWith("..")
+    )
+  ) {
+    const commonPath = getCommonBasePath(filePaths);
+    basePath = commonPath ? path.normalize(commonPath) : basePath;
+  }
+  return {
+    fileName,
+    files,
+    remapping,
+    filePaths,
+    basePath
+  };
+}
+
+async function handlePathArgs(
+  { input, output }: { input: string; output?: string },
+  allowDirectory?: boolean,
+  optimize = true,
+  optionOverrides?: UserCompilerOptions
+) {
+  if (
+    !path.isAbsolute(input) ||
+    (!allowDirectory && path.extname(input) !== ".sol") ||
+    !existsSync(input)
+  ) {
+    throw Error(`${input} is not a Solidity file or was not found.`);
+  }
+
+  let fileName: string | string[];
+  let basePath: string;
+  if (allowDirectory && isDirectory(input)) {
+    fileName = getAllFilesInDirectory(input, ".sol");
+    basePath = input;
+  } else {
+    fileName = path.parse(input).base;
+    basePath = path.dirname(input);
+  }
+
   const helper = await CompileHelper.fromFileSystem(
     LatestCompilerVersion,
     fileName,
     basePath,
-    true
+    optimize,
+    optionOverrides
   );
 
   basePath = helper.basePath as string;
@@ -96,7 +182,6 @@ function printCodeSize(helper: CompileHelper, fileName: string) {
   } else {
     output.push(`${-diff} bytes over contract size limit`);
   }
-
   console.log(
     writeNestedStructure([
       `Contract: ${contract.name}`,
@@ -106,9 +191,9 @@ function printCodeSize(helper: CompileHelper, fileName: string) {
         [
           `Version: ${LatestCompilerVersion}`,
           `viaIR: true`,
-          `Optimizer ${optimizedCompilerOptions.optimizer.enabled ? "On" : "Off"}`,
-          ...(optimizedCompilerOptions.optimizer.enabled
-            ? [`Optimizer Runs: ${optimizedCompilerOptions.optimizer.runs}`]
+          `Optimizer ${helper.compilerOptions?.optimizer?.enabled ? "On" : "Off"}`,
+          ...(helper.compilerOptions?.optimizer?.enabled
+            ? [`Optimizer Runs: ${helper.compilerOptions?.optimizer?.runs}`]
             : [])
         ]
       ]
@@ -147,9 +232,15 @@ yargs
         describe: "Keep the constructor and sourcemap comments.",
         default: false,
         type: "boolean"
+      },
+      runs: {
+        alias: ["r"],
+        default: 200,
+        describe: "Optimizer runs. Either a number of 'max'"
       }
     },
-    async ({ input, output, unoptimized, verbose }) => {
+    async ({ input, output, unoptimized, verbose, runs: r }) => {
+      const runs = r as number | "max";
       if (!path.isAbsolute(input) || path.extname(input) !== ".sol") {
         throw Error(`${input} is not a Solidity file or was not found.`);
       }
@@ -163,7 +254,8 @@ yargs
         LatestCompilerVersion,
         fileName,
         basePath,
-        true
+        true,
+        { runs }
       );
       const contract = helper.getContractForFile(fileName);
       const { ir, irOptimized, name } = contract;
@@ -310,6 +402,89 @@ yargs
     }
   )
   .command(
+    "selectors <input> [name] [output]",
+    writeNestedStructure(["Generate function selectors for external functions in a contract"]),
+    {
+      input: {
+        alias: ["i"],
+        describe: "Input Solidity or JSON file.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      name: {
+        alias: ["n"],
+        describe: "Function name to print selector for",
+        type: "string",
+        demandOption: false
+      },
+      output: {
+        alias: ["o"],
+        describe: "Output directory, defaults to directory of input.",
+        demandOption: false,
+        coerce: path.resolve
+      }
+    },
+    async ({ input, output, name }) => {
+      let types: FunctionType[] = [];
+      if (path.extname(input).toLowerCase() === ".json") {
+        const data = require(input);
+        let abi: JsonFragment[];
+        if (Array.isArray(data)) {
+          abi = data;
+        } else if (data["abi"]) {
+          abi = data["abi"];
+        } else {
+          throw Error(
+            writeNestedStructure([
+              `ABI not found in ${input}`,
+              `JSON input file must be ABI or artifact with "abi" member.`
+            ])
+          );
+        }
+        types = readTypeNodesFromABI(abi).functions;
+      } else if (path.extname(input) === ".sol") {
+        const { files, fileName } = resolveFiles(input, false);
+        console.log({ fileName, input });
+        const filePaths = [...files.keys()];
+        filePaths.reverse();
+        const code = filePaths.map((p) => files.get(p) as string).join("\n\n");
+
+        types = readTypeNodesFromSolidity(code).functions;
+      } else {
+        throw Error(`Input file must be a .sol file or a JSON artifact or ABI file`);
+      }
+      types = types.filter(isExternalFunction);
+
+      const printFunctions = (functions: FunctionType[]) => {
+        const id = functions.length > 1 || name?.includes("(") ? "functionSignature" : "name";
+        const lines = functions.map((fn) => [fn.functionSelector, fn[id]]);
+        if (functions.length > 1) {
+          lines.unshift(["selector", id]);
+          console.log(toCommentTable(lines).join("\n"));
+        } else {
+          console.log(lines[0].join(" : "));
+        }
+      };
+      let foundFunctions: FunctionType[];
+      if (name) {
+        if (name.includes("(")) {
+          foundFunctions = types.filter((fn) => fn.functionSignature === name);
+        } else {
+          foundFunctions = types.filter((fn) => fn.name === name);
+        }
+        if (foundFunctions.length === 0) {
+          throw Error(`No function found for ${name}`);
+        }
+      } else {
+        foundFunctions = types;
+        if (foundFunctions.length === 0) {
+          throw Error(`No functions found`);
+        }
+      }
+      printFunctions(foundFunctions);
+    }
+  )
+  .command(
     "copy-test <input> [output]",
     writeNestedStructure([
       "Generate copy contract for types in a file as well as an optimized versions",
@@ -385,7 +560,129 @@ yargs
       }
     }
   )
-  .help("h")
+  .command(
+    "compare <input>",
+    writeNestedStructure([
+      "Compare gas and codesize of contracts with different implementations",
+      "of the same functions."
+    ]),
+    {
+      input: {
+        alias: ["i"],
+        describe: "Input Solidity or JSON file.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      ir: {
+        alias: ["y"],
+        describe: "Also generate irOptimized for contract.",
+        default: false,
+        type: "boolean"
+      }
+    },
+    async (args) => {
+      const { basePath, output, fileName, helper } = await handlePathArgs(args, true);
+      const deployments = await getAllContractDeployments(helper);
+      await testDeployments(deployments);
+    }
+  )
+  .command(
+    "wrappers <input> [output]",
+    writeNestedStructure(["Generate external wrappers for free/library functions in a file."]),
+    {
+      input: {
+        alias: ["i"],
+        describe: "Input Solidity file.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      output: {
+        alias: ["o"],
+        describe: "Output directory, defaults to directory of input.",
+        demandOption: false,
+        coerce: path.resolve
+      }
+    },
+    async (args) => {
+      const { basePath, output, fileName, helper } = await handlePathArgs(args);
+
+      const logger = new DebugLogger();
+      addExternalWrappers(helper, fileName, logger);
+
+      console.log(`writing files...`);
+      const files = helper.getFiles();
+      if (output === basePath /* && !decoderOnly */) {
+        const suffix = `ExternalFile.sol`;
+        const newFileName = fileName.replace(".sol", suffix);
+        renameFile(fileName, newFileName, files);
+      }
+      writeFilesTo(output, files);
+      console.log(`done!`);
+    }
+  )
+  .command(
+    "forge-json <input> [output]",
+    writeNestedStructure(["Generate JSON serializers for forge"]),
+    {
+      input: {
+        alias: ["i"],
+        describe: "Input Solidity file.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      output: {
+        alias: ["o"],
+        describe: "Output directory, defaults to directory of input.",
+        demandOption: true,
+        coerce: path.resolve
+      },
+      struct: {
+        alias: ["s"],
+        describe: "Struct to generate serializers for",
+        type: "array"
+      }
+    },
+    async (args) => {
+      const { basePath, output, fileName, helper } = await handlePathArgs(args, false, false, {
+        optimizer: false,
+        runs: 0,
+        viaIR: false
+      });
+      const logger = new DebugLogger();
+      mkdirIfNotExists(output);
+      const primaryFilePath = path.join(
+        output,
+        path.basename(fileName.replace(".sol", "Serializers.sol"))
+      );
+      generateSerializers(
+        helper,
+        fileName,
+        {
+          outPath: output,
+          functionSwitch: false,
+          decoderFileName: primaryFilePath
+        },
+        args.struct as string | string[],
+        logger
+      );
+      console.log(`writing serializer...`);
+      const files = helper.getFiles();
+      const newCode = writeNestedStructure([
+        `import { Vm } from "forge-std/Vm.sol";`,
+        "",
+        `address constant VM_ADDRESS = address(`,
+        [`uint160(uint256(keccak256("hevm cheat code")))`],
+        `);`,
+        `Vm constant vm = Vm(VM_ADDRESS);`
+      ]);
+      const code = files.get(primaryFilePath) as string;
+      files.clear();
+      files.set(primaryFilePath, code.replace(`import "./Temp___Vm.sol";`, newCode));
+      writeFilesTo(output, files);
+      console.log(`done!`);
+    }
+  )
+  // .help("h", true)
   .fail(function (msg, err) {
     if (msg) {
       console.error(msg);

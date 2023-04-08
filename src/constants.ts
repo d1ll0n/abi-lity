@@ -25,11 +25,11 @@ export enum ABITypeKind {
 export enum EncodingScheme {
   SolidityMemory,
   ABI,
-  PackedABI,
+  // PackedABI,
   SuperPacked
 }
 
-export declare enum InternalDataType {
+export enum InternalDataType {
   Storage = "StorageSlot",
   Memory = "MemoryPointer",
   Calldata = "CalldataPointer",

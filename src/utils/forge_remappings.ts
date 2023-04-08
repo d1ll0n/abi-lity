@@ -1,11 +1,31 @@
 import path from "path";
 import toml from "toml";
-import fs from "fs";
+import fs, { existsSync } from "fs";
+import { coerceArray, deepFindIn, getFilesAndRemappings } from "solc-typed-ast";
+import { getAllFilesInDirectory, getCommonBasePath, isDirectory } from "./path_utils";
 const findUpSync = require("findup-sync");
 
 function stripTrailingSlash(str: string): string {
   return str.replace(/\/*$/g, "");
 }
+
+export type ResolvedSolidityFiles = {
+  /** List of file names provided by the caller */
+  fileName: string | string[];
+  /**
+   * Map from file-names (either passed in by caller, or source unit names of imported files)
+   * to the contents of the respective files.
+   */
+  files: Map<string, string>;
+  /** List of filesystem remappings */
+  remapping: string[];
+  /** List of source names in `files`. Used to track original files. */
+  sourceNames: string[];
+  /** Map from source names in `files` to actual resolved paths on disk (if any). */
+  resolvedFileNames: Map<string, string>;
+  /** longest path shared by all sources */
+  basePath: string;
+};
 
 export function getForgeRemappings(currentDir: string): string[] {
   const remappings = new Map<string, string>();
@@ -14,9 +34,9 @@ export function getForgeRemappings(currentDir: string): string[] {
   const remappingsPath = findUpSync("remappings.txt", { cwd: currentDir });
 
   const foundryToml = toml.parse(fs.readFileSync(foundryPath, { encoding: "utf8" }));
-
-  if (foundryToml.remappings) {
-    foundryToml.remappings.map((r: string) => {
+  const [tomlRemappings] = deepFindIn(foundryToml, "remappings");
+  if (tomlRemappings) {
+    tomlRemappings.map((r: string) => {
       const remapping = r.split("=");
       if (remapping.length !== 2) return;
       const [alias, subpath] = remapping.map(stripTrailingSlash);
@@ -55,3 +75,62 @@ export function getForgeRemappings(currentDir: string): string[] {
   }
   return [...remappings.entries()].map(([key, value]) => `${key}=${value}`);
 }
+
+export function resolveSolidityFiles(
+  input: string,
+  allowDirectory?: boolean
+): ResolvedSolidityFiles {
+  if (
+    !path.isAbsolute(input) ||
+    (!allowDirectory && path.extname(input) !== ".sol") ||
+    !existsSync(input)
+  ) {
+    throw Error(`${input} is not a Solidity file or was not found.`);
+  }
+  let fileName: string | string[];
+  let basePath: string;
+  if (allowDirectory && isDirectory(input)) {
+    fileName = getAllFilesInDirectory(input, ".sol");
+    basePath = input;
+  } else {
+    fileName = path.parse(input).base;
+    basePath = path.dirname(input);
+  }
+  const fileNames = coerceArray(fileName);
+  const includePath: string[] = [];
+  if (basePath) {
+    let parent = path.dirname(basePath);
+    while (parent !== path.dirname(parent)) {
+      includePath.push(parent);
+      parent = path.dirname(parent);
+    }
+  }
+  const remappings = getForgeRemappings(basePath as string);
+  const { files, remapping, resolvedFileNames } = getFilesAndRemappings(fileNames, {
+    basePath,
+    includePath,
+    remapping: remappings
+  });
+  const sourceNames = [...files.keys()];
+  // If any of the sources are above the base path, reset the base
+  // path to be the first common ancestor of all sources.
+  if (
+    basePath &&
+    sourceNames.some(
+      (p) => path.isAbsolute(p) && path.relative(basePath as string, p).startsWith("..")
+    )
+  ) {
+    const commonPath = getCommonBasePath(sourceNames);
+    basePath = commonPath ? path.normalize(commonPath) : basePath;
+  }
+  return {
+    fileName,
+    files,
+    remapping,
+    sourceNames,
+    resolvedFileNames,
+    basePath
+  };
+}
+
+// export function
