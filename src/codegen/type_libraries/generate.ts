@@ -1,20 +1,49 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   assert,
   coerceArray,
   ContractKind,
+  FunctionDefinition,
   isInstanceOf,
   staticNodeFactory,
   StructDefinition,
   UserDefinedValueTypeDefinition
 } from "solc-typed-ast";
-import { ArrayType, BytesType, StringType, StructType, TypeNode, ValueType } from "../../ast";
-import { addDefinitionImports, CompileHelper, toHex, wrap } from "../../utils";
+import {
+  ArrayType,
+  BytesType,
+  FunctionType,
+  StringType,
+  StructType,
+  TypeNode,
+  ValueType
+} from "../../ast";
+import { addDefinitionImports, CompileHelper, isExternalFunction, toHex, wrap } from "../../utils";
 import { snakeCaseToCamelCase, snakeCaseToPascalCase } from "../names";
 import { CodegenContext, ContractCodegenContext } from "../utils";
-import { structDefinitionToTypeNode } from "../../readers";
+import { astDefinitionToTypeNode, structDefinitionToTypeNode } from "../../readers";
 import path from "path";
 
-function getStructMemberOffsetFunctions(
+function getScuffMethods(member: TypeNode): string[] {
+  const label = member.labelFromParent;
+  const functions: string[] = [];
+  if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
+    functions.push(snakeCaseToCamelCase(`addDirtyBitsTo_${label}`));
+    if ((member as ValueType).max()) {
+      functions.push(snakeCaseToCamelCase(`overflow_${label}`));
+    }
+  }
+
+  if (member.isDynamicallyEncoded) {
+    functions.push(`addDirtyBitsTo${snakeCaseToPascalCase(`${label}_offset`)}`);
+  }
+  if (isInstanceOf(member, ArrayType, BytesType)) {
+    functions.push(`addDirtyBitsToLength`);
+  }
+  return functions;
+}
+
+function getTupleMemberOffsetFunctions(
   contract: ContractCodegenContext,
   parentPointerType: string,
   member: TypeNode
@@ -125,14 +154,14 @@ function generateTypeAndLibrary(parentCtx: CodegenContext, type: TypeNode): Type
   if (parentCtx.decoderSourceUnitName === sourceUnitName) {
     ctx = parentCtx;
   } else {
-    ctx = new CodegenContext(helper, sourceUnitName);
+    ctx = new CodegenContext(helper, sourceUnitName, parentCtx.outputPath);
     ctx.addPointerLibraries();
   }
   const pointerType = ctx.addValueTypeDefinition(pointerName);
   const library = ctx.addContract(libraryName, ContractKind.Library);
-  const libraryComment = [
-    `@dev Library for resolving pointers of a ${type.signatureInExternalFunction(true)}`
-  ];
+  const signatureInComment =
+    type instanceof FunctionType ? `calldata for` : type.signatureInExternalFunction(true);
+  const libraryComment = [`@dev Library for resolving pointers of encoded ${signatureInComment}`];
   if (type instanceof StructType) {
     libraryComment.push(
       ...type
@@ -140,6 +169,8 @@ function generateTypeAndLibrary(parentCtx: CodegenContext, type: TypeNode): Type
         .split("\n")
         .map((ln) => `${ln}`)
     );
+  } else if (type instanceof FunctionType) {
+    libraryComment.push(type.signature(true));
   }
   library.contract.documentation = staticNodeFactory.makeStructuredDocumentation(
     library.contract.requiredContext,
@@ -153,11 +184,15 @@ function generateTypeAndLibrary(parentCtx: CodegenContext, type: TypeNode): Type
       library.contract.id
     )
   );
+  const wrapBody =
+    type instanceof FunctionType
+      ? [`return ${pointerName}.wrap(MemoryPointer.unwrap(ptr.offset(4)));`]
+      : [`return ${pointerName}.wrap(MemoryPointer.unwrap(ptr));`];
   library.addFunction("wrap", [
     `/// @dev Convert a \`MemoryPointer\` to a \`${pointerName}\`.`,
     `///     This adds \`${libraryName}\` functions as members of the pointer`,
     `function wrap(MemoryPointer ptr) internal pure returns (${pointerName}) {`,
-    [`return ${pointerName}.wrap(MemoryPointer.unwrap(ptr));`],
+    wrapBody,
     `}`
   ]);
   library.addFunction("unwrap", [
@@ -242,12 +277,49 @@ function generateStructLibrary(parentCtx: CodegenContext, type: StructType): Typ
   const typeLibrary = generateTypeAndLibrary(parentCtx, type);
   const { library, pointerName } = typeLibrary;
   for (const member of type.vMembers) {
-    getStructMemberOffsetFunctions(library, pointerName, member);
+    getTupleMemberOffsetFunctions(library, pointerName, member);
   }
   if (type.isDynamicallyEncoded) {
     const tailOffset = library.addConstant(`HeadSize`, toHex(type.embeddedCalldataHeadSize));
     const comment = [
       `/// @dev Resolve the pointer to the tail segment of the struct.`,
+      `///     This is the beginning of the dynamically encoded data.`
+    ];
+    addMemberOffsetFunction(library, `tail`, pointerName, `MemoryPointer`, tailOffset, comment);
+  }
+  return typeLibrary;
+}
+
+function generateFunctionLibrary(
+  parentCtx: CodegenContext,
+  type: FunctionType
+): TypePointerLibrary {
+  const typeLibrary = generateTypeAndLibrary(parentCtx, type);
+  const { library, pointerName } = typeLibrary;
+  library.addFunction("fromBytes", [
+    `/// @dev Convert \`bytes\` with encoded calldata for \`${type.signatureInExternalFunction()}\`to a \`${pointerName}\`.`,
+    `///     This adds \`${library.name}\` functions as members of the pointer`,
+    `function fromBytes(MemoryPointer ptrIn) internal pure returns (${pointerName} ptrOut) {`,
+    [
+      `assembly {`,
+      [
+        `// Offset the pointer by 36 bytes to skip the function selector and length`,
+        `ptrOut := add(ptrIn, 0x24)`
+      ],
+      `}`
+    ],
+    `}`
+  ]);
+  for (const member of type.parameters!.vMembers) {
+    getTupleMemberOffsetFunctions(library, pointerName, member);
+  }
+  if (type.parameters!.isDynamicallyEncoded) {
+    const tailOffset = library.addConstant(
+      `HeadSize`,
+      toHex(type.parameters!.embeddedCalldataHeadSize)
+    );
+    const comment = [
+      `/// @dev Resolve the pointer to the tail segment of the encoded calldata.`,
       `///     This is the beginning of the dynamically encoded data.`
     ];
     addMemberOffsetFunction(library, `tail`, pointerName, `MemoryPointer`, tailOffset, comment);
@@ -396,9 +468,9 @@ function generateBytesLibrary(parentCtx: CodegenContext, type: BytesType): TypeP
     `/// @dev Resolve the pointer to the beginning of the bytes data.`
   );
 
-  library.addFunction(`addDirtyBitsToEnd`, [
+  library.addFunction(`addDirtyLowerBits`, [
     `/// @dev Add dirty bits to the end of the buffer if its length is not divisible by 32`,
-    `function addDirtyBitsToEnd(${pointerName} ptr) internal pure {`,
+    `function addDirtyLowerBits(${pointerName} ptr) internal pure {`,
     [
       `uint256 _length = length(ptr).readUint256();`,
       `uint256 remainder = _length % 32;`,
@@ -421,7 +493,7 @@ function generateReferenceTypeLibrary(
   addImport?: boolean
 ): TypePointerLibrary {
   assert(
-    isInstanceOf(type, BytesType, StringType, StructType, ArrayType),
+    isInstanceOf(type, BytesType, StringType, StructType, ArrayType, FunctionType),
     `Can not generate pointer library for non-reference type: ${type.pp()}`
   );
   const helper = parentCtx.helper;
@@ -434,7 +506,7 @@ function generateReferenceTypeLibrary(
 
   let result: TypePointerLibrary;
   if (helper.hasSourceUnit(sourceUnitName)) {
-    const ctx = new CodegenContext(helper, sourceUnitName);
+    const ctx = new CodegenContext(helper, sourceUnitName, parentCtx.outputPath);
     const pointerType = ctx.sourceUnit
       .getChildrenByType(UserDefinedValueTypeDefinition)
       .find((t) => t.name === pointerName);
@@ -451,8 +523,10 @@ function generateReferenceTypeLibrary(
     result = generateBytesLibrary(parentCtx, type);
   } else if (type instanceof StructType) {
     result = generateStructLibrary(parentCtx, type);
-  } else {
+  } else if (type instanceof ArrayType) {
     result = generateArrayLibrary(parentCtx, type);
+  } else {
+    result = generateFunctionLibrary(parentCtx, type);
   }
   result.ctx.applyPendingContracts();
   if (addImport) {
@@ -462,43 +536,44 @@ function generateReferenceTypeLibrary(
   return result;
 }
 
-export function buildPointersFile(
+export function buildPointerFiles(
   helper: CompileHelper,
-  primaryFileName: string
-  // decoderFileName = primaryFileName.replace(".sol", "Pointers.sol")
+  primaryFileName: string,
+  decoderFileName = primaryFileName.replace(".sol", "Pointers.sol"),
+  outPath?: string
 ): CodegenContext {
-  const ctx = new CodegenContext(helper, primaryFileName);
-  // ctx.addPointerLibraries();
+  if (outPath) {
+    decoderFileName = path.join(outPath, path.basename(decoderFileName));
+  }
+  const ctx = new CodegenContext(helper, decoderFileName, outPath);
+
   const sourceUnit = helper.getSourceUnit(primaryFileName);
-  const structDefinitions = sourceUnit.getChildrenByType(StructDefinition);
-  const structs = structDefinitions.map(structDefinitionToTypeNode);
-  // .filter((struct) =>
-  //   [`Offer`, `Consideration`, `OrderParameters`, `Order`].includes(struct.name)
-  // );
 
-  // addDependencyImports(ctx.decoderSourceUnit, structDefinitions);
-  // addTypeDecoders(ctx, [...structs]);
-  /* _decodeBytes
+  const structs = sourceUnit
+    .getChildrenByType(StructDefinition)
+    .map((node) => astDefinitionToTypeNode(node));
 
-_decodeAdvancedOrder */
-  structs.forEach((struct) => generateReferenceTypeLibrary(ctx, struct));
+  const functions = sourceUnit
+    .getChildrenByType(FunctionDefinition)
+    .filter((fn) => isExternalFunction(fn) && fn.vParameters.vParameters.length > 0)
+    .map((node) => astDefinitionToTypeNode(node));
+
+  [...structs, ...functions].forEach((type) => {
+    generateReferenceTypeLibrary(ctx, type, true);
+  });
+
+  functions.sort((a, b) => {
+    return b.parameters!.maxNestedDynamicTypes - a.parameters!.maxNestedDynamicTypes;
+  });
+
+  functions[0]
+    .parameters!.getChildrenBySelector((t) => t.maxNestedDynamicTypes > 0)
+    .forEach((t) => {
+      console.log(`type: ${t.signatureInExternalFunction(true)}`);
+    });
+
   ctx.applyPendingFunctions();
   ctx.applyPendingContracts();
-  /*   const sourceUnitIndex = helper.sourceUnits.indexOf(sourceUnit);
-  if (sourceUnitIndex > -1) {
-    helper.sourceUnits.splice(sourceUnitIndex, 1);
-  } */
 
   return ctx;
 }
-
-/* export function addTypeDecoders(ctx: CodegenContext, inputTypes: TypeNode[]): void {
-  const { types, functionParameters } = TypeExtractor.extractCoderTypes(inputTypes);
-
-  for (const type of types) {
-    abiDecodingFunction(ctx, type);
-  }
-  for (const type of functionParameters) {
-    typeCastAbiDecodingFunction(ctx, type);
-  }
-} */
