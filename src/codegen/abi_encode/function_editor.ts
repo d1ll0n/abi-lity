@@ -8,6 +8,7 @@ import {
   Identifier,
   replaceNode,
   Return,
+  TupleExpression,
   VariableDeclaration
 } from "solc-typed-ast";
 import { getParametersTypeString, last } from "../../utils";
@@ -42,7 +43,15 @@ export function replaceReturnStatementsWithCall(
     );
 
   for (const returnStatement of returnStatements) {
-    replaceNode(returnStatement, makeReturnCallStatement(returnStatement.children as Expression[]));
+    let args = returnStatement.children as Expression[];
+    if (args.length === 1) {
+      const arg = args[0];
+      if (arg instanceof TupleExpression) {
+        args = [...arg.vComponents];
+      }
+    }
+    console.log(args.map((a) => [a.type, a.typeString]));
+    replaceNode(returnStatement, makeReturnCallStatement(args));
   }
   // @todo Handle cases where some parameters are not named
   const parameterDeclarations: VariableDeclaration[] = [];
