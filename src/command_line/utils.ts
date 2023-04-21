@@ -1,78 +1,31 @@
-#!/usr/bin/env node
-import { JsonFragment } from "@ethersproject/abi";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync } from "fs";
 import path from "path";
+import { LatestCompilerVersion } from "solc-typed-ast";
 import {
-  ContractDefinition,
-  FunctionDefinition,
-  FunctionVisibility,
-  getFilesAndRemappings,
-  LatestCompilerVersion
-} from "solc-typed-ast";
-import yargs, { Options } from "yargs";
-import { FunctionType, StructType, TupleType } from "../ast";
-import { isExternalFunction } from "../codegen";
-import { addExternalWrappers, generateSerializers, upgradeSourceCoders } from "../codegen/generate";
-import { cleanIR } from "../codegen/utils";
-import {
-  functionDefinitionToTypeNode,
-  readTypeNodesFromABI,
-  readTypeNodesFromSolcAST,
-  readTypeNodesFromSolidity
-} from "../readers";
-import { createCalldataCopiers, testCopiers } from "../test_utils";
-import { getAllContractDeployments, testDeployments } from "../test_utils/compare_contracts";
-import { toCommentTable } from "../test_utils/logs";
-import {
-  coerceArray,
   CompileHelper,
-  DebugLogger,
   getAllFilesInDirectory,
   getCommonBasePath,
   getRelativePath,
   isDirectory,
-  mkdirIfNotExists,
-  optimizedCompilerOptions,
   StructuredText,
   UserCompilerOptions,
-  writeFilesTo,
   writeNestedStructure
 } from "../utils";
 
-/*       if (path.extname(input).toLowerCase() === ".json") {
-        const data = require(input);
-        let abi: JsonFragment[];
-        if (Array.isArray(data)) {
-          abi = data;
-        } else if (data["abi"]) {
-          abi = data["abi"];
-        } else {
-          throw Error(
-            writeNestedStructure([
-              `ABI not found in ${input}`,
-              `JSON input file must be ABI or artifact with "abi" member.`
-            ])
-          );
-        }
-        types = readTypeNodesFromABI(abi).functions;
-      } else if (path.extname(input) === ".sol") {
-        const { files, fileName } = resolveFiles(input, false);
-        console.log({ fileName, input });
-        const filePaths = [...files.keys()];
-        filePaths.reverse();
-        const code = filePaths.map((p) => files.get(p) as string).join("\n\n");
+export type CommandLineInputPaths = {
+  basePath: string;
+  fileName: string;
+  input: string;
+  output: string;
+  helper: CompileHelper;
+};
 
-        types = readTypeNodesFromSolidity(code).functions;
-      } else {
-        throw Error(`Input file must be a .sol file or a JSON artifact or ABI file`);
-      } */
-
-async function handlePathArgs(
+export async function getCommandLineInputPaths(
   { input, output }: { input: string; output?: string },
   allowDirectory?: boolean,
   optimize = true,
   optionOverrides?: UserCompilerOptions
-) {
+): Promise<CommandLineInputPaths> {
   if (
     !path.isAbsolute(input) ||
     (!allowDirectory && path.extname(input) !== ".sol") ||
@@ -113,7 +66,11 @@ async function handlePathArgs(
   };
 }
 
-function renameFile(oldFileName: string, newFileName: string, files: Map<string, string>) {
+export function renameFile(
+  oldFileName: string,
+  newFileName: string,
+  files: Map<string, string>
+): void {
   const filePaths = [...files.keys()];
   const basePath = getCommonBasePath(filePaths);
   if (!basePath) {
@@ -142,7 +99,7 @@ function renameFile(oldFileName: string, newFileName: string, files: Map<string,
   }
 }
 
-function printCodeSize(helper: CompileHelper, fileName: string) {
+export function printCodeSize(helper: CompileHelper, fileName: string): void {
   const contract = helper.getContractForFile(fileName);
   const contractCode = contract.runtimeCode;
   if (!contractCode) {
