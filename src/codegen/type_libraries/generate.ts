@@ -1,10 +1,16 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   assert,
+  ASTContext,
   coerceArray,
+  ContractDefinition,
   ContractKind,
+  DataLocation,
+  EnumDefinition,
   FunctionDefinition,
   isInstanceOf,
+  LiteralKind,
+  SourceUnit,
   staticNodeFactory,
   StructDefinition,
   UserDefinedValueTypeDefinition
@@ -12,35 +18,297 @@ import {
 import {
   ArrayType,
   BytesType,
+  EnumType,
   FunctionType,
   StringType,
   StructType,
   TypeNode,
   ValueType
 } from "../../ast";
-import { addDefinitionImports, CompileHelper, isExternalFunction, toHex, wrap } from "../../utils";
+import {
+  addDefinitionImports,
+  CompileHelper,
+  DebugLogger,
+  getDirectory,
+  getRelativePath,
+  isExternalFunction,
+  StructuredText,
+  toHex,
+  wrap
+} from "../../utils";
 import { snakeCaseToCamelCase, snakeCaseToPascalCase } from "../names";
 import { CodegenContext, ContractCodegenContext } from "../utils";
-import { astDefinitionToTypeNode, structDefinitionToTypeNode } from "../../readers";
+import { astDefinitionToTypeNode } from "../../readers";
 import path from "path";
+import { readFileSync } from "fs";
+import { ConstantKind } from "../../utils/make_constant";
 
-function getScuffMethods(member: TypeNode): string[] {
-  const label = member.labelFromParent;
-  const functions: string[] = [];
-  if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
-    functions.push(snakeCaseToCamelCase(`addDirtyBitsTo_${label}`));
-    if ((member as ValueType).max()) {
-      functions.push(snakeCaseToCamelCase(`overflow_${label}`));
+type ScuffOption = {
+  name: string;
+  resolvePointer: string;
+  side: "upper" | "lower";
+  bitOffset: number;
+};
+
+class ScuffDirectivesBuilder {
+  constants: Array<[string, string]> = [];
+  directives: StructuredText[] = [];
+  scuffKinds: string[] = [];
+
+  constructor(public type: TypeNode) {}
+
+  get lastKind(): string {
+    return this.scuffKinds[this.scuffKinds.length - 1];
+  }
+
+  get pointerName(): string {
+    return `${this.type.pascalCaseName}Pointer`;
+  }
+
+  static getScuffDirectives(type: TypeNode) {
+    const builder = new ScuffDirectivesBuilder(type);
+    if (type instanceof BytesType) {
+      builder.bytesDirectives();
+    } else if (type instanceof ArrayType) {
+      builder.arrayDirectives(type);
+    } else if (isInstanceOf(type, StructType, FunctionType)) {
+      builder.tupleDirectives(type);
+    }
+    return builder;
+  }
+
+  directive(
+    pointerRef: string,
+    side: "upper" | "lower",
+    bitOffset: number | string,
+    comment?: string
+  ) {
+    return [
+      ...(comment ? [`/// @dev ${comment}`] : []),
+      `directives.push(Scuff.${side}(uint256(ScuffKind.${this.lastKind}) + kindOffset, ${bitOffset}, ${pointerRef}));`
+    ];
+  }
+
+  static addScuffDirectiveFunctions(library: ContractCodegenContext, type: TypeNode) {
+    const ScuffDirectives = readFileSync(path.join(__dirname, "../ScuffDirectives.sol"), "utf8");
+    const pointerLibraries = library.sourceUnitContext.getPointerLibraries();
+
+    const scuffDirectives = library.sourceUnitContext.addSourceUnit(
+      "ScuffDirectives.sol",
+      ScuffDirectives.replace(
+        "./PointerLibraries.sol",
+        getRelativePath(
+          getDirectory(library.sourceUnitContext.decoderSourceUnit.absolutePath),
+          pointerLibraries.absolutePath
+        )
+      )
+    );
+    const builder = ScuffDirectivesBuilder.getScuffDirectives(type);
+
+    library.addImports(scuffDirectives);
+    library.sourceUnitContext.addCustomTypeUsingForDirective(
+      `MemoryPointer`,
+      staticNodeFactory.makeIdentifierPath(
+        library.sourceUnit.requiredContext,
+        `Scuff`,
+        scuffDirectives.getChildrenByType(ContractDefinition)[0].id
+      ),
+      undefined,
+      false,
+      pointerLibraries
+        .getChildrenByType(UserDefinedValueTypeDefinition)
+        .find((child) => child.name === "MemoryPointer")!.id
+    );
+    if (builder.directives.length === 0 || builder.scuffKinds.length === 0) {
+      return;
+    }
+
+    library.addEnum("ScuffKind", builder.scuffKinds);
+    for (const [name, value] of builder.constants) {
+      library.addConstant(name, value);
+    }
+    library.addFunction("addScuffDirectives", [
+      `function addScuffDirectives(`,
+      [`${builder.pointerName} ptr,`, `ScuffDirectivesArray directives,`, `uint256 kindOffset`],
+      `) internal pure {`,
+      [builder.directives],
+      `}`
+    ]);
+
+    library.addFunction("getScuffDirectives", [
+      `function getScuffDirectives(`,
+      [`${builder.pointerName} ptr`],
+      `) internal pure returns (ScuffDirective[] memory) {`,
+      `ScuffDirectivesArray directives = Scuff.makeUnallocatedArray();`,
+      `addScuffDirectives(ptr, directives, 0);`,
+      `return directives.finalize();`,
+      `}`
+    ]);
+
+    library.addFunction("toString", [
+      `function toString(`,
+      [`ScuffKind k`],
+      `) internal pure returns (string memory) {`,
+      builder.scuffKinds
+        .slice(0, -1)
+        .map((k) => `if (k == ScuffKind.${k}) return "${k}";`)
+        .concat(`return "${builder.scuffKinds.slice(-1)[0]}";`),
+      `}`
+    ]);
+
+    library.addFunction("toKind", [
+      `function toKind(`,
+      [`uint256 k`],
+      `) internal pure returns (ScuffKind) {`,
+      [`return ScuffKind(k);`],
+      `}`
+    ]);
+
+    library.addFunction("toKindString", [
+      `function toKindString(`,
+      [`uint256 k`],
+      `) internal pure returns (string memory) {`,
+      [`return toString(toKind(k));`],
+      `}`
+    ]);
+  }
+
+  upper(pointerRef: string, bitOffset: number | string, comment?: string) {
+    return this.directive(pointerRef, "upper", bitOffset, comment);
+  }
+
+  lower(pointerRef: string, bitOffset: number | string, comment?: string) {
+    return this.directive(pointerRef, "lower", bitOffset, comment);
+  }
+
+  head(pointerRef: string, comment?: string) {
+    return this.upper(pointerRef, 224, comment);
+  }
+
+  addKind(kind: string, memberLabel?: string) {
+    kind = [...(memberLabel ? [memberLabel] : []), kind].join("_");
+    this.scuffKinds.push(kind);
+    return kind;
+  }
+
+  scuffLength() {
+    this.scuffKinds.push(`LengthOverflow`);
+    return this.lower(
+      `ptr.length()`,
+      224,
+      `Overflow length of ${this.type.signatureInExternalFunction(true)}`
+    );
+  }
+
+  scuffHead(label: string, pointerRef: string, comment?: string) {
+    this.addKind("HeadOverflow", label);
+    return this.lower(pointerRef, 224, comment);
+  }
+
+  scuffValue(
+    label: string,
+    pointerRef: string,
+    side: "upper" | "lower",
+    bitOffset: number,
+    comment?: string
+  ) {
+    this.addKind("Overflow", label);
+    return this[side](pointerRef, bitOffset, comment);
+  }
+
+  subDirectives(label: string, pointerRef: string, member: TypeNode) /* : string[] */ {
+    const { scuffKinds } = ScuffDirectivesBuilder.getScuffDirectives(member);
+
+    if (scuffKinds.length === 0) return [];
+
+    const index = this.scuffKinds.length;
+    const minimumKind = snakeCaseToPascalCase(`minimum_${label}_scuff_kind`);
+
+    for (const kind of scuffKinds) this.addKind(kind, label);
+    this.constants.push([minimumKind, `uint256(ScuffKind.${this.scuffKinds[index]})`]);
+
+    const maximumKind = snakeCaseToPascalCase(`maximum_${label}_scuff_kind`);
+    this.constants.push([maximumKind, `uint256(ScuffKind.${this.lastKind})`]);
+
+    return [
+      `/// @dev Add all nested directives in ${label}`,
+      `${pointerRef}.addScuffDirectives(directives, kindOffset + ${minimumKind});`
+    ];
+  }
+
+  bytesDirectives() {
+    /* this.directives.push(this.scuffLength());
+    this.scuffKinds.push(`DirtyLowerBits`);
+    this.directives.push(
+      `uint256 len = ptr.length().readUint256();`,
+      `uint256 bitOffset = (len % 32) * 8;`,
+      `if (len > 0 && bitOffset != 0) {`,
+      [
+        `MemoryPointer end = ptr.unwrap();`,
+        `directives.push(Scuff.lower(uint256(ScuffKind.DirtyLowerBits) + kindOffset, bitOffset, end));`
+      ],
+      `}`
+    ); */
+  }
+
+  arrayDirectives(type: ArrayType) {
+    // if (type.isDynamicallySized) {
+    //   this.directives.push(this.scuffLength());
+    // }
+    const length = type.isDynamicallySized ? `ptr.length().readUint256()` : type.length;
+    const memberDirectives = this.getMemberDirective(`element`, `i`, type.baseType);
+    if (memberDirectives.length > 0) {
+      this.directives.push(
+        `uint256 len = ${length};`,
+        `for (uint256 i; i < len; i++) {`,
+        memberDirectives,
+        `}`
+      );
     }
   }
 
-  if (member.isDynamicallyEncoded) {
-    functions.push(`addDirtyBitsTo${snakeCaseToPascalCase(`${label}_offset`)}`);
+  tupleDirectives(type: StructType | FunctionType) {
+    const members = type instanceof FunctionType ? type.parameters!.vMembers : type.vMembers;
+    this.directives = members.reduce(
+      (directives, member) => [
+        ...directives,
+        ...this.getMemberDirective(member.labelFromParent!, ``, member)
+      ],
+      [] as StructuredText[]
+    );
   }
-  if (isInstanceOf(member, ArrayType, BytesType)) {
-    functions.push(`addDirtyBitsToLength`);
+
+  getMemberDirective(label: string, fnArgs: string, member: TypeNode) {
+    const headName = `${label}${member.isDynamicallyEncoded ? `Head` : ""}`;
+    const directives: StructuredText[] = [];
+
+    if (member.isDynamicallyEncoded) {
+      directives.push(
+        this.scuffHead(label, `ptr.${headName}(${fnArgs})`, `Overflow offset for \`${label}\``)
+      );
+    }
+
+    if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
+      const [side, offset] = member.leftAligned
+        ? ([`lower`, member.exactBits] as const)
+        : ([`upper`, 256 - member.exactBits] as const);
+      directives.push(
+        this.scuffValue(
+          label,
+          `ptr.${headName}(${fnArgs})`,
+          side,
+          offset,
+          `Induce overflow in \`${label}\``
+        )
+      );
+    }
+
+    if (member.isReferenceType) {
+      const dataName = `${label}Data`;
+      directives.push(this.subDirectives(label, `ptr.${dataName}(${fnArgs})`, member));
+    }
+    return directives;
   }
-  return functions;
 }
 
 function getTupleMemberOffsetFunctions(
@@ -89,30 +357,21 @@ function getTupleMemberOffsetFunctions(
     ]);
   }
 
-  if (member.isDynamicallyEncoded) {
-    const suffix = snakeCaseToPascalCase(`${label}_offset`);
-    const dirtyBitsName = `addDirtyBitsTo${suffix}`;
-    contract.addFunction(dirtyBitsName, [
-      `/// @dev Add dirty bits to the head for \`${label}\` (offset relative to parent).`,
-      `function ${dirtyBitsName}(${parentPointerType} ptr) internal pure {`,
-      [`${headName}(ptr).addDirtyBitsBefore(224);`],
-      `}`
-    ]);
-  }
+  // if (member.isDynamicallyEncoded) {
+  //   const suffix = snakeCaseToPascalCase(`${label}_offset`);
+  //   const dirtyBitsName = `addDirtyBitsTo${suffix}`;
+  //   contract.addFunction(dirtyBitsName, [
+  //     `/// @dev Add dirty bits to the head for \`${label}\` (offset relative to parent).`,
+  //     `function ${dirtyBitsName}(${parentPointerType} ptr) internal pure {`,
+  //     [`${headName}(ptr).addDirtyBitsBefore(224);`],
+  //     `}`
+  //   ]);
+  // }
 
   if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
-    const addDirtyBitsFn = snakeCaseToCamelCase(`addDirtyBitsTo_${label}`);
-    const [dirtyBitsFn, offset] = member.leftAligned
-      ? [`addDirtyBitsAfter`, member.exactBits]
-      : [`addDirtyBitsBefore`, 256 - member.exactBits];
-    contract.addFunction(addDirtyBitsFn, [
-      `/// @dev Add dirty bits to \`${label}\``,
-      `function ${addDirtyBitsFn}(${parentPointerType} ptr) internal pure {`,
-      [`${headName}(ptr).${dirtyBitsFn}(${toHex(offset)});`],
-      `}`
-    ]);
     const maxValue = (member as ValueType).max();
-    if (maxValue) {
+
+    if (maxValue && !member.leftAligned) {
       const overflowName = snakeCaseToPascalCase(`overflowed_${label}`);
       const overvlowValue = toHex(maxValue + BigInt(1));
       contract.addConstant(overflowName, overvlowValue);
@@ -124,15 +383,20 @@ function getTupleMemberOffsetFunctions(
         [`${headName}(ptr).write(${overflowName});`],
         `}`
       ]);
+    } else {
+      const addDirtyBitsFn = snakeCaseToCamelCase(`addDirtyBitsTo_${label}`);
+      const [dirtyBitsFn, offset] = member.leftAligned
+        ? [`addDirtyBitsAfter`, member.exactBits]
+        : [`addDirtyBitsBefore`, 256 - member.exactBits];
+      contract.addFunction(addDirtyBitsFn, [
+        `/// @dev Add dirty bits to \`${label}\``,
+        `function ${addDirtyBitsFn}(${parentPointerType} ptr) internal pure {`,
+        [`${headName}(ptr).${dirtyBitsFn}(${toHex(offset)});`],
+        `}`
+      ]);
     }
   }
 }
-
-/* type ScuffType = {
-  kind: 'DirtyBits' | 'ArraySwap' | 'Overflow';
-  functionName: string;
-  
-} */
 
 type TypePointerLibrary = {
   library: ContractCodegenContext;
@@ -176,6 +440,7 @@ function generateTypeAndLibrary(parentCtx: CodegenContext, type: TypeNode): Type
     library.contract.requiredContext,
     libraryComment.join("\n")
   );
+
   ctx.addCustomTypeUsingForDirective(
     pointerName,
     staticNodeFactory.makeIdentifierPath(
@@ -184,6 +449,7 @@ function generateTypeAndLibrary(parentCtx: CodegenContext, type: TypeNode): Type
       library.contract.id
     )
   );
+
   const wrapBody =
     type instanceof FunctionType
       ? [`return ${pointerName}.wrap(MemoryPointer.unwrap(ptr.offset(4)));`]
@@ -201,6 +467,12 @@ function generateTypeAndLibrary(parentCtx: CodegenContext, type: TypeNode): Type
     [`return MemoryPointer.wrap(${pointerName}.unwrap(ptr));`],
     `}`
   ]);
+  /*   library.addFunction("toUint256", [
+    `/// @dev Convert a \`${pointerName}\` to a raw uint256.`,
+    `function toUint256(${pointerName} ptr) internal pure returns (MemoryPointer) {`,
+    [`return ${pointerName}.unwrap(ptr);`],
+    `}`
+  ]); */
 
   return {
     library,
@@ -265,12 +537,12 @@ function addLengthFunctions(
     [`setLength(ptr, type(uint256).max);`],
     `}`
   ]);
-  library.addFunction(`addDirtyBitsToLength`, [
-    `/// @dev Add dirty bits from 0 to 224 to the length for the \`${nameInComment}\` at \`ptr\``,
-    `function addDirtyBitsToLength(${pointerName} ptr) internal pure {`,
-    [`length(ptr).addDirtyBitsBefore(224);`],
-    `}`
-  ]);
+  // library.addFunction(`addDirtyBitsToLength`, [
+  //   `/// @dev Add dirty bits from 0 to 224 to the length for the \`${nameInComment}\` at \`ptr\``,
+  //   `function addDirtyBitsToLength(${pointerName} ptr) internal pure {`,
+  //   [`length(ptr).addDirtyBitsBefore(224);`],
+  //   `}`
+  // ]);
 }
 
 function generateStructLibrary(parentCtx: CodegenContext, type: StructType): TypePointerLibrary {
@@ -296,20 +568,49 @@ function generateFunctionLibrary(
 ): TypePointerLibrary {
   const typeLibrary = generateTypeAndLibrary(parentCtx, type);
   const { library, pointerName } = typeLibrary;
+  library.addConstant(`FunctionSelector`, type.functionSelector, ConstantKind.FixedBytes, 4);
+  library.addFunction("isFunction", [
+    `function isFunction(bytes4 selector) internal pure returns (bool) {`,
+    [`return FunctionSelector == selector;`],
+    `}`
+  ]);
   library.addFunction("fromBytes", [
-    `/// @dev Convert \`bytes\` with encoded calldata for \`${type.signatureInExternalFunction()}\`to a \`${pointerName}\`.`,
+    `/// @dev Convert a \`bytes\` with encoded calldata for \`${type.signatureInExternalFunction()}\`to a \`${pointerName}\`.`,
     `///     This adds \`${library.name}\` functions as members of the pointer`,
-    `function fromBytes(MemoryPointer ptrIn) internal pure returns (${pointerName} ptrOut) {`,
+    `function fromBytes(bytes memory data) internal pure returns (${pointerName} ptrOut) {`,
     [
       `assembly {`,
       [
         `// Offset the pointer by 36 bytes to skip the function selector and length`,
-        `ptrOut := add(ptrIn, 0x24)`
+        `ptrOut := add(data, 0x24)`
       ],
       `}`
     ],
     `}`
   ]);
+  const inputArgs = type.parameters!.writeParameter(DataLocation.Memory);
+  const parameters = [
+    `"${type.signature(false)}"`,
+    ...type.parameters!.vMembers.map((m) => m.labelFromParent!)
+  ].join(", ");
+  const deps = type.parameters!.vMembers.map(getTypeDep);
+  const depDefs = deps
+    .filter(Boolean)
+    .map((d) => lookupDefinition(parentCtx.sourceUnit.requiredContext, d!))
+    .filter(Boolean);
+  for (const dep of depDefs) {
+    if (dep) {
+      const p = dep.getClosestParentByType(SourceUnit) as SourceUnit;
+      library.addImports(p, []);
+    }
+  }
+  library.addFunction("fromArgs", [
+    "/// @dev Encode function call from arguments",
+    `function fromArgs${inputArgs} internal pure returns (${pointerName} ptrOut) {`,
+    [`bytes memory data = abi.encodeWithSignature(${parameters});`, `ptrOut = fromBytes(data);`],
+    `}`
+  ]);
+  library.addImports;
   for (const member of type.parameters!.vMembers) {
     getTupleMemberOffsetFunctions(library, pointerName, member);
   }
@@ -487,6 +788,32 @@ function generateBytesLibrary(parentCtx: CodegenContext, type: BytesType): TypeP
   return typeLibrary;
 }
 
+const getTypeDep = (type: TypeNode): StructType | EnumType | undefined => {
+  if (type instanceof ArrayType) {
+    return getTypeDep(type.baseType);
+  } else if (type instanceof StructType) {
+    return type;
+  } else if (type instanceof EnumType) {
+    return type;
+  }
+  return undefined;
+};
+
+function lookupDefinition(
+  ctx: ASTContext,
+  type: TypeNode
+): StructDefinition | EnumDefinition | undefined {
+  const dep = getTypeDep(type);
+  if (!dep) return;
+  const Kind = dep instanceof StructType ? StructDefinition : EnumDefinition;
+  for (const n of ctx.nodes) {
+    if (n instanceof Kind && n.name === type.identifier) {
+      return n;
+    }
+  }
+  return undefined;
+}
+
 function generateReferenceTypeLibrary(
   parentCtx: CodegenContext,
   type: TypeNode,
@@ -505,7 +832,8 @@ function generateReferenceTypeLibrary(
   );
 
   let result: TypePointerLibrary;
-  if (helper.hasSourceUnit(sourceUnitName)) {
+  const alreadyExists = helper.hasSourceUnit(sourceUnitName);
+  if (alreadyExists) {
     const ctx = new CodegenContext(helper, sourceUnitName, parentCtx.outputPath);
     const pointerType = ctx.sourceUnit
       .getChildrenByType(UserDefinedValueTypeDefinition)
@@ -528,7 +856,12 @@ function generateReferenceTypeLibrary(
   } else {
     result = generateFunctionLibrary(parentCtx, type);
   }
+  if (!alreadyExists) {
+    ScuffDirectivesBuilder.addScuffDirectiveFunctions(result.library, type);
+  }
+
   result.ctx.applyPendingContracts();
+
   if (addImport) {
     addDefinitionImports(parentCtx.sourceUnit, [result.pointerType]);
   }
@@ -540,11 +873,13 @@ export function buildPointerFiles(
   helper: CompileHelper,
   primaryFileName: string,
   decoderFileName = primaryFileName.replace(".sol", "Pointers.sol"),
-  outPath?: string
-): CodegenContext {
+  outPath?: string,
+  logger = new DebugLogger()
+): { ctx: CodegenContext; functions: FunctionType[]; structs: StructType[] } {
   if (outPath) {
     decoderFileName = path.join(outPath, path.basename(decoderFileName));
   }
+  console.log(`Building pointer libraries...`);
   const ctx = new CodegenContext(helper, decoderFileName, outPath);
 
   const sourceUnit = helper.getSourceUnit(primaryFileName);
@@ -559,21 +894,16 @@ export function buildPointerFiles(
     .map((node) => astDefinitionToTypeNode(node));
 
   [...structs, ...functions].forEach((type) => {
+    logger.log(
+      `Generating pointer library for ${
+        type instanceof StructType ? type.identifier : type.signature(true)
+      }...`
+    );
     generateReferenceTypeLibrary(ctx, type, true);
   });
-
-  functions.sort((a, b) => {
-    return b.parameters!.maxNestedDynamicTypes - a.parameters!.maxNestedDynamicTypes;
-  });
-
-  functions[0]
-    .parameters!.getChildrenBySelector((t) => t.maxNestedDynamicTypes > 0)
-    .forEach((t) => {
-      console.log(`type: ${t.signatureInExternalFunction(true)}`);
-    });
 
   ctx.applyPendingFunctions();
   ctx.applyPendingContracts();
 
-  return ctx;
+  return { ctx, functions, structs };
 }
