@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   assert,
   ASTContext,
@@ -23,7 +24,8 @@ import {
   ContractDefinition,
   ASTKind,
   NativeCompiler,
-  parsePathRemapping
+  parsePathRemapping,
+  ASTNode
 } from "solc-typed-ast";
 import { JsonFragment } from "@ethersproject/abi";
 import path from "path";
@@ -32,14 +34,15 @@ import { coerceArray, StructuredText, writeNestedStructure } from "./text";
 import { addImports, findContractDefinition, findFunctionDefinition } from "./solc_ast_utils";
 import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
 import { getForgeRemappings } from "./forge_remappings";
+import { ASTSourceMap, SourceUnitSourceMaps } from "./source_editor";
 
-function compile(
+export function compile(
   compiler: WasmCompiler | NativeCompiler,
   files: Map<string, string>,
   remapping: string[],
   compilationOutput: CompilationOutput[] = compilerOutputs,
   compilerSettings?: any
-) {
+): any {
   const data = compileSync(compiler, files, remapping, compilationOutput, compilerSettings);
   const errors = detectCompileErrors(data);
   if (errors.length === 0) {
@@ -55,7 +58,9 @@ const compilerOutputs = [
   "evm.deployedBytecode.object" as any,
   CompilationOutput.EVM_BYTECODE_OBJECT,
   "irOptimized" as any,
-  "ir" as any
+  "ir" as any,
+  "evm.deployedBytecode.functionDebugData" as any,
+  "evm.deployedBytecode.sourceMap" as any
 ];
 
 export type UserCompilerOptions = {
@@ -63,6 +68,9 @@ export type UserCompilerOptions = {
   viaIR?: boolean;
   optimizer?: boolean;
   runs?: number | "max";
+  debug?: {
+    debugInfo?: ["*"];
+  };
 };
 
 export type CompilerOptions = {
@@ -73,16 +81,32 @@ export type CompilerOptions = {
     runs?: number;
   };
   runs?: number | "max";
+  debug?: {
+    debugInfo?: ["*"];
+  };
+};
+
+const getCombinedCompilerOptions = (
+  optimize?: boolean,
+  optionOverrides?: UserCompilerOptions
+): CompilerOptions => {
+  const defaultOptions =
+    optimize || optionOverrides?.optimizer ? optimizedCompilerOptions : compilerOptions;
+  return parseCompilerOptions({
+    ...defaultOptions,
+    ...optionOverrides
+  });
 };
 
 function parseCompilerOptions(options: UserCompilerOptions): CompilerOptions {
-  const { metadata, viaIR, optimizer, runs } = options;
+  const { metadata, viaIR, optimizer, runs, debug } = options;
   const opts: CompilerOptions = {
     viaIR,
     optimizer: {
       enabled: optimizer || Boolean(runs),
       runs: runs === "max" ? 4_294_967_295 : runs
-    }
+    },
+    debug
   };
   if (!metadata) opts.metadata = { bytecodeHash: "none" };
   return opts;
@@ -90,13 +114,19 @@ function parseCompilerOptions(options: UserCompilerOptions): CompilerOptions {
 
 export const compilerOptions: UserCompilerOptions = {
   viaIR: true,
-  metadata: false
+  metadata: false,
+  debug: {
+    debugInfo: ["*"]
+  }
 };
 
 export const optimizedCompilerOptions: UserCompilerOptions = {
   ...compilerOptions,
   optimizer: true,
-  runs: 200
+  runs: 200,
+  debug: {
+    debugInfo: ["*"]
+  }
 };
 
 export type ContractOutput = {
@@ -105,6 +135,9 @@ export type ContractOutput = {
   runtimeCode: string;
   irOptimized: string;
   ir: string;
+  generatedSources?: any;
+  sourceMap?: string;
+  functionDebugData?: any;
 };
 
 export type FunctionAddition = {
@@ -193,10 +226,20 @@ export class CompileHelper {
     return sourceUnit;
   }
 
-  getFiles(): Map<string, string> {
+  getFiles(sourceMap: true): [Map<string, string>, SourceUnitSourceMaps];
+  getFiles(): Map<string, string>;
+  getFiles(sourceMap?: true): [Map<string, string>, SourceUnitSourceMaps] | Map<string, string> {
+    const sourceMaps = new Map<string, ASTSourceMap>();
     const files = new Map<string, string>();
     for (const sourceUnit of this.sourceUnits) {
-      files.set(sourceUnit.absolutePath, this.writer.write(sourceUnit));
+      const _sourceMap = sourceMap ? new Map<ASTNode, [number, number]>() : undefined;
+      files.set(sourceUnit.absolutePath, this.writer.write(sourceUnit, _sourceMap));
+      if (sourceMap) {
+        sourceMaps.set(sourceUnit.absolutePath, _sourceMap as ASTSourceMap);
+      }
+    }
+    if (sourceMap) {
+      return [files, sourceMaps];
     }
     return files;
   }
@@ -424,7 +467,19 @@ export class CompileHelper {
           const { ir, irOptimized, abi } = contract;
           const creationCode = contract.evm?.bytecode?.object ?? "";
           const runtimeCode = contract.evm?.deployedBytecode?.object ?? "";
-          this.contractsMap.set(contractName, { ir, irOptimized, abi, creationCode, runtimeCode });
+          const generatedSources: any = contract.evm?.deployedBytecode?.generatedSources;
+          const sourceMap: string | undefined = contract.evm?.deployedBytecode?.sourceMap;
+          const functionDebugData: any = contract.evm?.deployedBytecode?.functionDebugData;
+          this.contractsMap.set(contractName, {
+            ir,
+            irOptimized,
+            abi,
+            creationCode,
+            runtimeCode,
+            generatedSources,
+            sourceMap,
+            functionDebugData
+          });
         }
       }
     }
@@ -434,18 +489,16 @@ export class CompileHelper {
     const files = this.getFiles();
     const resolvedFileNames = new Map<string, string>();
     findAllFiles(files, resolvedFileNames, [], []);
-    const defaultOptions = optimize ? optimizedCompilerOptions : compilerOptions;
-    const options = parseCompilerOptions({
-      ...defaultOptions,
-      ...optionOverrides
-    });
+
+    const compilerOptions = getCombinedCompilerOptions(optimize, optionOverrides);
     const compileResult = compile(
       this.compiler,
       files,
       this.remapping ?? [],
       compilerOutputs,
-      options
+      compilerOptions
     );
+    this.compilerOptions = compilerOptions;
     this.update(compileResult);
   }
 
@@ -488,19 +541,15 @@ export class CompileHelper {
     version = LatestCompilerVersion,
     files: Map<string, string>,
     basePath?: string,
-    optimize?: boolean
+    optimize?: boolean,
+    optionOverrides?: UserCompilerOptions
   ): Promise<CompileHelper> {
     const compiler = await getCompilerForVersion(version, CompilerKind.WASM);
     if (!(compiler instanceof WasmCompiler)) {
       throw Error(`WasmCompiler not found for ${version}`);
     }
-    const compileResult = compile(
-      compiler,
-      files,
-      [],
-      compilerOutputs,
-      optimize ? optimizedCompilerOptions : compilerOptions
-    );
+    const options = getCombinedCompilerOptions(optimize, optionOverrides);
+    const compileResult = compile(compiler, files, [], compilerOutputs, options);
     return new CompileHelper(compiler, compileResult, basePath);
   }
 
@@ -545,11 +594,7 @@ export class CompileHelper {
     // if (!(compiler instanceof WasmCompiler)) {
     //   throw Error(`WasmCompiler not found for ${version}`);
     // }
-    const defaultOptions = optimize ? optimizedCompilerOptions : compilerOptions;
-    const options = parseCompilerOptions({
-      ...defaultOptions,
-      ...optionOverrides
-    });
+    const options = getCombinedCompilerOptions(optimize, optionOverrides);
     const compileResult = compile(compiler, files, remapping, compilerOutputs, options);
     const helper = new CompileHelper(compiler, compileResult, basePath, options, remappings);
     helper._files = files;
