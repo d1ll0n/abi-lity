@@ -13,6 +13,8 @@ import { EncodingScheme } from "../../constants";
 import { getMemberDataOffset, getMemberHeadOffset, getOffsetExpression } from "../offsets";
 
 function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
+  const fnName = NameGen.abiDecode(struct);
+  if (ctx.hasFunction(fnName)) return fnName;
   const sizeName = `${struct.identifier}_head_size`;
   ctx.addConstant(sizeName, toHex(struct.embeddedMemoryHeadSize));
   const body: StructuredText[] = [`mPtr = malloc(${sizeName});`];
@@ -50,21 +52,20 @@ function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): str
     body.push(`${dst}.write(${decodeFn}(${src}));`);
   }
 
-  const fnName = `abi_decode_${struct.identifier}`;
   const code = getCalldataDecodingFunction(fnName, "cdPtr", "mPtr", body);
   ctx.addFunction(fnName, code);
   return fnName;
 }
 
-function abiDecodingFunctionBytes(ctx: CodegenContext): string {
-  const fnName = `abi_decode_bytes`;
+function abiDecodingFunctionBytes(ctx: CodegenContext, type: BytesType): string {
+  const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
 
   const code = getCalldataDecodingFunction(fnName, `cdPtrLength`, `mPtrLength`, [
     `assembly {`,
     [
       `/// Get the current free memory pointer.`,
-      `mPtrLength := mload(_FreeMemoryPointerSlot)`,
+      `mPtrLength := mload(FreeMemoryPointerSlot)`,
 
       `/// Derive the size of the bytes array, rounding up to nearest word`,
       `/// and adding a word for the length field. Note: masking`,
@@ -88,7 +89,7 @@ function abiDecodingFunctionBytes(ctx: CodegenContext): string {
       [`mPtrLength,`, `and(calldataload(cdPtrLength), OffsetOrLengthMask)`],
       `)`,
       `/// Update free memory pointer based on the size of the bytes array.`,
-      `mstore(_FreeMemoryPointerSlot, add(mPtrLength, size))`
+      `mstore(FreeMemoryPointerSlot, add(mPtrLength, size))`
     ],
     `}`
   ]);
@@ -101,7 +102,7 @@ export function abiDecodingFunction(ctx: CodegenContext, node: TypeNode): string
     return abiDecodingFunctionArray(ctx, node);
   }
   if (node instanceof BytesType) {
-    return abiDecodingFunctionBytes(ctx);
+    return abiDecodingFunctionBytes(ctx, node);
   }
   if (node instanceof StructType) {
     return abiDecodingFunctionStruct(ctx, node);
