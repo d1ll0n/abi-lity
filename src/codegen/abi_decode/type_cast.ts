@@ -5,7 +5,7 @@ import NameGen from "../names";
 import { CodegenContext } from "../utils";
 
 export function typeCastAbiDecodingFunction(ctx: CodegenContext, type: TypeNode): string {
-  const name = NameGen.typeCast(type);
+  const name = NameGen.castReturnType(type);
   if (ctx.hasFunction(name)) {
     return name;
   }
