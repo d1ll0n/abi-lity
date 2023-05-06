@@ -18,7 +18,9 @@ import { addTypeImport, makeFunctionCallFor } from "../../utils";
 import NameGen from "../names";
 import { dependsOnCalldataLocation, getPointerOffsetExpression } from "../utils";
 
-export const isExternalFunction = (fn: FunctionDefinition | FunctionType): boolean =>
+export const isExternalFunctionDefinitionOrType = (
+  fn: FunctionDefinition | FunctionType
+): boolean =>
   fn.visibility !== undefined &&
   [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
 
@@ -29,7 +31,7 @@ export const isExternalFunction = (fn: FunctionDefinition | FunctionType): boole
 export function getExternalFunctionsWithReferenceTypeParameters(
   functions: FunctionDefinition[]
 ): FunctionDefinition[] {
-  return functions.filter(isExternalFunction).filter((fn) => {
+  return functions.filter(isExternalFunctionDefinitionOrType).filter((fn) => {
     const type = functionDefinitionToTypeNode(fn);
     return type.parameters?.vMembers.some((m) => m.isReferenceType);
   });
@@ -79,7 +81,7 @@ function makeParameterAssignmentFromDecodeFunctionCall(
   }
 
   const decodeFunctionName = NameGen.abiDecode(parameterType);
-  const typecastFunctionName = NameGen.typeCast(parameterType);
+  const typecastFunctionName = NameGen.castReturnType(parameterType);
   const decodeFunction = findFunctionDefinition(decoderSourceUnit, decodeFunctionName);
   const typeCastFunction = findFunctionDefinition(decoderSourceUnit, typecastFunctionName);
   addTypeImport(sourceUnit, decodeFunction);
@@ -115,7 +117,7 @@ export function replaceExternalFunctionReferenceTypeParameters(
 ): void {
   const functions = getExternalFunctionsWithReferenceTypeParameters(
     sourceUnit.getChildrenByType(FunctionDefinition)
-  );
+  ).filter((fn) => !fn.isConstructor && fn.visibility === FunctionVisibility.External);
   const context = sourceUnit.requiredContext;
   const factory = new ASTNodeFactory(context);
   for (const fn of functions) {
