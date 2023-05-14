@@ -1,7 +1,9 @@
 import { addHexPrefix, Address, bufferToHex, toBuffer } from "@ethereumjs/util";
 import { Chain, Common, Hardfork } from "@ethereumjs/common";
-import { Interface, JsonFragment } from "@ethersproject/abi";
+import { Interface, JsonFragment, LogDescription } from "@ethersproject/abi";
 import { VM } from "@ethereumjs/vm";
+import { ExecResult } from "@ethereumjs/evm";
+import { ERROR } from "@ethereumjs/evm/dist/exceptions";
 import { getDefaultForType } from "../utils";
 import { readTypeNodesFromABI, TypeNodeReaderResult } from "../readers";
 
@@ -15,7 +17,17 @@ export type CallResult = {
   data: any[];
   returnData: any;
   executionGasUsed: bigint;
+  execResult: ExecResult;
+  logs: LogDescription[];
+  status: CallStatus;
+  errorData?: any;
 };
+
+export enum CallStatus {
+  Success = "success",
+  Revert = "revert",
+  ExceptionalHalt = "exceptional halt"
+}
 
 export type TestDeployment = {
   name?: string;
@@ -54,24 +66,54 @@ export async function getTestDeployment(
 
   const call = async (fnName: string, ...args: any[]) => {
     const data = encodeCall(fnName, ...args);
-    const {
-      execResult: { returnValue: rawReturnData, executionGasUsed }
-    } = await vm.evm.runCall({
+    const { execResult } = await vm.evm.runCall({
       to: address,
       data
     });
+
+    const { returnValue, executionGasUsed } = execResult;
+    const rawReturnData = bufferToHex(returnValue);
+
     let returnData: any;
-    try {
-      returnData = iface.decodeFunctionResult(fnName, rawReturnData);
-    } catch (err) {
-      console.error(`error decoding fn result! ${err}`);
+    let errorData: any = undefined;
+    let status: CallStatus;
+    if (execResult.exceptionError) {
+      if (execResult.exceptionError.error === ERROR.REVERT) {
+        status = CallStatus.Revert;
+        try {
+          errorData = iface.parseError(rawReturnData);
+        } catch (err) {
+          console.error(`error decoding error message! ${err}`);
+        }
+      } else {
+        status = CallStatus.ExceptionalHalt;
+      }
+    } else {
+      status = CallStatus.Success;
+      try {
+        returnData = iface.decodeFunctionResult(fnName, rawReturnData);
+      } catch (err) {
+        console.error(`error decoding fn result! ${err}`);
+      }
     }
+
+    const logs =
+      execResult.logs
+        ?.map(([, topics, data]) =>
+          iface.parseLog({ data: bufferToHex(data), topics: topics.map((t) => bufferToHex(t)) })
+        )
+        .filter(Boolean) ?? [];
+
     return {
       rawData: bufferToHex(data.subarray(4)),
-      rawReturnData: bufferToHex(rawReturnData),
+      rawReturnData,
+      status,
+      errorData,
       data: args,
       returnData,
-      executionGasUsed
+      executionGasUsed,
+      execResult,
+      logs
     };
   };
 
