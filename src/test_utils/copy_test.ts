@@ -1,7 +1,13 @@
 import { DataLocation, isInstanceOf, LatestCompilerVersion } from "solc-typed-ast";
 import { EnumType, StructType, TupleType } from "../ast";
 import { CallResult } from "./deployment";
-import { addSeparators, coerceArray, CompileHelper, writeNestedStructure } from "../utils";
+import {
+  addSeparators,
+  coerceArray,
+  CompileHelper,
+  UserCompilerOptions,
+  writeNestedStructure
+} from "../utils";
 import { upgradeSourceCoders } from "../codegen";
 import { getUniqueTypeNodes } from "../codegen/utils";
 import { getAllContractDeployments, testDeployments } from "./compare_contracts";
@@ -34,10 +40,10 @@ function getNames(type: CopyTestType, location: DataLocation) {
   return type.vMembers.map((m, i) => `${name}${i}`);
 }
 
-function getParams(type: CopyTestType, location: DataLocation) {
+function getParams(type: CopyTestType, location: DataLocation, withoutName?: boolean) {
   const names = getNames(type, location);
   if (type instanceof StructType) {
-    return `(${type.writeParameter(location, names[0])})`;
+    return `(${type.writeParameter(location, withoutName ? "" : names[0])})`;
   }
   return `(${type.vMembers.map((m, i) => m.writeParameter(location, names[i])).join(", ")})`;
 }
@@ -45,13 +51,14 @@ function getParams(type: CopyTestType, location: DataLocation) {
 function createCalldataCopyFunction(type: CopyTestType) {
   const fnName = `copy_${type.identifier}`;
   const input = getParams(type, DataLocation.CallData);
-  const output = getParams(type, DataLocation.Memory);
+  const output = getParams(type, DataLocation.Memory, true);
   const inputNames = getNames(type, DataLocation.CallData);
-  const outputNames = getNames(type, DataLocation.Memory);
-  const assignments = inputNames.map((input, i) => `${outputNames[i]} = ${input};`);
+  // const outputNames = getNames(type, DataLocation.Memory, );
+  // const assignments = inputNames.map((input, i) => `{ ${outputNames[i]} = ${input}; }`);
   return writeNestedStructure([
     `function ${fnName} ${input} external view returns ${output} {`,
-    assignments,
+    // assignments,
+    [`return (${inputNames.join(",")});`],
     `}`
   ]);
 }
@@ -75,7 +82,10 @@ type CopyTestResults = {
  * a version with decoders and a function switch.
  * Tests every function and logs the gas cost.
  */
-export async function createCalldataCopiers(types: CopyTestType[]): Promise<CompileHelper> {
+export async function createCalldataCopiers(
+  types: CopyTestType[],
+  compilerOptions?: UserCompilerOptions
+): Promise<CompileHelper> {
   types = getUniqueTypeNodes(types);
   const structsFile = extractTypeDependencies(types);
   const files = new Map<string, string>([["Structs.sol", structsFile]]);
@@ -97,6 +107,7 @@ export async function createCalldataCopiers(types: CopyTestType[]): Promise<Comp
     `CopierWithSwitch.sol`,
     copierFile.replace(`contract BaseCopier`, `contract CopierWithSwitch`)
   );
+  console.log(`Compiling copy test files...`);
   const helper = await CompileHelper.fromFiles(LatestCompilerVersion, files, undefined, true);
   upgradeSourceCoders(helper, `CopierWithDecoders.sol`, {
     functionSwitch: false,
@@ -106,6 +117,6 @@ export async function createCalldataCopiers(types: CopyTestType[]): Promise<Comp
     functionSwitch: true,
     decoderFileName: "Decoders.sol"
   });
-  helper.recompile(true);
+  helper.recompile(true, compilerOptions);
   return helper;
 }

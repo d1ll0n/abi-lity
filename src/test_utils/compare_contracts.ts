@@ -1,15 +1,9 @@
-import { addHexPrefix, Address, bufferToHex, toBuffer } from "@ethereumjs/util";
 import { toArray } from "lodash";
 import { assert } from "solc-typed-ast";
 import { FunctionType, TupleType } from "../ast";
-import { readTypeNodesFromABI } from "../readers";
-import { CompileHelper, ContractOutput, DefaultValue, getDefaultForType } from "../utils";
+import { CompileHelper, ContractOutput, getDefaultForType } from "../utils";
 import { CallResult, getTestDeployment, TestDeployment } from "./deployment";
-import { err, warn, info, success, diffPctString, toCommentTable } from "./logs";
-
-type TestContract = {
-  name: string;
-};
+import { err, info, diffPctString, toCommentTable } from "./logs";
 
 type FunctionTestInput = {
   function: FunctionType;
@@ -107,8 +101,6 @@ export async function testFunctionForDeployments(
   return results;
 }
 
-// function getCopyTests
-
 const CopierLabels: Record<string, string> = {
   BaseCopier: `base`,
   CopierWithDecoders: "w/ decoders",
@@ -127,7 +119,7 @@ export async function getAllContractDeployments(
       return { contract, name };
     })
     .filter((c) => c !== undefined) as Array<{ contract: ContractOutput; name: string }>;
-  console.log(contracts.map((c) => c.name).join("\n"));
+  // console.log(contracts.map((c) => c.name + " " + c.contract.runtimeCode.length).join("\n"));
   return (
     await Promise.all(
       contracts.map(({ contract, name }) => {

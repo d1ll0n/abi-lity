@@ -17,6 +17,9 @@ export const diffPctString = (newValue: number, oldValue: number): string => {
 // eslint-disable-next-line no-control-regex
 export const stripANSI = (str: string): string => str.replace(/\u001b\[.*?m/g, "");
 
+// eslint-disable-next-line no-control-regex
+export const getANSIRegex = (): RegExp => /\u001b\[.*?m/g;
+
 export function getColumnSizesAndAlignments(
   rows: string[][],
   padding = 0
