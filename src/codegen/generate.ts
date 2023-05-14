@@ -1,21 +1,14 @@
-import { readFileSync } from "fs";
 import path from "path";
 import {
   ContractDefinition,
+  ContractKind,
   Mapping,
   SourceUnit,
   staticNodeFactory,
   StructDefinition
 } from "solc-typed-ast";
 import { structDefinitionToTypeNode } from "../readers";
-import {
-  addDependencyImports,
-  addImports,
-  coerceArray,
-  CompileHelper,
-  Logger,
-  NoopLogger
-} from "../utils";
+import { addImports, coerceArray, CompileHelper, Logger, NoopLogger } from "../utils";
 import {
   buildDecoderFile,
   buildExternalWrapper,
@@ -24,6 +17,8 @@ import {
 import { getForgeJsonSerializeFunction } from "./serialize/forge_json";
 import { getFunctionSelectorSwitch } from "./function_switch";
 import { CodegenContext } from "./utils";
+import { getForgeAssertEqualityFunction } from "./serialize/forge_assert";
+import { getSTDAssertionsShim, getVMShim } from "./solidity_libraries";
 
 type CoderOptions = {
   functionSwitch: boolean;
@@ -47,7 +42,7 @@ export function upgradeSourceCoders(
     decoderSourceUnit = helper.getSourceUnit(decoderFileName);
   } else {
     logger.log(`generating decoders for ${fileName}...`);
-    const ctx = buildDecoderFile(helper, fileName, decoderFileName);
+    const ctx = buildDecoderFile(helper, fileName, decoderFileName, options.functionSwitch);
     decoderSourceUnit = ctx.decoderSourceUnit;
   }
   const sourceUnit = helper.getSourceUnit(fileName);
@@ -90,10 +85,7 @@ export function generateSerializers(
   const ctx = new CodegenContext(helper, serializerFileName);
   const sourceUnit = helper.getSourceUnit(fileName);
   const vmName = options.outPath ? path.join(options.outPath, `Temp___Vm.sol`) : `Temp___Vm.sol`;
-  const vm = helper.addSourceUnit(
-    vmName,
-    readFileSync(path.join(__dirname, "VmStandin.sol"), "utf8")
-  );
+  const vm = helper.addSourceUnit(vmName, getVMShim());
   addImports(ctx.decoderSourceUnit, vm, []);
   addImports(ctx.decoderSourceUnit, sourceUnit, []);
   let structDefinitions = sourceUnit
@@ -108,4 +100,47 @@ export function generateSerializers(
     getForgeJsonSerializeFunction(ctx, struct);
   }
   ctx.applyPendingFunctions();
+}
+
+export function generateAssertions(
+  helper: CompileHelper,
+  fileName: string,
+  options: CoderOptions = defaultOptions,
+  struct?: string | string[],
+  logger: Logger = new NoopLogger()
+): void {
+  const serializerFileName = options.decoderFileName ?? fileName.replace(".sol", "Assertions.sol");
+  const ctx = new CodegenContext(helper, serializerFileName);
+
+  const sourceUnit = helper.getSourceUnit(fileName);
+  const vmName = options.outPath ? path.join(options.outPath, `Tmp_Assert.sol`) : `Tmp_Assert.sol`;
+  const vm = helper.addSourceUnit(vmName, getSTDAssertionsShim());
+  addImports(ctx.decoderSourceUnit, vm, []);
+  addImports(ctx.decoderSourceUnit, sourceUnit, []);
+  const lib = ctx.addContract("Assertions", ContractKind.Contract, [
+    vm.getChildrenByType(ContractDefinition).find((c) => c.name === "StdAssertions")?.id as number
+  ]);
+  ctx.addCustomTypeUsingForDirective(
+    "uint256",
+    staticNodeFactory.makeIdentifierPath(
+      sourceUnit.requiredContext,
+      "LibString",
+      vm.getChildrenByType(ContractDefinition).find((c) => c.name === "LibString")?.id as number
+    ),
+    undefined,
+    false
+  );
+  let structDefinitions = sourceUnit
+    .getChildrenByType(StructDefinition)
+    .filter((struct) => struct.getChildrenByType(Mapping).length === 0);
+  if (struct) {
+    structDefinitions = structDefinitions.filter((s) => coerceArray(struct).includes(s.name));
+  }
+
+  const structs = structDefinitions.map(structDefinitionToTypeNode);
+  for (const struct of structs) {
+    getForgeAssertEqualityFunction(lib, struct);
+  }
+  lib.applyPendingFunctions();
+  ctx.applyPendingContracts();
 }
