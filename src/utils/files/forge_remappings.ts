@@ -24,7 +24,7 @@ export type ResolvedSolidityFiles = {
   /** Map from source names in `files` to actual resolved paths on disk (if any). */
   resolvedFileNames: Map<string, string>;
   /** longest path shared by all sources */
-  basePath: string;
+  basePath?: string;
 };
 
 export function getForgeRemappings(currentDir: string): string[] {
@@ -77,26 +77,10 @@ export function getForgeRemappings(currentDir: string): string[] {
 }
 
 export function resolveSolidityFiles(
-  input: string,
-  allowDirectory?: boolean
+  fileNames: string | string[],
+  basePath?: string
 ): ResolvedSolidityFiles {
-  if (
-    !path.isAbsolute(input) ||
-    (!allowDirectory && path.extname(input) !== ".sol") ||
-    !existsSync(input)
-  ) {
-    throw Error(`${input} is not a Solidity file or was not found.`);
-  }
-  let fileName: string | string[];
-  let basePath: string;
-  if (allowDirectory && isDirectory(input)) {
-    fileName = getAllFilesInDirectory(input, ".sol");
-    basePath = input;
-  } else {
-    fileName = path.parse(input).base;
-    basePath = path.dirname(input);
-  }
-  const fileNames = coerceArray(fileName);
+  fileNames = coerceArray(fileNames);
   const includePath: string[] = [];
   if (basePath) {
     let parent = path.dirname(basePath);
@@ -124,7 +108,7 @@ export function resolveSolidityFiles(
     basePath = commonPath ? path.normalize(commonPath) : basePath;
   }
   return {
-    fileName,
+    fileName: fileNames,
     files,
     remapping,
     sourceNames,
@@ -133,4 +117,25 @@ export function resolveSolidityFiles(
   };
 }
 
-// export function
+export function resolveSolidityFilesOrDirectory(
+  input: string,
+  allowDirectory?: boolean
+): ResolvedSolidityFiles {
+  if (
+    !path.isAbsolute(input) ||
+    (!allowDirectory && path.extname(input) !== ".sol") ||
+    !existsSync(input)
+  ) {
+    throw Error(`${input} is not a Solidity file or was not found.`);
+  }
+  let fileName: string | string[];
+  let basePath: string;
+  if (allowDirectory && isDirectory(input)) {
+    fileName = getAllFilesInDirectory(input, ".sol");
+    basePath = input;
+  } else {
+    fileName = path.parse(input).base;
+    basePath = path.dirname(input);
+  }
+  return resolveSolidityFiles(fileName, basePath);
+}

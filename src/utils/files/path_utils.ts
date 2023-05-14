@@ -1,5 +1,5 @@
 import path from "path";
-import { existsSync, fstatSync, lstatSync, mkdirSync, readdirSync } from "fs";
+import { lstatSync, mkdirSync, readdirSync } from "fs";
 
 export function getCommonBasePath(_paths: string[]): string | undefined {
   const paths = _paths.map((s) => path.parse(s).dir);
@@ -19,13 +19,7 @@ export const getDirectory = (_path: string): string =>
 
 const recursiveMkDirIfNotExists = (target: string) => {
   if (!target) return undefined;
-  if (!existsSync(target)) {
-    const parent = path.parse(target).dir;
-    if (!recursiveMkDirIfNotExists(parent)) {
-      return undefined;
-    }
-    mkdirSync(target);
-  }
+  mkdirSync(target, { recursive: true });
   return target;
 };
 
