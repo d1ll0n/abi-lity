@@ -4,9 +4,9 @@ import { JsonFragment } from "@ethersproject/abi";
 import { writeNestedStructure } from "../../../utils";
 import { FunctionType } from "../../../ast";
 import { toCommentTable } from "../../../test_utils/logs";
-import { isExternalFunction } from "../../../codegen";
+import { isExternalFunctionDefinitionOrType } from "../../../codegen";
 import { readTypeNodesFromABI, readTypeNodesFromSolidity } from "../../../readers";
-import { resolveSolidityFiles } from "../../../utils/forge_remappings";
+import { resolveSolidityFiles } from "../../../utils";
 
 const options = {
   input: {
@@ -53,7 +53,7 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         }
         types = readTypeNodesFromABI(abi).functions;
       } else if (path.extname(input) === ".sol") {
-        const { files, fileName } = resolveSolidityFiles(input, false);
+        const { files, fileName } = resolveSolidityFiles(input);
         console.log({ fileName, input });
         const filePaths = [...files.keys()];
         filePaths.reverse();
@@ -63,7 +63,7 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       } else {
         throw Error(`Input file must be a .sol file or a JSON artifact or ABI file`);
       }
-      types = types.filter(isExternalFunction);
+      types = types.filter(isExternalFunctionDefinitionOrType);
 
       const printFunctions = (functions: FunctionType[]) => {
         const id = functions.length > 1 || name?.includes("(") ? "functionSignature" : "name";

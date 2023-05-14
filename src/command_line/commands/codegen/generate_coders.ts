@@ -60,7 +60,11 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       verbose,
       ...args
     }): Promise<void> => {
-      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args);
+      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
+        args,
+        false,
+        false
+      );
 
       const logger = new DebugLogger();
       upgradeSourceCoders(helper, fileName, { functionSwitch: !decoderOnly }, logger);

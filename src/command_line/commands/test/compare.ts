@@ -28,7 +28,12 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
     ]),
     options,
     async (args) => {
-      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args, true);
+      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
+        args,
+        true,
+        true,
+        { viaIR: true, optimizer: true, runs: "max" }
+      );
       const deployments = await getAllContractDeployments(helper);
       await testDeployments(deployments);
     }

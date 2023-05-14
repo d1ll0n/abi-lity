@@ -3,6 +3,7 @@ import path from "path";
 import { LatestCompilerVersion } from "solc-typed-ast";
 import {
   CompileHelper,
+  CompilerOptions,
   getAllFilesInDirectory,
   getCommonBasePath,
   getRelativePath,
@@ -99,6 +100,20 @@ export function renameFile(
   }
 }
 
+export function writeCompilerOptions(compilerOptions?: CompilerOptions): StructuredText {
+  return [
+    `Settings:`,
+    [
+      `Version: ${LatestCompilerVersion}`,
+      `viaIR: ${compilerOptions?.viaIR ?? false}`,
+      `Optimizer ${compilerOptions?.optimizer?.enabled ? "On" : "Off"}`,
+      ...(compilerOptions?.optimizer?.enabled
+        ? [`Optimizer Runs: ${compilerOptions?.optimizer?.runs}`]
+        : [])
+    ]
+  ];
+}
+
 export function printCodeSize(helper: CompileHelper, fileName: string): void {
   const contract = helper.getContractForFile(fileName);
   const contractCode = contract.runtimeCode;
@@ -120,18 +135,7 @@ export function printCodeSize(helper: CompileHelper, fileName: string): void {
   console.log(
     writeNestedStructure([
       `Contract: ${contract.name}`,
-      [
-        ...output,
-        `Settings:`,
-        [
-          `Version: ${LatestCompilerVersion}`,
-          `viaIR: true`,
-          `Optimizer ${helper.compilerOptions?.optimizer?.enabled ? "On" : "Off"}`,
-          ...(helper.compilerOptions?.optimizer?.enabled
-            ? [`Optimizer Runs: ${helper.compilerOptions?.optimizer?.runs}`]
-            : [])
-        ]
-      ]
+      [...output, ...writeCompilerOptions(helper.compilerOptions)]
     ])
   );
 }

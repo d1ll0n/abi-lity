@@ -5,8 +5,9 @@ import { CompileHelper, getRelativePath, writeNestedStructure } from "../../../u
 import { ContractDefinition, FunctionDefinition, LatestCompilerVersion } from "solc-typed-ast";
 import { functionDefinitionToTypeNode, readTypeNodesFromSolcAST } from "../../../readers";
 import { StructType, TupleType } from "../../../ast";
-import { isExternalFunction } from "../../../codegen";
+import { isExternalFunctionDefinitionOrType } from "../../../codegen";
 import { createCalldataCopiers, testCopiers } from "../../../test_utils";
+import { writeCompilerOptions } from "../../utils";
 
 const options = {
   input: {
@@ -26,6 +27,23 @@ const options = {
     describe: "Also generate irOptimized for contract.",
     default: false,
     type: "boolean"
+  },
+  runs: {
+    alias: ["r"],
+    default: 200_000,
+    describe: "Optimizer runs. Either a number of 'max'"
+  },
+  optimize: {
+    alias: ["optimize"],
+    describe: "Whether to enable compiler optimizations.",
+    default: true,
+    type: "boolean"
+  },
+  noIR: {
+    alias: ["no-ir"],
+    describe: "Do not use viaIR when testing.",
+    default: false,
+    type: "boolean"
   }
 } as const;
 
@@ -38,7 +56,8 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       "functions in all three contracts and compare gas and code size."
     ]),
     options,
-    async ({ input, output, ir }) => {
+    async ({ input, output, ir, optimize, runs: r, noIR }) => {
+      const runs = r as number | "max";
       if (!path.isAbsolute(input) || path.extname(input) !== ".sol") {
         throw Error(`${input} is not a Solidity file or was not found.`);
       }
@@ -46,12 +65,7 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
 
       let fileName = path.parse(input).base;
       console.log(`compiling ${fileName}...`);
-      const helper = await CompileHelper.fromFileSystem(
-        LatestCompilerVersion,
-        fileName,
-        basePath,
-        true
-      );
+      const helper = await CompileHelper.fromFileSystem(LatestCompilerVersion, fileName, basePath);
       basePath = helper.basePath as string;
       fileName = getRelativePath(basePath, input);
       const sourceUnit = helper.getSourceUnit(fileName);
@@ -60,16 +74,21 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       if (contract) {
         const functions = contract
           .getChildrenByType(FunctionDefinition)
-          .filter(isExternalFunction)
+          .filter(isExternalFunctionDefinitionOrType)
           .map(functionDefinitionToTypeNode);
         const tuples = functions.map((fn) => fn.parameters).filter(Boolean) as TupleType[];
         types.push(...tuples);
       } else {
-        const { structs } = readTypeNodesFromSolcAST(sourceUnit);
+        const { structs } = readTypeNodesFromSolcAST(true, sourceUnit);
         types.push(...structs);
       }
-      const copyHelpers = await createCalldataCopiers(types);
+      const copyHelpers = await createCalldataCopiers(types, {
+        optimizer: optimize,
+        runs,
+        viaIR: !noIR
+      });
       await testCopiers(copyHelpers, types);
+      console.log(writeCompilerOptions(copyHelpers.compilerOptions));
       if (output) {
         copyHelpers.writeFilesTo(output);
         if (ir) {
