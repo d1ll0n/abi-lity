@@ -14,20 +14,20 @@ import {
   addFunctionImports,
   CompileHelper,
   makeFunctionCallFor,
-  TypeExtractor
+  TypeExtractor,
+  isExternalFunction
 } from "../../utils";
 import { CodegenContext } from "../utils";
 import { abiDecodingFunction } from "./abi_decode";
-import {
-  getExternalFunctionsWithReferenceTypeParameters,
-  isExternalFunction
-} from "./function_editor";
+import { getExternalFunctionsWithReferenceTypeParameters } from "./function_editor";
 import { typeCastAbiDecodingFunction } from "./type_cast";
+import { createReturnFunction } from "../abi_encode";
 
 export function buildDecoderFile(
   helper: CompileHelper,
   primaryFileName: string,
-  decoderFileName = primaryFileName.replace(".sol", "Decoder.sol")
+  decoderFileName = primaryFileName.replace(".sol", "Decoder.sol"),
+  withReturnFunctions = false
 ): CodegenContext {
   const ctx = new CodegenContext(helper, decoderFileName);
   ctx.addPointerLibraries();
@@ -38,6 +38,13 @@ export function buildDecoderFile(
   addDependencyImports(ctx.decoderSourceUnit, functions);
   const functionTypes = functions.map(functionDefinitionToTypeNode);
   addTypeDecoders(ctx, [...functionTypes]);
+  if (withReturnFunctions) {
+    for (const fn of functionTypes) {
+      const params = fn.returnParameters;
+      if (!params || !params.vMembers.length) continue;
+      createReturnFunction(ctx, params);
+    }
+  }
   ctx.applyPendingFunctions();
   return ctx;
 }
