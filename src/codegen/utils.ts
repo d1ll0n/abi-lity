@@ -15,6 +15,9 @@ import {
   LatestCompilerVersion,
   SourceUnit,
   staticNodeFactory,
+  StructuredDocumentation,
+  SymbolAlias,
+  TypeName,
   UserDefinedValueTypeDefinition,
   YulExpression,
   YulIdentifier
@@ -25,11 +28,13 @@ import {
   EventType,
   FunctionType,
   StructType,
+  TupleLikeType,
   TupleType,
   TypeNode,
   ValueType
 } from "../ast";
 import {
+  addImports,
   CompileHelper,
   findContractDefinition,
   findFunctionDefinition,
@@ -39,19 +44,34 @@ import {
   getYulConstant,
   StructuredText,
   toHex,
-  writeNestedStructure
+  writeNestedStructure,
+  isExternalFunction,
+  addEnumDefinition,
+  FilesCache,
+  getFilesCache,
+  getNewFiles
 } from "../utils";
-import { isExternalFunction } from "./abi_decode";
-
-const PointerLibraries = require("./PointerLibraries.json");
+import path from "path";
+import { ConstantKind } from "../utils/make_constant";
+import { getPointerLibraries } from "./solidity_libraries";
+import { WrappedScope } from "./ctx/contract_wrapper";
 
 export class CodegenContext {
   pendingFunctions: FunctionAddition[] = [];
   contracts: ContractCodegenContext[] = [];
-  originalFiles: string[] = [];
+  cache?: FilesCache;
+  decoderSourceUnitName: string;
 
-  constructor(public helper: CompileHelper, public decoderSourceUnitName: string) {
-    this.helper.addSourceUnit(decoderSourceUnitName);
+  constructor(
+    public helper: CompileHelper,
+    decoderSourceUnitName: string,
+    public outputPath?: string
+  ) {
+    if (helper._files) {
+      this.cache = getFilesCache(helper._files);
+    }
+    this.decoderSourceUnitName = this.getFilePath(decoderSourceUnitName);
+    this.addSourceUnit(this.decoderSourceUnitName);
     const sourceUnit = this.sourceUnit;
     if (sourceUnit.children.length === 0) {
       const [, major, minor] = LatestCompilerVersion.split(".");
@@ -66,9 +86,45 @@ export class CodegenContext {
     }
   }
 
+  getNewFiles(): Map<string, string> {
+    const files = this.helper.getFiles();
+    if (!this.cache) return files;
+    return getNewFiles(this.helper.getFiles(), this.cache);
+  }
+
+  getFilePath(fileName: string): string {
+    if (this.outputPath && !path.isAbsolute(fileName)) {
+      fileName = path.join(this.outputPath, fileName);
+    }
+    return fileName;
+  }
+
+  addSourceUnit(fileName: string, code?: string): SourceUnit {
+    return this.helper.addSourceUnit(this.getFilePath(fileName), code);
+  }
+
+  getPointerLibraries(): SourceUnit {
+    let pointerLibraries = this.helper.sourceUnits.find(
+      (s) =>
+        path.basename(s.absolutePath) === "PointerLibraries.sol" && !s.absolutePath.startsWith(".")
+    );
+    if (!pointerLibraries) {
+      pointerLibraries = this.helper.sourceUnits.find(
+        (s) => path.basename(s.absolutePath) === "PointerLibraries.sol"
+      );
+    }
+    if (!pointerLibraries) {
+      pointerLibraries = this.addSourceUnit("PointerLibraries.sol", getPointerLibraries());
+    }
+    return pointerLibraries;
+  }
+
   addPointerLibraries(): void {
-    this.helper.addSourceUnit("PointerLibraries.sol", writeNestedStructure(PointerLibraries));
-    this.helper.addImport(this.decoderSourceUnitName, "PointerLibraries.sol");
+    this.addImports(this.getPointerLibraries());
+  }
+
+  addImports(importSource: SourceUnit, symbolAliases: SymbolAlias[] = []): void {
+    addImports(this.decoderSourceUnit, importSource, symbolAliases);
   }
 
   get decoderSourceUnit(): SourceUnit {
@@ -95,35 +151,63 @@ export class CodegenContext {
   addCustomTypeUsingForDirective(
     name: string,
     libraryName?: IdentifierPath,
-    functionList?: IdentifierPath[]
+    functionList?: IdentifierPath[],
+    isGlobal = true,
+    referenced_id?: number
   ): void {
     const type = this.sourceUnit
       .getChildrenByType(UserDefinedValueTypeDefinition)
       .find((child) => child.name === name);
-    assert(type !== undefined, `Type ${name} not found`);
-    const typeName = staticNodeFactory.makeUserDefinedTypeName(
-      this.sourceUnit.requiredContext,
-      type.name,
-      type.name,
-      type.id,
-      staticNodeFactory.makeIdentifierPath(this.sourceUnit.requiredContext, name, type.id)
-    );
+    let typeName: TypeName | undefined;
+    if (referenced_id) {
+      assert(type !== undefined, `Type ${name} not found`);
+      referenced_id = type.id;
+      typeName = staticNodeFactory.makeUserDefinedTypeName(
+        this.sourceUnit.requiredContext,
+        name,
+        name,
+        referenced_id,
+        staticNodeFactory.makeIdentifierPath(this.sourceUnit.requiredContext, name, referenced_id)
+      );
+    } else {
+      typeName = staticNodeFactory.makeElementaryTypeName(
+        this.sourceUnit.requiredContext,
+        name,
+        name
+      );
+    }
     const usingFor = staticNodeFactory.makeUsingForDirective(
       this.sourceUnit.requiredContext,
-      true,
+      isGlobal,
       libraryName,
       functionList,
       typeName
     );
-    this.sourceUnit.insertAfter(usingFor, type);
+    if (type) {
+      this.sourceUnit.insertAfter(usingFor, type);
+    } else {
+      this.sourceUnit.insertAtBeginning(usingFor);
+    }
   }
 
-  getConstant(name: string, value: number | string): Identifier {
-    return getConstant(this.decoderSourceUnit, name, value);
+  getConstant(
+    name: string,
+    value: number | string,
+    kind: ConstantKind = ConstantKind.Uint,
+
+    size = 256
+  ): Identifier {
+    return getConstant(this.decoderSourceUnit, name, value, kind, size);
   }
 
-  addConstant(name: string, value: number | string): string {
-    return this.getConstant(name, value).name;
+  addConstant(
+    name: string,
+    value: number | string,
+    kind: ConstantKind = ConstantKind.Uint,
+
+    size = 256
+  ): string {
+    return this.getConstant(name, value, kind, size).name;
   }
 
   getYulConstant(name: string, value: number | string): YulIdentifier {
@@ -155,10 +239,14 @@ export class CodegenContext {
     return Boolean(findContractDefinition(this.sourceUnit, name));
   }
 
-  addContract(name: string, kind: ContractKind): ContractCodegenContext {
+  addContract(
+    name: string,
+    kind: ContractKind,
+    linearizedBaseContracts: number[] = []
+  ): ContractCodegenContext {
     let contract = this.contracts.find((c) => c.name === name);
     if (!contract) {
-      contract = new ContractCodegenContext(this, name, kind);
+      contract = new ContractCodegenContext(this, name, kind, linearizedBaseContracts);
       this.contracts.push(contract);
     }
     return contract;
@@ -190,7 +278,8 @@ export class ContractCodegenContext {
   constructor(
     public sourceUnitContext: CodegenContext,
     public name: string,
-    public kind: ContractKind
+    public kind: ContractKind,
+    public linearizedBaseContracts: number[] = []
   ) {
     const sourceUnit = sourceUnitContext.decoderSourceUnit;
     let contract: ContractDefinition | undefined = findContractDefinition(sourceUnit, name);
@@ -202,9 +291,25 @@ export class ContractCodegenContext {
         kind,
         false,
         true,
-        [],
+        linearizedBaseContracts,
         []
       );
+      if (linearizedBaseContracts.length) {
+        const context = contract.requiredContext;
+        for (const id of linearizedBaseContracts) {
+          contract.appendChild(
+            staticNodeFactory.makeInheritanceSpecifier(
+              context,
+              staticNodeFactory.makeIdentifierPath(
+                context,
+                (context.locate(id) as ContractDefinition).name,
+                id
+              ),
+              []
+            )
+          );
+        }
+      }
       sourceUnit.appendChild(contract);
     }
     this.contract = contract;
@@ -222,12 +327,35 @@ export class ContractCodegenContext {
     return this.sourceUnitContext.decoderSourceUnitName;
   }
 
-  addConstant(name: string, value: number | string): string {
-    return this.getConstant(name, value).name;
+  addConstant(
+    name: string,
+    value: number | string,
+    kind: ConstantKind = ConstantKind.Uint,
+
+    size = 256
+  ): string {
+    return this.getConstant(name, value, kind, size).name;
   }
 
-  getConstant(name: string, value: number | string): Identifier {
-    return getConstant(this.contract, name, value);
+  addEnum(
+    name: string,
+    members: string[],
+    documentation?: string | StructuredDocumentation
+  ): string {
+    return addEnumDefinition(this.contract, name, members, documentation).name;
+  }
+
+  addImports(importSource: SourceUnit, symbolAliases: SymbolAlias[] = []): void {
+    addImports(this.sourceUnit, importSource, symbolAliases);
+  }
+
+  getConstant(
+    name: string,
+    value: number | string,
+    kind: ConstantKind = ConstantKind.Uint,
+    size = 256
+  ): Identifier {
+    return getConstant(this.contract, name, value, kind, size);
   }
 
   getYulConstant(name: string, value: number | string): YulIdentifier {
@@ -255,26 +383,37 @@ export class ContractCodegenContext {
     }
     return name;
   }
+
+  prependFunction(name: string, code: StructuredText, applyImmediately?: boolean): string {
+    if (!this.pendingFunctions.find((fn) => fn.name === name)) {
+      this.pendingFunctions.unshift({ code: writeNestedStructure(code), name });
+    }
+    if (applyImmediately) {
+      this.applyPendingFunctions();
+    }
+    return name;
+  }
 }
 
 const PointerRoundUp32Mask = `0xffffffe0`;
 
 export function roundUpAdd32(ctx: CodegenContext, value: string, asm?: boolean): string;
+export function roundUpAdd32(ctx: WrappedScope, value: string, asm?: boolean): string;
 export function roundUpAdd32(ctx: SourceUnit, value: YulExpression, asm?: boolean): YulExpression;
 export function roundUpAdd32(
-  ctx: SourceUnit | CodegenContext,
+  ctx: SourceUnit | CodegenContext | WrappedScope,
   value: YulExpression | string,
   asm = true
 ): string | YulExpression {
-  if (ctx instanceof CodegenContext && typeof value === "string") {
-    const almostTwoWords = ctx.addConstant("AlmostTwoWords", toHex(63));
+  if ((ctx instanceof CodegenContext || ctx instanceof WrappedScope) && typeof value === "string") {
+    const sixtyThreeBytes = ctx.addConstant("SixtyThreeBytes", toHex(63));
     const mask = ctx.addConstant("OnlyFullWordMask", PointerRoundUp32Mask);
-    if (asm) return `and(add(${value}, ${almostTwoWords}), ${mask})`;
-    return `((${value} + ${almostTwoWords}) & ${mask})`;
+    if (asm) return `and(add(${value}, ${sixtyThreeBytes}), ${mask})`;
+    return `((${value} + ${sixtyThreeBytes}) & ${mask})`;
   } else if (ctx instanceof SourceUnit && value instanceof YulExpression) {
     const mask = getYulConstant(ctx, `OnlyFullWordMask`, PointerRoundUp32Mask);
-    const almostTwoWords = getYulConstant(ctx, `AlmostTwoWords`, toHex(63));
-    return value.add(almostTwoWords).and(mask);
+    const sixtyThreeBytes = getYulConstant(ctx, `SixtyThreeBytes`, toHex(63));
+    return value.add(sixtyThreeBytes).and(mask);
   }
   throw Error(`Unsupported input types`);
 }
@@ -303,12 +442,12 @@ export function getCalldataDecodingFunction(
 
 export function getEncodingFunction(
   fnName: string,
-  inPtr: string,
-  outPtr: string,
+  srcPtr: string,
+  dstPtr: string,
   body: StructuredText[]
 ): StructuredText[] {
   return [
-    `function ${fnName}(MemoryPointer ${inPtr}, MemoryPointer ${outPtr}) pure returns (uint256 size) {`,
+    `function ${fnName}(MemoryPointer ${srcPtr}, MemoryPointer ${dstPtr}) pure returns (uint256 size) {`,
     body,
     `}`
   ];
@@ -331,7 +470,7 @@ export function abiEncodingMatchesMemoryLayout(type: TypeNode): boolean {
   return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
 }
 
-export function getSequentiallyCopyableSegments(struct: StructType): TypeNode[][] {
+export function getSequentiallyCopyableSegments(struct: TupleLikeType): TypeNode[][] {
   const types = struct.vMembers;
   const firstValueIndex = findIndex(types, (t) => t.isValueType);
   if (firstValueIndex < 0) return [];
@@ -436,12 +575,84 @@ export function getPointerOffsetExpression(
   return offsetCall;
 }
 
+function reduceIndent(code: string, tabs: string): string {
+  return code
+    .split("\n")
+    .map((l) => l.replace(tabs, ""))
+    .join("\n");
+}
+
+export function findYulFunction(
+  code: string,
+  name: string,
+  srcPosition?: boolean
+): string | undefined {
+  const re = new RegExp(`(?<=\\n)(\\s*)function ${name}\\(`, "g");
+  const match = re.exec(code);
+  if (match) {
+    const loc = match.index;
+    if (srcPosition) {
+      const pre = code.slice(0, loc);
+      const line = pre.split("\n").length;
+      return `${line}:${match[1].length}`;
+    }
+    const tabs = match[1];
+    const post = code.slice(loc + tabs.length);
+    const endPattern = `\n${tabs}}`;
+    const block = reduceIndent(
+      post.slice(0, post.indexOf(endPattern) + endPattern.length + 1),
+      tabs
+    );
+    return block;
+  }
+  return undefined;
+}
+
+export function findExternalYulFunction(
+  code: string,
+  selector: string,
+  srcPosition?: boolean
+): string | undefined {
+  const caseStatement = new RegExp(
+    `(?<=\\n\\s+)case ${selector}\\s*\\{(?:\\s*)(external_fun_[^(]+)\\(\\)`,
+    "g"
+  ).exec(code);
+  if (caseStatement) {
+    const externalFunctionName = caseStatement[1];
+    return findYulFunction(code, externalFunctionName, srcPosition);
+  } else {
+    let idx = code.indexOf(`if eq(${selector}, shr(224, calldataload(`);
+    if (idx === -1) {
+      idx = code.indexOf(`case ${selector} {`);
+    }
+    if (idx > -1) {
+      const pre = code.slice(0, idx);
+      const post = code.slice(idx);
+      const tabs = pre.slice(pre.lastIndexOf("\n") + 1);
+      if (srcPosition) {
+        const line = pre.split("\n").length;
+        return `${line}:${tabs.length}`;
+      }
+      const endPattern = `\n${tabs}}`;
+      const block = reduceIndent(
+        post.slice(0, post.indexOf(endPattern) + endPattern.length + 1),
+        tabs
+      );
+      return block;
+    }
+  }
+  return undefined;
+}
+
 export function cleanIR(irOptimized: string): string {
   irOptimized = irOptimized
     .replace(/[^]+object ".+_\d+_deployed"\s\{\s+code\s+\{([^]+)\}\s*data ".metadata"[^]+/, "$1")
-    .replace(/\/\*\*[^*]+?\*\//g, "")
+    .replace(/\/\*\*(?:(?!\*\/).)+?\*\//g, "")
     .replace(/(\n\s+)?\/\/\/.+/g, "")
-    .replace(/(\n\s+)?\/\/.+/g, "");
+    .replace(/(\n\s+)?\/\/.+/g, "")
+    .replace(/\( /g, "(")
+    .replace(/ \)/g, ")")
+    .replace(/ {2}/g, " ");
   const irOptimizedLines = irOptimized.split("\n").filter((ln) => ln.trim().length > 0);
   const numTabs = (/^\s*/.exec(irOptimizedLines[0]) as string[])[0].length;
   irOptimizedLines.forEach((ln, i) => {
@@ -483,6 +694,7 @@ export function extractCoderTypes(inputType: TypeNode): TypeNode[] {
   return [inputType];
 }
 
+// Determines whether any of the function's internal calls require calldata input
 export function dependsOnCalldataLocation(fn: FunctionDefinition): boolean {
   const internalCalls = fn.getChildrenByType(FunctionCall);
   for (const call of internalCalls) {
@@ -491,8 +703,8 @@ export function dependsOnCalldataLocation(fn: FunctionDefinition): boolean {
     // Ignore function if it is external or public
     // @todo This can falsely determine an internal call to a public function is actually external
     if (!referencedFunction || isExternalFunction(referencedFunction)) continue;
-    const functionParameters = referencedFunction.vParameters.vParameters;
-    for (let i = 0; i < inputArguments.length; i++) {
+    const functionParameters = referencedFunction.vParameters?.vParameters ?? [];
+    for (let i = 0; i < functionParameters.length; i++) {
       // Check if the function requires calldata input
       if (functionParameters[i].storageLocation !== DataLocation.CallData) continue;
       // Check if input argument is one of the function parameters
