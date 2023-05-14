@@ -1,4 +1,5 @@
 import {
+  assert,
   ASTNodeFactory,
   ContractDefinition,
   DataLocation,
@@ -20,15 +21,13 @@ import {
 import { ABIEncoderVersion } from "solc-typed-ast/dist/types/abi";
 import { TupleType, TypeNode } from "../ast";
 import { functionDefinitionToTypeNode } from "../readers";
-import { addImports, getParentSourceUnit, makeFunctionCallFor } from "../utils";
+import { addImports, getParentSourceUnit, makeFunctionCallFor, isExternalFunction } from "../utils";
 import {
   createReturnFunctionForReturnParameters,
   replaceReturnStatementsWithCall
 } from "./abi_encode";
 import { dependsOnCalldataLocation } from "./utils";
-
-const isExternalFunction = (fn: FunctionDefinition): boolean =>
-  [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility);
+import NameGen from "./names";
 
 function getFunctionSelectorDeclaration(
   factory: ASTNodeFactory,
@@ -106,7 +105,7 @@ export function getFunctionSelectorSwitch(
       contract.id,
       FunctionKind.Fallback,
       `fallback`,
-      false,
+      true,
       FunctionVisibility.External,
       FunctionStateMutability.Payable,
       false,
@@ -127,7 +126,7 @@ export function getFunctionSelectorSwitch(
   );
   const msgSelector = factory.makeIdentifierFor(selectorDeclaration);
   for (const fn of externalFunctions) {
-    if (fn.isConstructor) continue;
+    if (fn.isConstructor || fn.visibility !== FunctionVisibility.External) continue;
 
     const selector = staticNodeFactory.makeLiteral(
       ctx,
@@ -179,13 +178,20 @@ export function getFunctionSelectorSwitch(
       fn.vOverrideSpecifier = undefined;
     }
     if (fn.vReturnParameters.vParameters.length) {
-      const returnFn = createReturnFunctionForReturnParameters(
-        factory,
-        fn.vReturnParameters,
-        fnType,
-        decoderSourceUnit
-      );
-      replaceReturnStatementsWithCall(fn, returnFn);
+      const returnFnName = NameGen.return(fnType.returnParameters as TupleType);
+
+      let returnFn = decoderSourceUnit.getChildrenBySelector(
+        (n) => n instanceof FunctionDefinition && n.name === returnFnName
+      )[0];
+      if (!returnFn) {
+        returnFn = createReturnFunctionForReturnParameters(
+          factory,
+          fn.vReturnParameters,
+          fnType,
+          decoderSourceUnit
+        );
+      }
+      replaceReturnStatementsWithCall(fn, returnFn as FunctionDefinition);
     }
   }
 }

@@ -5,12 +5,9 @@ import {
   coerceArray,
   ContractDefinition,
   ContractKind,
-  DataLocation,
   EnumDefinition,
   FunctionDefinition,
   isInstanceOf,
-  LiteralKind,
-  SourceUnit,
   staticNodeFactory,
   StructDefinition,
   UserDefinedValueTypeDefinition
@@ -36,24 +33,54 @@ import {
   toHex,
   wrap
 } from "../../utils";
-import { snakeCaseToCamelCase, snakeCaseToPascalCase } from "../names";
+import { snakeCaseToPascalCase } from "../names";
 import { CodegenContext, ContractCodegenContext } from "../utils";
 import { astDefinitionToTypeNode } from "../../readers";
 import path from "path";
-import { readFileSync } from "fs";
 import { ConstantKind } from "../../utils/make_constant";
+import { getScuffDirectives } from "../solidity_libraries";
 
-type ScuffOption = {
-  name: string;
-  resolvePointer: string;
-  side: "upper" | "lower";
-  bitOffset: number;
+const canScuffLength = (type: TypeNode) => isInstanceOf(type, ArrayType, BytesType);
+const canScuffHead = (type: TypeNode) => type.isDynamicallyEncoded;
+const canScuffValue = (type: TypeNode) =>
+  type.isValueType && type.exactBits !== undefined && type.exactBits < 256;
+const canScuffData = (type: TypeNode) => type.isReferenceType;
+
+const OPTIONS = {
+  bytes: {
+    setLowerBits: true
+  },
+  lengths: {
+    setMax: true,
+    setDirtyBits: true
+  },
+  heads: {
+    setMax: true,
+    setDirtyBits: true
+  },
+  elementary: {
+    setMax: false,
+    setDirtyBits: false
+  }
+} as const;
+
+const canScuffElementaryType = (type: TypeNode, kind: "setMax" | "setDirtyBits") => {
+  if (kind === "setDirtyBits") {
+    return true;
+  }
+  if (type instanceof EnumType && kind === "setMax") return true;
+
+  return false;
+};
+const canScuffReferenceType = (type: TypeNode) => {
+  return type.getClosestParentByType(FunctionType)?.name.startsWith("fulfillBasicOrder");
 };
 
 class ScuffDirectivesBuilder {
   constants: Array<[string, string]> = [];
   directives: StructuredText[] = [];
   scuffKinds: string[] = [];
+  scuffableFields: string[] = [];
 
   constructor(public type: TypeNode) {}
 
@@ -81,16 +108,17 @@ class ScuffDirectivesBuilder {
     pointerRef: string,
     side: "upper" | "lower",
     bitOffset: number | string,
+    positions: string,
     comment?: string
   ) {
     return [
       ...(comment ? [`/// @dev ${comment}`] : []),
-      `directives.push(Scuff.${side}(uint256(ScuffKind.${this.lastKind}) + kindOffset, ${bitOffset}, ${pointerRef}));`
+      `directives.push(Scuff.${side}(uint256(ScuffKind.${this.lastKind}) + kindOffset, ${bitOffset}, ${pointerRef}, ${positions}));`
     ];
   }
 
   static addScuffDirectiveFunctions(library: ContractCodegenContext, type: TypeNode) {
-    const ScuffDirectives = readFileSync(path.join(__dirname, "../ScuffDirectives.sol"), "utf8");
+    const ScuffDirectives = getScuffDirectives();
     const pointerLibraries = library.sourceUnitContext.getPointerLibraries();
 
     const scuffDirectives = library.sourceUnitContext.addSourceUnit(
@@ -124,12 +152,18 @@ class ScuffDirectivesBuilder {
     }
 
     library.addEnum("ScuffKind", builder.scuffKinds);
+    library.addEnum("ScuffableField", builder.scuffableFields);
     for (const [name, value] of builder.constants) {
       library.addConstant(name, value);
     }
     library.addFunction("addScuffDirectives", [
       `function addScuffDirectives(`,
-      [`${builder.pointerName} ptr,`, `ScuffDirectivesArray directives,`, `uint256 kindOffset`],
+      [
+        `${builder.pointerName} ptr,`,
+        `ScuffDirectivesArray directives,`,
+        `uint256 kindOffset,`,
+        `ScuffPositions positions`
+      ],
       `) internal pure {`,
       [builder.directives],
       `}`
@@ -140,10 +174,19 @@ class ScuffDirectivesBuilder {
       [`${builder.pointerName} ptr`],
       `) internal pure returns (ScuffDirective[] memory) {`,
       `ScuffDirectivesArray directives = Scuff.makeUnallocatedArray();`,
-      `addScuffDirectives(ptr, directives, 0);`,
+      `ScuffPositions positions = EmptyPositions;`,
+      `addScuffDirectives(ptr, directives, 0, positions);`,
       `return directives.finalize();`,
       `}`
     ]);
+
+    if (type instanceof FunctionType) {
+      library.addFunction("getScuffDirectivesForCalldata", [
+        `function getScuffDirectivesForCalldata(bytes memory data) internal pure returns (ScuffDirective[] memory) {`,
+        [`return getScuffDirectives(fromBytes(data));`],
+        `}`
+      ]);
+    }
 
     library.addFunction("toString", [
       `function toString(`,
@@ -173,36 +216,112 @@ class ScuffDirectivesBuilder {
     ]);
   }
 
-  upper(pointerRef: string, bitOffset: number | string, comment?: string) {
-    return this.directive(pointerRef, "upper", bitOffset, comment);
+  upper(pointerRef: string, bitOffset: number | string, positions: string, comment?: string) {
+    return this.directive(pointerRef, "upper", bitOffset, positions, comment);
   }
 
-  lower(pointerRef: string, bitOffset: number | string, comment?: string) {
-    return this.directive(pointerRef, "lower", bitOffset, comment);
+  lower(pointerRef: string, bitOffset: number | string, positions: string, comment?: string) {
+    return this.directive(pointerRef, "lower", bitOffset, positions, comment);
   }
 
-  head(pointerRef: string, comment?: string) {
-    return this.upper(pointerRef, 224, comment);
+  head(pointerRef: string, positions: string, comment?: string) {
+    return this.upper(pointerRef, 224, positions, comment);
   }
 
-  addKind(kind: string, memberLabel?: string) {
+  addKind(
+    kind: string,
+    // type: string,
+    memberLabel?: string
+    // memberPath = memberLabel,
+    // path?: string
+  ) {
+    if (memberLabel && !this.scuffableFields.includes(memberLabel)) {
+      this.scuffableFields.push(memberLabel);
+    }
     kind = [...(memberLabel ? [memberLabel] : []), kind].join("_");
+    // path = [...(memberPath ? [memberPath] : []), ...(path ? [path] : [])].join(".");
     this.scuffKinds.push(kind);
     return kind;
   }
 
-  scuffLength() {
-    this.scuffKinds.push(`LengthOverflow`);
-    return this.lower(
-      `ptr.length()`,
-      224,
-      `Overflow length of ${this.type.signatureInExternalFunction(true)}`
-    );
+  getScuffDirtyBits(
+    label: string,
+    pointerRef: string,
+    leftAligned: boolean,
+    exactBits: number,
+    positions: string,
+    comment?: string
+  ) {
+    this.addKind("DirtyBits", label);
+    const [dirtyBitsSide, dirtyBitsOffset] = leftAligned
+      ? ([`lower`, exactBits] as const)
+      : ([`upper`, 256 - exactBits] as const);
+    return this[dirtyBitsSide](pointerRef, dirtyBitsOffset, positions, comment);
   }
 
-  scuffHead(label: string, pointerRef: string, comment?: string) {
-    this.addKind("HeadOverflow", label);
-    return this.lower(pointerRef, 224, comment);
+  getScuffMaxValue(
+    label: string,
+    pointerRef: string,
+    leftAligned: boolean,
+    exactBits: number,
+    positions: string,
+    comment?: string
+  ) {
+    this.addKind("MaxValue", label);
+    const [maxSide, maxOffset] = leftAligned
+      ? ([`upper`, exactBits] as const)
+      : ([`lower`, 261 - exactBits] as const);
+    return this[maxSide](pointerRef, maxOffset, positions, comment);
+  }
+
+  scuffLength(positions: string) {
+    if (!canScuffReferenceType(this.type)) return [];
+    if (!this.scuffableFields.includes("length")) {
+      this.scuffableFields.push("length");
+    }
+    return [
+      OPTIONS.lengths.setDirtyBits &&
+        this.getScuffDirtyBits(
+          `length`,
+          `ptr.length()`,
+          false,
+          32,
+          positions,
+          `Add dirty upper bits to length`
+        ),
+      OPTIONS.lengths.setMax &&
+        this.getScuffMaxValue(
+          `length`,
+          `ptr.length()`,
+          false,
+          32,
+          positions,
+          `Set every bit in length to 1`
+        )
+    ].filter((x) => x !== undefined) as any as string[];
+  }
+
+  scuffHead(label: string, pointerRef: string, positions: string, comment?: string) {
+    return [
+      OPTIONS.heads.setDirtyBits &&
+        this.getScuffDirtyBits(
+          `${label}_head`,
+          pointerRef,
+          false,
+          32,
+          positions,
+          `Add dirty upper bits to ${label} head`
+        ),
+      OPTIONS.heads.setMax &&
+        this.getScuffMaxValue(
+          `${label}_head`,
+          pointerRef,
+          false,
+          32,
+          positions,
+          `Set every bit in length to 1`
+        )
+    ].filter((x) => x !== undefined) as any as string[];
   }
 
   scuffValue(
@@ -210,20 +329,29 @@ class ScuffDirectivesBuilder {
     pointerRef: string,
     side: "upper" | "lower",
     bitOffset: number,
+    positions: string,
+    kind: string,
     comment?: string
   ) {
-    this.addKind("Overflow", label);
-    return this[side](pointerRef, bitOffset, comment);
+    this.addKind(kind, label);
+    return this[side](pointerRef, bitOffset, positions, comment);
   }
 
-  subDirectives(label: string, pointerRef: string, member: TypeNode) /* : string[] */ {
+  subDirectives(
+    label: string,
+    pointerRef: string,
+    member: TypeNode,
+    positions: string
+  ) /* : string[] */ {
     const { scuffKinds } = ScuffDirectivesBuilder.getScuffDirectives(member);
 
     if (scuffKinds.length === 0) return [];
 
     const index = this.scuffKinds.length;
     const minimumKind = snakeCaseToPascalCase(`minimum_${label}_scuff_kind`);
-
+    // scuffKinds.forEach((kind, i) => {
+    //   const path = scuffKindPaths[i];
+    // });
     for (const kind of scuffKinds) this.addKind(kind, label);
     this.constants.push([minimumKind, `uint256(ScuffKind.${this.scuffKinds[index]})`]);
 
@@ -232,35 +360,38 @@ class ScuffDirectivesBuilder {
 
     return [
       `/// @dev Add all nested directives in ${label}`,
-      `${pointerRef}.addScuffDirectives(directives, kindOffset + ${minimumKind});`
+      `${pointerRef}.addScuffDirectives(directives, kindOffset + ${minimumKind}, ${positions});`
     ];
   }
 
   bytesDirectives() {
-    /* this.directives.push(this.scuffLength());
-    this.scuffKinds.push(`DirtyLowerBits`);
-    this.directives.push(
-      `uint256 len = ptr.length().readUint256();`,
-      `uint256 bitOffset = (len % 32) * 8;`,
-      `if (len > 0 && bitOffset != 0) {`,
-      [
-        `MemoryPointer end = ptr.unwrap();`,
-        `directives.push(Scuff.lower(uint256(ScuffKind.DirtyLowerBits) + kindOffset, bitOffset, end));`
-      ],
-      `}`
-    ); */
+    this.directives.push(...this.scuffLength(`positions`));
+    if (OPTIONS.bytes.setLowerBits && canScuffReferenceType(this.type)) {
+      this.scuffKinds.push(`DirtyLowerBits`);
+      this.directives.push(
+        `uint256 len = ptr.length().readUint256();`,
+        `uint256 bitOffset = (len % 32) * 8;`,
+        `if (len > 0 && bitOffset != 0) {`,
+        [
+          `MemoryPointer end = ptr.unwrap().offset(32 + len);`,
+          `directives.push(Scuff.lower(uint256(ScuffKind.DirtyLowerBits) + kindOffset, bitOffset, end, positions));`
+        ],
+        `}`
+      );
+    }
   }
 
   arrayDirectives(type: ArrayType) {
-    // if (type.isDynamicallySized) {
-    //   this.directives.push(this.scuffLength());
-    // }
+    if (type.isDynamicallySized) {
+      this.directives.push(...this.scuffLength(`positions`));
+    }
     const length = type.isDynamicallySized ? `ptr.length().readUint256()` : type.length;
-    const memberDirectives = this.getMemberDirective(`element`, `i`, type.baseType);
+    const memberDirectives = this.getMemberDirective(`element`, `i`, type.baseType, `pos`);
     if (memberDirectives.length > 0) {
       this.directives.push(
         `uint256 len = ${length};`,
         `for (uint256 i; i < len; i++) {`,
+        `ScuffPositions pos = positions.push(i);`,
         memberDirectives,
         `}`
       );
@@ -272,40 +403,61 @@ class ScuffDirectivesBuilder {
     this.directives = members.reduce(
       (directives, member) => [
         ...directives,
-        ...this.getMemberDirective(member.labelFromParent!, ``, member)
+        ...this.getMemberDirective(member.labelFromParent!, ``, member, "positions")
       ],
       [] as StructuredText[]
     );
   }
 
-  getMemberDirective(label: string, fnArgs: string, member: TypeNode) {
+  getMemberDirective(label: string, fnArgs: string, member: TypeNode, positions: string) {
     const headName = `${label}${member.isDynamicallyEncoded ? `Head` : ""}`;
     const directives: StructuredText[] = [];
 
     if (member.isDynamicallyEncoded) {
-      directives.push(
-        this.scuffHead(label, `ptr.${headName}(${fnArgs})`, `Overflow offset for \`${label}\``)
-      );
+      if (canScuffReferenceType(member)) {
+        directives.push(...this.scuffHead(label, `ptr.${headName}(${fnArgs})`, positions));
+      }
     }
 
     if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
-      const [side, offset] = member.leftAligned
+      const [dirtyBitsSide, dirtyBitsOffset] = member.leftAligned
         ? ([`lower`, member.exactBits] as const)
         : ([`upper`, 256 - member.exactBits] as const);
-      directives.push(
-        this.scuffValue(
-          label,
-          `ptr.${headName}(${fnArgs})`,
-          side,
-          offset,
-          `Induce overflow in \`${label}\``
-        )
-      );
+      const [maxSide, maxOffset] = member.leftAligned
+        ? ([`upper`, member.exactBits] as const)
+        : ([`lower`, 256 - member.exactBits] as const);
+
+      if (OPTIONS.elementary.setDirtyBits || canScuffElementaryType(member, "setDirtyBits")) {
+        directives.push(
+          this.scuffValue(
+            label,
+            `ptr.${headName}(${fnArgs})`,
+            dirtyBitsSide,
+            dirtyBitsOffset,
+            positions,
+            "DirtyBits",
+            `Add dirty ${dirtyBitsSide} bits to \`${label}\``
+          )
+        );
+      }
+      if (OPTIONS.elementary.setMax || canScuffElementaryType(member, "setMax")) {
+        directives.push(
+          this.scuffValue(
+            label,
+            `ptr.${headName}(${fnArgs})`,
+            maxSide,
+            maxOffset,
+            positions,
+            "MaxValue",
+            `Set every bit in \`${label}\` to 1`
+          )
+        );
+      }
     }
 
     if (member.isReferenceType) {
       const dataName = `${label}Data`;
-      directives.push(this.subDirectives(label, `ptr.${dataName}(${fnArgs})`, member));
+      directives.push(this.subDirectives(label, `ptr.${dataName}(${fnArgs})`, member, positions));
     }
     return directives;
   }
@@ -368,34 +520,34 @@ function getTupleMemberOffsetFunctions(
   //   ]);
   // }
 
-  if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
-    const maxValue = (member as ValueType).max();
+  // if (member.isValueType && member.exactBits !== undefined && member.exactBits < 256) {
+  //   const maxValue = (member as ValueType).max();
 
-    if (maxValue && !member.leftAligned) {
-      const overflowName = snakeCaseToPascalCase(`overflowed_${label}`);
-      const overvlowValue = toHex(maxValue + BigInt(1));
-      contract.addConstant(overflowName, overvlowValue);
+  //   if (maxValue && !member.leftAligned) {
+  //     const overflowName = snakeCaseToPascalCase(`overflowed_${label}`);
+  //     const overvlowValue = toHex(maxValue + BigInt(1));
+  //     contract.addConstant(overflowName, overvlowValue);
 
-      const overflowFn = snakeCaseToCamelCase(`overflow_${label}`);
-      contract.addFunction(overflowFn, [
-        `/// @dev Cause \`${label}\` to overflow`,
-        `function ${overflowFn}(${parentPointerType} ptr) internal pure {`,
-        [`${headName}(ptr).write(${overflowName});`],
-        `}`
-      ]);
-    } else {
-      const addDirtyBitsFn = snakeCaseToCamelCase(`addDirtyBitsTo_${label}`);
-      const [dirtyBitsFn, offset] = member.leftAligned
-        ? [`addDirtyBitsAfter`, member.exactBits]
-        : [`addDirtyBitsBefore`, 256 - member.exactBits];
-      contract.addFunction(addDirtyBitsFn, [
-        `/// @dev Add dirty bits to \`${label}\``,
-        `function ${addDirtyBitsFn}(${parentPointerType} ptr) internal pure {`,
-        [`${headName}(ptr).${dirtyBitsFn}(${toHex(offset)});`],
-        `}`
-      ]);
-    }
-  }
+  //     const overflowFn = snakeCaseToCamelCase(`overflow_${label}`);
+  //     contract.addFunction(overflowFn, [
+  //       `/// @dev Cause \`${label}\` to overflow`,
+  //       `function ${overflowFn}(${parentPointerType} ptr) internal pure {`,
+  //       [`${headName}(ptr).write(${overflowName});`],
+  //       `}`
+  //     ]);
+  //   } else {
+  //     const addDirtyBitsFn = snakeCaseToCamelCase(`addDirtyBitsTo_${label}`);
+  //     const [dirtyBitsFn, offset] = member.leftAligned
+  //       ? [`addDirtyBitsAfter`, member.exactBits]
+  //       : [`addDirtyBitsBefore`, 256 - member.exactBits];
+  //     contract.addFunction(addDirtyBitsFn, [
+  //       `/// @dev Add dirty bits to \`${label}\``,
+  //       `function ${addDirtyBitsFn}(${parentPointerType} ptr) internal pure {`,
+  //       [`${headName}(ptr).${dirtyBitsFn}(${toHex(offset)});`],
+  //       `}`
+  //     ]);
+  //   }
+  // }
 }
 
 type TypePointerLibrary = {
@@ -569,6 +721,9 @@ function generateFunctionLibrary(
   const typeLibrary = generateTypeAndLibrary(parentCtx, type);
   const { library, pointerName } = typeLibrary;
   library.addConstant(`FunctionSelector`, type.functionSelector, ConstantKind.FixedBytes, 4);
+
+  library.addConstant(`FunctionName`, type.name, ConstantKind.String);
+
   library.addFunction("isFunction", [
     `function isFunction(bytes4 selector) internal pure returns (bool) {`,
     [`return FunctionSelector == selector;`],
@@ -588,26 +743,50 @@ function generateFunctionLibrary(
     ],
     `}`
   ]);
-  const inputArgs = type.parameters!.writeParameter(DataLocation.Memory);
+  /*     const locationString =
+      location === DataLocation.Default || this.isValueType ? "" : location.toString();
+    return [this.canonicalName, locationString, name].filter(Boolean).join(" "); */
+  const writeParam = (member: TypeNode) => {
+    const locationString = member.isValueType ? "" : "memory";
+    return [member.canonicalName, locationString, `_${member.labelFromParent}`]
+      .filter(Boolean)
+      .join(" ");
+  };
+  const childParameters = type.parameters!.vMembers.map(writeParam);
+  const inputArgs = "(" + childParameters.join(", ") + ")";
+  // return "(" + childParameters.join(", ") + ")";
+  // const inputArgs = type.parameters!.writeParameter(DataLocation.Memory);
   const parameters = [
     `"${type.signature(false)}"`,
-    ...type.parameters!.vMembers.map((m) => m.labelFromParent!)
-  ].join(", ");
+    ...type.parameters!.vMembers.map((m) => `_${m.labelFromParent!}`)
+  ];
   const deps = type.parameters!.vMembers.map(getTypeDep);
   const depDefs = deps
     .filter(Boolean)
     .map((d) => lookupDefinition(parentCtx.sourceUnit.requiredContext, d!))
-    .filter(Boolean);
-  for (const dep of depDefs) {
-    if (dep) {
-      const p = dep.getClosestParentByType(SourceUnit) as SourceUnit;
-      library.addImports(p, []);
-    }
+    .filter(Boolean) as Array<EnumDefinition | StructDefinition>;
+  if (depDefs.length > 0) {
+    addDefinitionImports(library.sourceUnit, depDefs);
   }
+  // for (const dep of depDefs) {
+  //   if (dep) {
+  //     const p = dep.getClosestParentByType(SourceUnit) as SourceUnit;
+  //     library.addImports(p, []);
+  //   }
+  // }
+  library.addFunction("encodeFunctionCall", [
+    "/// @dev Encode function calldata",
+    `function encodeFunctionCall${inputArgs} internal pure returns (bytes memory) {`,
+    [`return abi.encodeWithSignature(${parameters.join(", ")});`],
+    `}`
+  ]);
   library.addFunction("fromArgs", [
     "/// @dev Encode function call from arguments",
     `function fromArgs${inputArgs} internal pure returns (${pointerName} ptrOut) {`,
-    [`bytes memory data = abi.encodeWithSignature(${parameters});`, `ptrOut = fromBytes(data);`],
+    [
+      `bytes memory data = encodeFunctionCall(${parameters.slice(1).join(", ")});`,
+      `ptrOut = fromBytes(data);`
+    ],
     `}`
   ]);
   library.addImports;
@@ -649,13 +828,15 @@ function generateArrayLibrary(parentCtx: CodegenContext, type: ArrayType): TypeP
     `head`,
     pointerName,
     `MemoryPointer`,
-    type.isDynamicallySized ? `_OneWord` : undefined,
+    type.isDynamicallySized ? `OneWord` : undefined,
     headComment
   );
 
-  const headOffsetMember = type.isDynamicallySized
-    ? `(index * ${calldataStride}) + 32`
-    : `index * ${calldataStride}`;
+  const headRef = type.isDynamicallySized ? `head(ptr)` : `ptr.unwrap()`;
+
+  // const headOffsetMember = type.isDynamicallySized
+  //   ? `head(ptr).offset(index * CalldataStride)`
+  //   : `ptr.unwrap().offset(index * ${calldataStride})`;
 
   const comment = [
     `/// @dev Resolve the pointer to the head of \`arr[index]\` in memory.`,
@@ -671,7 +852,7 @@ function generateArrayLibrary(parentCtx: CodegenContext, type: ArrayType): TypeP
   library.addFunction(headName, [
     ...comment,
     `function ${headName}(${pointerName} ptr, uint256 index) internal pure returns (MemoryPointer) {`,
-    [`return ptr.unwrap().offset(${headOffsetMember});`],
+    [`return ${headRef}.offset(index * ${calldataStride});`],
     `}`
   ]);
 
@@ -716,13 +897,16 @@ function generateArrayLibrary(parentCtx: CodegenContext, type: ArrayType): TypeP
       true
     ).pointerName;
     const dataName = `elementData`;
-    const position = type.baseType.isDynamicallyEncoded
-      ? `ptr.unwrap().offset(${headName}(ptr, index).readUint256())`
-      : `${headName}(ptr, index)`;
+    const offset = type.baseType.isDynamicallyEncoded
+      ? `elementHead(ptr, index).readUint256()`
+      : `index * ${calldataStride}`;
+    /*  const position = type.baseType.isDynamicallyEncoded
+        ? `head`
+        : `${headName}(ptr, index)`; */
     library.addFunction(dataName, [
       `/// @dev Resolve the \`${memberPointerType}\` pointing to the data buffer of \`arr[index]\``,
       `function ${dataName}(${pointerName} ptr, uint256 index) internal pure returns (${memberPointerType}) {`,
-      [`return ${memberPointerType}Library.wrap(${position});`],
+      [`return ${memberPointerType}Library.wrap(${headRef}.offset(${offset}));`],
       `}`
     ]);
   }
@@ -765,7 +949,7 @@ function generateBytesLibrary(parentCtx: CodegenContext, type: BytesType): TypeP
     `data`,
     pointerName,
     `MemoryPointer`,
-    `_OneWord`,
+    `OneWord`,
     `/// @dev Resolve the pointer to the beginning of the bytes data.`
   );
 
@@ -876,6 +1060,7 @@ export function buildPointerFiles(
   outPath?: string,
   logger = new DebugLogger()
 ): { ctx: CodegenContext; functions: FunctionType[]; structs: StructType[] } {
+  decoderFileName = primaryFileName.replace(path.basename(primaryFileName), "Index.sol");
   if (outPath) {
     decoderFileName = path.join(outPath, path.basename(decoderFileName));
   }
@@ -892,15 +1077,117 @@ export function buildPointerFiles(
     .getChildrenByType(FunctionDefinition)
     .filter((fn) => isExternalFunction(fn) && fn.vParameters.vParameters.length > 0)
     .map((node) => astDefinitionToTypeNode(node));
-
-  [...structs, ...functions].forEach((type) => {
+  /* function getSelector(bytes memory data) pure returns (bytes4 selector) {
+  assembly {
+    selector := shr(224, mload(add(data, 0x04)))
+  }
+}
+function getDirectivesForCalldata(bytes memory data) pure returns (ScuffDirective[] memory) {
+  
+} */
+  ctx.addFunction(`getSelector`, [
+    `/// @dev Get the selector from the first 4 bytes of the data`,
+    `function getSelector(bytes memory data) pure returns (bytes4 selector) {`,
+    [`assembly {`, [`selector := shl(224, mload(add(data, 0x04)))`], `}`],
+    `}`
+  ]);
+  const libraryNames: string[] = [];
+  [...structs, ...functions].map((type) => {
     logger.log(
       `Generating pointer library for ${
         type instanceof StructType ? type.identifier : type.signature(true)
       }...`
     );
-    generateReferenceTypeLibrary(ctx, type, true);
+    const { library, libraryName } = generateReferenceTypeLibrary(ctx, type, true);
+    if (
+      type instanceof FunctionType &&
+      library.sourceUnit.getChildrenBySelector(
+        (s) => s instanceof FunctionDefinition && s.name === "getScuffDirectivesForCalldata"
+      ).length > 0 &&
+      library.sourceUnit.getChildrenBySelector(
+        (s) => s instanceof FunctionDefinition && s.name === "toKindString"
+      ).length > 0
+    ) {
+      libraryNames.push(libraryName);
+    }
   });
+  ctx.addFunction(`getScuffDirectivesForCalldata`, [
+    `/// @dev Get the directives for the given calldata`,
+    `function getScuffDirectivesForCalldata(bytes memory data) pure returns (ScuffDirective[] memory) {`,
+    [
+      `bytes4 selector = getSelector(data);`,
+      ...libraryNames.reduce(
+        (prev, n) => [
+          ...prev,
+          `if (${n}.isFunction(selector)) {`,
+          [`return ${n}.getScuffDirectivesForCalldata(data);`],
+          `}`
+        ],
+        [] as StructuredText[]
+      ),
+      `revert("No matching function found");`
+    ],
+    `}`
+  ]);
+
+  // ctx.sourceUnit.
+  ctx.addFunction(`toKindString`, [
+    `function toKindString(bytes4 selector, uint256 k) pure returns (string memory) {`,
+    [
+      ...libraryNames.reduce(
+        (prev, n) => [
+          ...prev,
+          `if (${n}.isFunction(selector)) {`,
+          [`return ${n}.toKindString(k);`],
+          `}`
+        ],
+        [] as StructuredText[]
+      ),
+      `revert("No matching function found");`
+    ],
+    `}`
+  ]);
+  ctx.addFunction(`getFunctionName`, [
+    `function getFunctionName(bytes4 selector) pure returns (string memory) {`,
+    [
+      ...libraryNames.reduce(
+        (prev, n) => [
+          ...prev,
+          `if (${n}.isFunction(selector)) {`,
+          [`return ${n}.FunctionName;`],
+          `}`
+        ],
+        [] as StructuredText[]
+      ),
+      `revert("No matching function found");`
+    ],
+    `}`
+  ]);
+  ctx.addFunction(`getScuffDescription`, [
+    `function getScuffDescription(`,
+    [`bytes4 selector,`, `ScuffDirective directive`],
+    `) view returns (ScuffDescription memory description) {`,
+    [
+      `(`,
+      [
+        `uint256 kind,`,
+        `ScuffSide side,`,
+        `uint256 bitOffset,`,
+        `ScuffPositions positions,`,
+        `MemoryPointer pointer`
+      ],
+      `) = directive.decode();`,
+      `description.pointer = MemoryPointer.unwrap(pointer);`,
+      `description.originalValue = pointer.readBytes32();`,
+      `description.positions = positions.toArray();`,
+      `description.side = toSideString(side);`,
+      `description.bitOffset = bitOffset;`,
+      `description.kind = toKindString(selector, kind);`,
+      `description.functionName = getFunctionName(selector);`
+    ],
+
+    `}`
+  ]);
 
   ctx.applyPendingFunctions();
   ctx.applyPendingContracts();
