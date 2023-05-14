@@ -1,5 +1,4 @@
 import {
-  assert,
   ASTNodeFactory,
   Block,
   DataLocation,
@@ -11,7 +10,7 @@ import {
   StateVariableVisibility,
   VariableDeclaration
 } from "solc-typed-ast";
-import { ArrayType, FunctionType, StructType, TupleType, TypeNode } from "../../ast";
+import { ArrayType, BytesType, FunctionType, StructType, TupleType, TypeNode } from "../../ast";
 import {
   addUniqueFunctionDefinition,
   getParametersTypeString,
@@ -21,7 +20,11 @@ import {
   toHex
 } from "../../utils";
 import NameGen from "../names";
-import { CodegenContext, getSequentiallyCopyableSegments } from "../utils";
+import { CodegenContext, getEncodingFunction } from "../utils";
+import { EncodingScheme } from "../../constants";
+import { abiEncodingFunctionArray } from "./abi_encode_array";
+import { getMemberDataOffset, getMemberHeadOffset } from "../offsets";
+import { typeCastFunction } from "./type_cast";
 
 const ensureHasName = (parameter: VariableDeclaration, i: number) => {
   if (!parameter.name) {
@@ -97,28 +100,8 @@ export function createReturnFunctionForReturnParameters(
   return returnFn;
 }
 
-// function getOffset(parent: string, offset: number | string, pptr?: boolean): string {
-//   const offsetString = typeof offset === "number" ? toHex(offset) : offset;
-//   if (pptr) {
-//     return `${parent}.pptr(${offset === 0 ? "" : offsetString})`;
-//   }
-//   return offset === 0 ? parent : `${parent}.offset(${offsetString})`;
-// }
-
-// function getMemberOffset(ctx: CodegenContext, type: TypeNode, location: DataLocation) {
-//   const name = NameGen.structMemberOffset(type, location);
-//   const offset =
-//     location === DataLocation.CallData ? type.calldataHeadOffset : type.memoryHeadOffset;
-//   const offsetString = offset === 0 ? "" : ctx.addConstant(name, toHex(offset));
-//   const parentString = location === DataLocation.CallData ? "cdPtr" : "mPtr";
-//   if (type.isDynamicallyEncoded && location === DataLocation.CallData) {
-//     return `${parentString}.pptr(${offsetString})`;
-//   }
-//   return offsetString ? `${parentString}.offset(${offsetString})` : parentString;
-// }
-
-function abiEncodingFunctionBytes(ctx: CodegenContext): string {
-  const fnName = `abi_encode_bytes`;
+function abiEncodingFunctionBytes(ctx: CodegenContext, type: BytesType): string {
+  const fnName = NameGen.abiEncode(type);
   if (ctx.hasFunction(fnName)) return fnName;
   const code = [
     `/// @dev Takes a bytes array in memory and copies it to a new location in`,
@@ -131,13 +114,13 @@ function abiEncodingFunctionBytes(ctx: CodegenContext): string {
     `///            bytes array).`,
     `///`,
     `/// @return size The size of the encoded bytes array, including the size of the length.`,
-    `function ${fnName}(MemoryPointer src, MemoryPointer dst) internal view returns (uint256 size) {`,
+    `function ${fnName}(MemoryPointer src, MemoryPointer dst) pure returns (uint256 size) {`,
     [
       `unchecked {`,
       [
         `// Mask the length of the bytes array to protect against overflow`,
         `// and round up to the nearest word.`,
-        `size = (src.readUint256() + AlmostTwoWords) & OnlyFullWordMask;`,
+        `size = (src.readUint256() + SixtyThreeBytes) & OnlyFullWordMask;`,
         `// Copy the bytes array to the new memory location.`,
         `src.copy(dst, size);`
       ],
@@ -148,180 +131,183 @@ function abiEncodingFunctionBytes(ctx: CodegenContext): string {
   return ctx.addFunction(fnName, code);
 }
 
-/*
+function abiEncodingFunctionTuple(ctx: CodegenContext, tuple: TupleType): string {
+  const innerParametersSignature = [
+    `MemoryPointer`,
+    ...tuple.vMembers.map(() => `MemoryPointer`)
+  ].join(", ");
 
+  const outerParametersSignature = [
+    `MemoryPointer`,
+    ...tuple.vMembers.map((member) => member.writeParameter(DataLocation.Memory, ""))
+  ].join(", ");
 
-*/
+  const castFnName = typeCastFunction(
+    ctx,
+    tuple,
+    innerParametersSignature,
+    `uint256`,
+    outerParametersSignature,
+    "uint256"
+  );
+  if (tuple.vMembers.length === 1 && !tuple.vMembers[0].isDynamicallyEncoded) {
+    const fnName = abiEncodingFunction(ctx, tuple.vMembers[0]);
+    return `${castFnName}(${fnName})`;
+  }
 
-// function abiEncodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
-//   const sizeName = `${struct.identifier}_head_size`;
-//   ctx.addConstant(sizeName, toHex(struct.embeddedMemoryHeadSize));
-//   const body: StructuredText[] = [];
-//   const segments = getSequentiallyCopyableSegments(struct);
-//   segments.forEach((segment, i) => {
-//     let size = toHex(segment.length * 32);
-//     // If there's only one segment and it includes all members, the size name is
-//     // just the name for the struct's head size.
-//     if (segments.length === 1 && segment.length === struct.vMembers.length) {
-//       size = sizeName;
-//     } else {
-//       const name = `${struct.identifier}_fixed_segment_${i}`;
-//       size = ctx.addConstant(name, size);
-//     }
-//     const src = getMemberOffset(ctx, segment[0], DataLocation.CallData);
-//     const dst = getMemberOffset(ctx, segment[0], DataLocation.Memory);
+  const fnName = NameGen.abiEncode(tuple);
+  if (ctx.hasFunction(fnName)) return fnName;
+  const sizeName = NameGen.headSize(tuple, EncodingScheme.ABI);
+  ctx.addConstant(sizeName, toHex(tuple.embeddedCalldataHeadSize));
+  const body: StructuredText[] = [`size = ${sizeName};`];
 
-//     body.push(
-//       `/// Copy ${segment.map((s) => s.labelFromParent).join(", ")}`,
-//       `${src}.copy(${dst}, ${size});`
-//     );
-//   });
+  for (const member of tuple.vMembers) {
+    const src = member.labelFromParent;
+    const dst = getMemberHeadOffset(ctx, "dst", member, EncodingScheme.ABI);
+    if (member.isValueType) {
+      body.push(`/// Copy ${member.labelFromParent}`, `${dst}.write(${src});`);
+    } else if (member.isDynamicallyEncoded) {
+      const encodeFn = abiEncodingFunction(ctx, member);
+      body.push(
+        `/// Write offset to ${member.labelFromParent} in head`,
+        `${dst}.write(size);`,
+        `/// Encode ${member.labelFromParent}`,
+        `size += ${encodeFn}(${src}, dst.offset(size));`
+      );
+    } else {
+      // Reference type that is not dynamically encoded - encoded in place
+      const encodeFn = abiEncodingFunction(ctx, member);
+      body.push(
+        `/// Encode ${member.labelFromParent} in place in the head`,
+        `${encodeFn}(${src}, ${dst});`
+      );
+    }
+  }
 
-//   const referenceTypes = struct.vMembers.filter((type) => type.isReferenceType);
-//   if (referenceTypes.length > 0) {
-//     body.push(`uint256 `)
-//   }
-//   for (const member of referenceTypes) {
-//     const src = getMemberOffset(ctx, member, DataLocation.CallData);
-//     const dst = getMemberOffset(ctx, member, DataLocation.Memory);
-//     const decodeFn = abiDecodingFunction(ctx, member);
-//     body.push(`${dst}.write(${decodeFn}(${src}));`);
-//   }
+  const parameters = [
+    `MemoryPointer dst`,
+    ...tuple.vMembers.map((member) => `MemoryPointer ${member.labelFromParent}`)
+  ].join(", ");
 
-//   const fnName = NameGen.abiEncode(struct);
-//   const code = getCalldataDecodingFunction(fnName, "cdPtr", "mPtr", body);
-//   ctx.addFunction(fnName, code);
-//   return fnName;
-// }
+  const code = [`function ${fnName}(${parameters}) pure returns (uint256 size) {`, body, `}`];
+  ctx.addFunction(fnName, code);
 
-export function abiEncodingFunction(ctx: CodegenContext, type: TypeNode): string {
-  return "";
+  return `${castFnName}(${fnName})`;
 }
 
-/* function createReturnForSimpleReferenceType(
-  decoderSourceUnit: SourceUnit,
-  factory: ASTNodeFactory,
-  param: VariableDeclaration,
-  type: TypeNode
-) {
-  if (type.hasEmbeddedReferenceTypes) {
-    throw Error(`Can not create simple return function for type ${type.canonicalName}`);
-  }
-  const identifier = factory.makeYulIdentifierFor(param);
-  const block = factory.makeYulBlock([]);
-  let size: YulExpression;
-  if (type.isDynamicallyEncoded) {
-    if (isInstanceOf(type, BytesType, ArrayType)) {
-      const varDecl = factory.makeYulVariableDeclaration(
-        [factory.makeYulTypedName("length")],
-        identifier.mload()
+function abiEncodingFunctionParameters(ctx: CodegenContext, type: FunctionType): string {
+  const fnName = NameGen.abiEncode(type);
+  const tuple = type.parameters;
+  if (ctx.hasFunction(fnName)) return fnName;
+  const sizeName = NameGen.parameterHeadSize(type, false);
+
+  const selector = ctx.addConstant(`${type.name}_selector`, type.functionSelector.padEnd(66, "0"));
+  const body: StructuredText[] = [`dst.write(${selector});`];
+
+  if (tuple) {
+    if (tuple.vMembers.every((m) => m.isValueType) && tuple.vMembers.length === 1) {
+      ctx.addConstant(sizeName, toHex(tuple.embeddedCalldataHeadSize) + 4);
+      body.push(`size = ${sizeName};`);
+      const member = tuple.vMembers[0];
+      body.push(
+        `/// Write ${member.labelFromParent}`,
+        `dst.offset(4).write(${member.labelFromParent});`
       );
-      block.appendChild(varDecl);
-      const lengthId = factory.makeYulIdentifierFor(varDecl);
-      size =
-        type instanceof BytesType
-          ? roundUpAdd32(decoderSourceUnit, lengthId)
-          : lengthId.mul(32).add(32);
     } else {
-      throw Error(`Can not create simple return function for non-bytes, non-array type`);
+      const encodeParams = [
+        "dst.offset(4)",
+        ...tuple.vMembers.map((member) => member.labelFromParent)
+      ].join(", ");
+      const encodeFn = abiEncodingFunction(ctx, tuple);
+      body.push(`/// Encode parameters`, `size = 4 + ${encodeFn}(${encodeParams});`);
     }
   } else {
-    const sizeName = `${type.identifier}_size`;
-    size = getYulConstant(decoderSourceUnit, sizeName, type.calldataHeadSize);
+    body.push(`size = 4;`);
   }
 
-  block.appendChild(
-    factory.makeYulFunctionCall(factory.makeYulIdentifier("return"), [identifier, size])
-  );
-  return factory.makeInlineAssembly([], undefined, block);
-} */
+  const outerParameters = [
+    `MemoryPointer dst`,
+    ...(tuple ? tuple.vMembers.map((member) => member.writeParameter(DataLocation.Memory)) : [])
+  ].join(", ");
 
-// function createReturnForValueType(
-//   factory: ASTNodeFactory,
-//   param: VariableDeclaration,
-//   type: TypeNode,
-//   decoderSourceUnit: SourceUnit
-// ) {
-//   if (!type.isValueType) {
-//     throw Error(`TypeNode not a value type: ${type.canonicalName}`);
-//   }
-//   const identifier = factory.makeYulIdentifierFor(param);
+  const code = [`function ${fnName}(${outerParameters}) pure returns (uint256 size) {`, body, `}`];
+  ctx.addFunction(fnName, code);
+  return fnName;
+}
 
-//   const block = factory.makeYulBlock([
-//     factory.makeYulLiteral(YulLiteralKind.Number, toHex(0), "").mstore(identifier),
-//     factory.makeYulFunctionCall(factory.makeYulIdentifier("return"), [
-//       factory.makeYulLiteral(YulLiteralKind.Number, toHex(0), ""),
-//       factory.makeYulLiteral(YulLiteralKind.Number, toHex(32), "")
-//     ])
-//   ]);
-// }
+function abiEncodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
+  const fnName = NameGen.abiEncode(struct);
+  if (ctx.hasFunction(fnName)) return fnName;
+  const sizeName = `${struct.identifier}_head_size`;
+  ctx.addConstant(sizeName, toHex(struct.embeddedCalldataHeadSize));
+  const body: StructuredText[] = [`size = ${sizeName};`];
 
-// /**
-//  * Generates an ABI decoding function for an array of fixed-size reference types
-//  * that can be combined into a single copy (no embedded reference types).
-//  */
-// function abiEncodingFunctionArrayCombinedStaticTail(ctx: DecoderContext, type: ArrayType): string {
-//   const typeName = type.identifier;
-//   const fnName = `abi_encode_${typeName}`;
-//   if (ctx.hasFunction(fnName)) return fnName;
-//   const tailSizeName = ctx.addConstant(
-//     `${type.baseType.identifier}_mem_tail_size`,
-//     toHex(type.baseType.memoryDataSize as number)
-//   );
+  for (const member of struct.vMembers) {
+    const src = getMemberDataOffset(ctx, "src", member, EncodingScheme.SolidityMemory);
+    const dst = getMemberHeadOffset(ctx, "dst", member, EncodingScheme.ABI);
+    if (member.isValueType) {
+      body.push(`/// Copy ${member.labelFromParent}`, `${dst}.write(${src}.readUint256());`);
+    } else if (member.isDynamicallyEncoded) {
+      const encodeFn = abiEncodingFunction(ctx, member);
+      body.push(
+        `/// Write offset to ${member.labelFromParent} in head`,
+        `${dst}.write(size);`,
+        `/// Encode ${member.labelFromParent}`,
+        `size += ${encodeFn}(${src}, dst.offset(size));`
+      );
+    } else {
+      // Reference type that is not dynamically encoded - encoded in place
+      const encodeFn = abiEncodingFunction(ctx, member);
+      body.push(
+        `/// Encode ${member.labelFromParent} in place in the head`,
+        `${encodeFn}(${src}, ${dst});`
+      );
+    }
+  }
 
-//   const headSetter: string[] = [];
-//   let inPtr = "cdPtrLength";
-//   let outPtr = "mPtrLength";
-//   let tailSizeExpression = `mul(arrLength, ${tailSizeName})`;
-//   let copyStartExpression = "add(cdPtrLength, 0x20)";
-//   if (type.isDynamicallySized) {
-//     headSetter.push(
-//       `let arrLength := calldataload(cdPtrLength)`,
-//       ``,
-//       `mPtrLength := mload(0x40)`,
-//       `mstore(mPtrLength, arrLength)`,
-//       ``,
-//       `let mPtrHead := add(mPtrLength, 32)`,
-//       `let mPtrTail := add(mPtrHead, mul(arrLength, 0x20))`
-//     );
-//   } else {
-//     inPtr = "cdPtrHead";
-//     outPtr = "mPtrHead";
-//     headSetter.push(
-//       `mPtrHead := mload(0x40)`,
-//       `let mPtrTail := add(mPtrHead, ${toHex(32 * (type.length as number))})`
-//       // `let arrLength := ${type.length}`,
-//       // `let tailOffset := ${toHex((type.length as number) * 32)}`
-//     );
-//     tailSizeExpression = ctx.addConstant(
-//       `${type.identifier}_mem_tail_size`,
-//       toHex(type.memoryDataSize as number)
-//     );
-//     copyStartExpression = inPtr;
-//   }
+  const code = getEncodingFunction(fnName, "src", "dst", body);
+  ctx.addFunction(fnName, code);
+  return fnName;
+}
 
-//   const code = [
-//     `function ${fnName}(${inPtr}) -> ${outPtr} {`,
-//     [
-//       ...headSetter,
-//       `let mPtrTailNext := mPtrTail`,
-//       ` `,
-//       `// Copy elements to memory`,
-//       `// Calldata does not have individual offsets for array elements with a fixed size.`,
-//       `calldatacopy(`,
-//       [`mPtrTail,`, `${copyStartExpression},`, tailSizeExpression],
-//       `)`,
-//       "let mPtrHeadNext := mPtrHead",
-//       ` `,
-//       `for {} lt(mPtrHeadNext, mPtrTail) {} {`,
-//       `  mstore(mPtrHeadNext, mPtrTailNext)`,
-//       `  mPtrHeadNext := add(mPtrHeadNext, 0x20)`,
-//       `  mPtrTailNext := add(mPtrTailNext, ${tailSizeName})`,
-//       `}`,
-//       `mstore(0x40, mPtrTailNext)`
-//     ],
-//     `}`
-//   ];
-//   ctx.addFunction(fnName, code);
-//   return fnName;
-// }
+export function createReturnFunction(ctx: CodegenContext, type: TupleType): string {
+  const fnName = NameGen.return(type);
+  const encodeFn = abiEncodingFunction(ctx, type);
+  const body = [];
+  let dst = "dst";
+  if (!type.isDynamicallyEncoded && type.embeddedCalldataHeadSize < 0x80) {
+    dst = "ScratchPtr";
+  } else {
+    body.push(`MemoryPointer dst = getFreeMemoryPointer();`);
+  }
+  const encodeParams = [dst, ...type.vMembers.map((member) => member.labelFromParent)].join(", ");
+
+  body.push(`uint256 size = ${encodeFn}(${encodeParams});`);
+  body.push(`${dst}.returnData(size);`);
+
+  const params = type.vMembers
+    .map((member) => member.writeParameter(DataLocation.Memory))
+    .join(", ");
+  const code = [`function ${fnName}(${params}) pure {`, body, `}`];
+  ctx.addFunction(fnName, code);
+  return fnName;
+}
+
+export function abiEncodingFunction(ctx: CodegenContext, type: TypeNode): string {
+  if (type instanceof ArrayType) {
+    return abiEncodingFunctionArray(ctx, type);
+  }
+  if (type instanceof BytesType) {
+    return abiEncodingFunctionBytes(ctx, type);
+  }
+  if (type instanceof StructType) {
+    return abiEncodingFunctionStruct(ctx, type);
+  }
+  if (type instanceof TupleType) {
+    return abiEncodingFunctionTuple(ctx, type);
+  }
+  if (type instanceof FunctionType) {
+    return abiEncodingFunctionParameters(ctx, type);
+  }
+  throw Error(`Unsupported type: ${type.identifier}`);
+}
