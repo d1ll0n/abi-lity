@@ -1,6 +1,5 @@
 import { TypeNode } from "../ast";
 import NameGen from "../codegen/names";
-import { CodegenContext } from "../codegen/utils";
 import { EncodingScheme } from "../constants";
 import { toHex } from "../utils";
 
@@ -28,11 +27,19 @@ function getOffset(type: TypeNode, encoding: EncodingScheme): number {
   }
 }
 
-export function getOffsetReference(
-  ctx: CodegenContext,
-  type: TypeNode,
-  encoding: EncodingScheme
-): string {
+type ICtx = {
+  addConstant(name: string, value: string): string;
+};
+
+export function getOffsetReference(ctx: ICtx, type: TypeNode, encoding: EncodingScheme): string {
+  /* if (type.parent?.parent instanceof FunctionType) {
+    const fn = type.parent.parent;
+    const params = type.parent;
+    const returnParameter = params === fn.returnParameters;
+    const name = NameGen.functionParameterOffset(type, returnParameter);
+    const offset = getOffset(type, encoding);
+    return ctx.addConstant(name, toHex(offset));
+  } */
   const name = NameGen.structMemberOffset(type, encoding);
   const offset = getOffset(type, encoding);
   return offset > 0 ? ctx.addConstant(name, toHex(offset)) : "";
@@ -46,7 +53,7 @@ export const memberHeadIsPPtr = (type: TypeNode, encoding: EncodingScheme): bool
     [EncodingScheme.ABI, EncodingScheme.SolidityMemory].includes(encoding));
 
 export function getMemberHeadOffset(
-  ctx: CodegenContext,
+  ctx: ICtx,
   parentReference: string,
   type: TypeNode,
   encoding: EncodingScheme
@@ -56,7 +63,7 @@ export function getMemberHeadOffset(
 }
 
 export function getMemberDataOffset(
-  ctx: CodegenContext,
+  ctx: ICtx,
   parentReference: string,
   type: TypeNode,
   encoding: EncodingScheme
