@@ -1,12 +1,14 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { flatten } from "lodash";
 import {
   assert,
   ASTContext,
   ASTNode,
   ASTNodeFactory,
+  ASTSearch,
   coerceArray,
   ContractDefinition,
-  DataLocation,
+  ContractKind,
   EnumDefinition,
   Expression,
   FunctionCall,
@@ -17,21 +19,28 @@ import {
   FunctionVisibility,
   Identifier,
   isInstanceOf,
-  Mutability,
+  LatestCompilerVersion,
+  MemberAccess,
   ParameterList,
+  resolveAny,
   SourceUnit,
   StateVariableVisibility,
   staticNodeFactory,
   StructDefinition,
+  StructuredDocumentation,
   SymbolAlias,
+  TypeName,
   UserDefinedTypeName,
   UserDefinition,
   VariableDeclaration,
   VariableDeclarationStatement,
   YulIdentifier
 } from "solc-typed-ast";
+import { ABIEncoderVersion } from "solc-typed-ast/dist/types/abi";
 import { EnumType, StructType } from "../ast";
-import { getDirectory, getRelativePath } from "./path_utils";
+
+import { getDirectory, getRelativePath } from "./files/path_utils";
+import { ConstantKind, makeConstantDeclaration } from "./make_constant";
 
 export const symbolAliasToId = (symbolAlias: SymbolAlias): number =>
   typeof symbolAlias.foreign === "number"
@@ -136,9 +145,59 @@ function getFunctionDefinitions(
   name: string
 ): FunctionDefinition[] {
   const functions = ctx.getChildrenBySelector(
-    (child) => child instanceof FunctionDefinition && child.name === name
+    (child) =>
+      child instanceof FunctionDefinition &&
+      (((child.kind === FunctionKind.Function || child.kind === FunctionKind.Free) &&
+        child.name === name) ||
+        (child.kind === FunctionKind.Constructor && name === "constructor") ||
+        (child.kind === FunctionKind.Fallback && name === "fallback") ||
+        (child.kind === FunctionKind.Receive && name === "receive"))
   ) as FunctionDefinition[];
   return functions;
+}
+
+export function makeFallbackFunction(
+  contract: ContractDefinition,
+  virtual?: boolean
+): FunctionDefinition {
+  const ctx = contract.requiredContext;
+  const fn = staticNodeFactory.makeFunctionDefinition(
+    ctx,
+    contract.id,
+    FunctionKind.Fallback,
+    `fallback`,
+    virtual || false,
+    FunctionVisibility.External,
+    FunctionStateMutability.Payable,
+    false,
+    staticNodeFactory.makeParameterList(ctx, []),
+    staticNodeFactory.makeParameterList(ctx, []),
+    [],
+    undefined,
+    staticNodeFactory.makeBlock(ctx, [])
+  );
+
+  return inferOverrideSpecifier(fn);
+}
+
+export function inferOverrideSpecifier(fn: FunctionDefinition): FunctionDefinition {
+  const ctx = fn.requiredContext;
+  const overriddenFunctions = resolveOverriddenFunctions(fn);
+  if (overriddenFunctions.length > 0) {
+    const overrides =
+      overriddenFunctions.length > 1
+        ? overriddenFunctions.map((f) =>
+            staticNodeFactory.makeUserDefinedTypeName(
+              ctx,
+              "",
+              (f.vScope as ContractDefinition).name,
+              f.id
+            )
+          )
+        : [];
+    fn.vOverrideSpecifier = staticNodeFactory.makeOverrideSpecifier(ctx, overrides);
+  }
+  return fn;
 }
 
 export function findFunctionDefinition(
@@ -171,6 +230,22 @@ export function addUniqueContractDefinition(
     return ctx.appendChild(node) as ContractDefinition;
   }
   return existingContract;
+}
+
+export function addEnumDefinition(
+  ctx: SourceUnit | ContractDefinition,
+  name: string,
+  members: string[],
+  documentation?: string | StructuredDocumentation
+): EnumDefinition {
+  const node = staticNodeFactory.makeEnumDefinition(
+    ctx.requiredContext,
+    name,
+    members.map((m) => staticNodeFactory.makeEnumValue(ctx.requiredContext, m)),
+    documentation
+  );
+
+  return ctx.appendChild(node) as EnumDefinition;
 }
 
 function getAllConstantDeclarations(node: ContractDefinition | SourceUnit): VariableDeclaration[] {
@@ -231,17 +306,22 @@ export function getRequiredContractDefinitionOrSourceUnit(
 export function addUniqueConstantDeclaration(
   node: ASTNode,
   name: string,
-  value: string | number
+  value: string | number,
+  kind: ConstantKind = ConstantKind.Uint,
+  size = 256
 ): VariableDeclaration {
   const targetNode = getRequiredContractDefinitionOrSourceUnit(node);
   let existingConstant = findConstantDeclaration(targetNode, name);
   if (!existingConstant) {
-    existingConstant = staticNodeFactory.makeConstantUint256(
+    existingConstant = makeConstantDeclaration(
       node.requiredContext,
       name,
+      kind,
       value,
-      targetNode.id
+      targetNode.id,
+      size
     );
+
     existingConstant.stateVariable = true;
     const definedConstants = targetNode
       .getChildrenByType(VariableDeclaration)
@@ -273,8 +353,16 @@ export function getUniqueFunctionDefinition(
   return staticNodeFactory.makeIdentifierFor(addUniqueFunctionDefinition(ctx, node));
 }
 
-export function getConstant(node: ASTNode, name: string, value: string | number): Identifier {
-  return staticNodeFactory.makeIdentifierFor(addUniqueConstantDeclaration(node, name, value));
+export function getConstant(
+  node: ASTNode,
+  name: string,
+  value: string | number,
+  kind: ConstantKind = ConstantKind.Uint,
+  size = 256
+): Identifier {
+  return staticNodeFactory.makeIdentifierFor(
+    addUniqueConstantDeclaration(node, name, value, kind, size)
+  );
 }
 
 export function getYulConstant(node: ASTNode, name: string, value: string | number): YulIdentifier {
@@ -477,4 +565,191 @@ export function getParametersTypeString(parameters: VariableDeclaration[]): stri
   )
     .replace(/(struct\s+)([\w\d]+)/g, "$1$2 memory")
     .replace(/\[\]/g, "[] memory");
+}
+
+export function isExternalFunction(fn: ASTNode): fn is FunctionDefinition & boolean {
+  return (
+    fn instanceof FunctionDefinition &&
+    fn.visibility !== undefined &&
+    [FunctionVisibility.External, FunctionVisibility.Public].includes(fn.visibility)
+  );
+}
+
+export function getParentsRecursive(
+  contract: ContractDefinition,
+  allowInterfaces?: boolean
+): ContractDefinition[] {
+  const parents = contract.vInheritanceSpecifiers
+    .map((parent) => parent.vBaseType.vReferencedDeclaration as ContractDefinition)
+    .filter(
+      (parent: ContractDefinition) => allowInterfaces || parent.kind === ContractKind.Contract
+    ) as ContractDefinition[];
+  for (const parent of parents) {
+    const _parents = getParentsRecursive(parent, allowInterfaces);
+    _parents.forEach((ancestor) => {
+      if (!parents.find((p) => p.name === ancestor.name)) {
+        parents.push(ancestor);
+      }
+    });
+  }
+  return parents;
+}
+
+export function getPublicStateVariables(contract: ContractDefinition): VariableDeclaration[] {
+  return ASTSearch.fromContract(contract).findStateVariablesByVisibility(
+    StateVariableVisibility.Public
+  );
+}
+
+export function getFunctionSignatureForOverride(fn: FunctionDefinition): string {
+  if (fn.kind === FunctionKind.Fallback) {
+    return "fallback";
+  }
+  if (fn.kind === FunctionKind.Receive) {
+    return "receive";
+  }
+  return fn.canonicalSignature(ABIEncoderVersion.V2);
+}
+
+export function resolveOverriddenFunctions(
+  overriding: FunctionDefinition | VariableDeclaration
+): FunctionDefinition[] {
+  const contract = overriding.getClosestParentByType(ContractDefinition);
+  assert(contract !== undefined, "Overriding function must be in a contract");
+  const baseContracts = contract.vLinearizedBaseContracts.slice(1);
+  const signature =
+    overriding instanceof VariableDeclaration
+      ? overriding.getterCanonicalSignature(ABIEncoderVersion.V2)
+      : getFunctionSignatureForOverride(overriding);
+
+  const overridden: FunctionDefinition[] = [];
+  for (const base of baseContracts) {
+    for (const fn of base.vFunctions) {
+      if (getFunctionSignatureForOverride(fn) === signature) {
+        overridden.push(fn);
+      }
+    }
+  }
+  return overridden;
+}
+
+export function getUniqueNameInScope(scope: ASTNode, name: string, prefix: string): string {
+  while (resolveAny(name, scope, LatestCompilerVersion, true, false).size > 0) {
+    name = `${prefix}${name}`;
+  }
+  return name;
+}
+
+export function walkImportedSourceUnits(
+  sourceUnit: SourceUnit,
+  cb: (sourceUnit: SourceUnit) => void,
+  inclusive = false
+): void {
+  const visited = new Set<SourceUnit>();
+  const walkSourceUnit = (sourceUnit: SourceUnit) => {
+    if (visited.has(sourceUnit)) return;
+    visited.add(sourceUnit);
+    cb(sourceUnit);
+    sourceUnit.vImportDirectives.forEach((importDirective) => {
+      walkSourceUnit(importDirective.vSourceUnit);
+    });
+  };
+
+  if (inclusive) {
+    walkSourceUnit(sourceUnit);
+  } else {
+    visited.add(sourceUnit);
+    sourceUnit.vImportDirectives.forEach((importDirective) =>
+      walkSourceUnit(importDirective.vSourceUnit)
+    );
+  }
+}
+
+export function getFunctionReference(
+  target: SourceUnit,
+  source: SourceUnit,
+  fnName: string
+): Identifier | MemberAccess {
+  const fn = findFunctionDefinition(source, fnName);
+  if (!fn) {
+    throw Error(`${fnName} not found in ${source.absolutePath}`);
+  }
+  addTypeImport(target, fn);
+  const library = fn.getClosestParentByType(ContractDefinition);
+  if (library) {
+    const ctx = target.requiredContext;
+    return staticNodeFactory.makeMemberAccess(
+      ctx,
+      "",
+      staticNodeFactory.makeIdentifierFor(library),
+      fn.name,
+      fn.id
+    );
+  } else {
+    return staticNodeFactory.makeIdentifierFor(fn);
+  }
+}
+
+export function getUsingForDirectiveFunctions(
+  _node: ASTNode,
+  type: TypeName,
+  functionName: string
+): FunctionDefinition[] {
+  const containingContract = _node.getClosestParentByType(ContractDefinition);
+  const sourceUnit = _node.getClosestParentByType(SourceUnit);
+  const directives = [
+    ...(sourceUnit?.vUsingForDirectives ?? []),
+    ...(containingContract?.vUsingForDirectives ?? [])
+  ];
+  const typeString = type.typeString;
+  const matchedFunctions: FunctionDefinition[] = [];
+  for (const directive of directives) {
+    let match = false;
+    if (directive.vTypeName === undefined) {
+      /// using for *;
+      match = true;
+    } else {
+      match = directive.vTypeName.typeString === typeString;
+    }
+    if (!match) {
+      continue;
+    }
+
+    if (directive.vFunctionList) {
+      for (const funId of directive.vFunctionList) {
+        if (funId.name === functionName) {
+          const funDef = funId.vReferencedDeclaration;
+
+          assert(
+            funDef instanceof FunctionDefinition,
+            "Unexpected non-function decl {0} for name {1} in using for {2}",
+            funDef,
+            funId.name,
+            directive
+          );
+
+          matchedFunctions.push(funDef);
+        }
+      }
+    }
+
+    if (directive.vLibraryName) {
+      const lib = directive.vLibraryName.vReferencedDeclaration;
+
+      assert(
+        lib instanceof ContractDefinition,
+        "Unexpected non-library decl {0} for name {1} in using for {2}",
+        lib,
+        directive.vLibraryName.name,
+        directive
+      );
+
+      matchedFunctions.push(...lib.vFunctions.filter((f) => f.name === functionName));
+    }
+  }
+  return matchedFunctions.filter((fn) => {
+    const param = fn.vParameters?.vParameters?.[0];
+    const paramTypeString = param && (param.typeString || param.vType?.typeString);
+    return paramTypeString === typeString;
+  });
 }
