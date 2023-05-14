@@ -32,8 +32,7 @@ import path from "path";
 import { writeFileSync } from "fs";
 import { coerceArray, StructuredText, writeNestedStructure } from "./text";
 import { addImports, findContractDefinition, findFunctionDefinition } from "./solc_ast_utils";
-import { getCommonBasePath, mkdirIfNotExists } from "./path_utils";
-import { getForgeRemappings } from "./forge_remappings";
+import { getCommonBasePath, getForgeRemappings, mkdirIfNotExists } from "./files";
 import { ASTSourceMap, SourceUnitSourceMaps } from "./source_editor";
 
 export function compile(
@@ -485,17 +484,18 @@ export class CompileHelper {
     }
   }
 
-  recompile(optimize?: boolean, optionOverrides?: UserCompilerOptions): void {
+  recompile(optimize?: boolean, optionOverrides?: UserCompilerOptions, astOnly = !optimize): void {
     const files = this.getFiles();
     const resolvedFileNames = new Map<string, string>();
     findAllFiles(files, resolvedFileNames, [], []);
+    console.log(`ASTONLY?: ${astOnly}`);
 
     const compilerOptions = getCombinedCompilerOptions(optimize, optionOverrides);
     const compileResult = compile(
       this.compiler,
       files,
       this.remapping ?? [],
-      compilerOutputs,
+      astOnly ? [CompilationOutput.AST] : compilerOutputs,
       compilerOptions
     );
     this.compilerOptions = compilerOptions;
@@ -542,14 +542,21 @@ export class CompileHelper {
     files: Map<string, string>,
     basePath?: string,
     optimize?: boolean,
-    optionOverrides?: UserCompilerOptions
+    optionOverrides?: UserCompilerOptions,
+    astOnly = !optimize
   ): Promise<CompileHelper> {
     const compiler = await getCompilerForVersion(version, CompilerKind.WASM);
     if (!(compiler instanceof WasmCompiler)) {
       throw Error(`WasmCompiler not found for ${version}`);
     }
     const options = getCombinedCompilerOptions(optimize, optionOverrides);
-    const compileResult = compile(compiler, files, [], compilerOutputs, options);
+    const compileResult = compile(
+      compiler,
+      files,
+      [],
+      astOnly ? [CompilationOutput.AST] : compilerOutputs,
+      options
+    );
     return new CompileHelper(compiler, compileResult, basePath);
   }
 
@@ -560,7 +567,8 @@ export class CompileHelper {
     fileNames: string | string[],
     basePath?: string,
     optimize?: boolean,
-    optionOverrides?: UserCompilerOptions
+    optionOverrides?: UserCompilerOptions,
+    astOnly = !optimize
   ): Promise<CompileHelper> {
     fileNames = coerceArray(fileNames);
     const includePath: string[] = [];
@@ -595,7 +603,14 @@ export class CompileHelper {
     //   throw Error(`WasmCompiler not found for ${version}`);
     // }
     const options = getCombinedCompilerOptions(optimize, optionOverrides);
-    const compileResult = compile(compiler, files, remapping, compilerOutputs, options);
+    console.log(`ASTONLY?: ${astOnly}`);
+    const compileResult = compile(
+      compiler,
+      files,
+      remapping,
+      astOnly ? [CompilationOutput.AST] : compilerOutputs,
+      options
+    );
     const helper = new CompileHelper(compiler, compileResult, basePath, options, remappings);
     helper._files = files;
     return helper;
