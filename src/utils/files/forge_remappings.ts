@@ -46,17 +46,6 @@ export function getForgeRemappings(currentDir: string): string[] {
     });
   }
 
-  const lib = path.resolve(foundryPath, "../lib");
-  if (fs.existsSync(lib) && fs.statSync(lib).isDirectory()) {
-    fs.readdirSync(lib).forEach((libraryName: string) => {
-      libraryName = stripTrailingSlash(libraryName);
-      const libPath = path.join(lib, libraryName);
-      if (!fs.statSync(libPath).isDirectory()) return;
-      if (!remappings.get(libraryName)) {
-        remappings.set(libraryName, libPath);
-      }
-    });
-  }
   if (remappingsPath) {
     fs.readFileSync(remappingsPath, { encoding: "utf8" })
       .split("\n")
@@ -72,6 +61,17 @@ export function getForgeRemappings(currentDir: string): string[] {
           remappings.set(alias, libPath);
         }
       });
+  }
+  const lib = path.resolve(foundryPath, "../lib");
+  if (fs.existsSync(lib) && fs.statSync(lib).isDirectory()) {
+    fs.readdirSync(lib).forEach((libraryName: string) => {
+      libraryName = stripTrailingSlash(libraryName);
+      const libPath = path.join(lib, libraryName);
+      if (!fs.statSync(libPath).isDirectory()) return;
+      if (!remappings.get(libraryName)) {
+        remappings.set(libraryName, libPath);
+      }
+    });
   }
   return [...remappings.entries()].map(([key, value]) => `${key}=${value}`);
 }
@@ -89,7 +89,9 @@ export function resolveSolidityFiles(
       parent = path.dirname(parent);
     }
   }
+  console.log(`base path ${basePath}`);
   const remappings = getForgeRemappings(basePath as string);
+  console.log(remappings);
   const { files, remapping, resolvedFileNames } = getFilesAndRemappings(fileNames, {
     basePath,
     includePath,

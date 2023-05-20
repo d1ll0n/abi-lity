@@ -7,7 +7,7 @@ import { functionDefinitionToTypeNode, readTypeNodesFromSolcAST } from "../../..
 import { StructType, TupleType } from "../../../ast";
 import { isExternalFunctionDefinitionOrType } from "../../../codegen";
 import { createCalldataCopiers, testCopiers } from "../../../test_utils";
-import { writeCompilerOptions } from "../../utils";
+import { writeCompilerOptions } from "../../utils2";
 
 const options = {
   input: {

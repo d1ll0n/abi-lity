@@ -32,7 +32,7 @@ import path from "path";
 import { writeFileSync } from "fs";
 import { coerceArray, StructuredText, writeNestedStructure } from "./text";
 import { addImports, findContractDefinition, findFunctionDefinition } from "./solc_ast_utils";
-import { getCommonBasePath, getForgeRemappings, mkdirIfNotExists } from "./files";
+import { getCommonBasePath, getForgeRemappings, getRelativePath, mkdirIfNotExists } from "./files";
 import { ASTSourceMap, SourceUnitSourceMaps } from "./source_editor";
 
 export function compile(
@@ -176,8 +176,11 @@ export class CompileHelper {
     return this.sourceUnits[0].requiredContext;
   }
 
-  getContractForFile(fileName: string): ContractOutput & { name: string } {
+  getContractsForFile(fileName: string): Array<ContractOutput & { name: string }> {
     fileName = path.normalize(fileName);
+    if (path.isAbsolute(fileName) && this.basePath) {
+      fileName = getRelativePath(this.basePath, fileName);
+    }
     let contracts = this.fileContractsMap.get(fileName);
     if (!contracts) {
       const fileNames = [...this.fileContractsMap.keys()].filter((f) => f.includes(fileName));
@@ -190,15 +193,20 @@ export class CompileHelper {
       fileName = fileNames[0];
       contracts = this.fileContractsMap.get(fileName) as string[];
     }
+    return contracts.map((name) => ({
+      name,
+      ...(this.contractsMap.get(name) as ContractOutput)
+    }));
+  }
+
+  getContractForFile(fileName: string): ContractOutput & { name: string } {
+    fileName = path.normalize(fileName);
+    const contracts = this.getContractsForFile(fileName);
 
     if (contracts.length > 1) {
       throw Error(`Multiple contracts in ${fileName}`);
     }
-    const contractName = contracts[0];
-    return {
-      name: contractName,
-      ...(this.contractsMap.get(contractName) as ContractOutput)
-    };
+    return contracts[0];
   }
 
   findSourceUnit(fileName: string): SourceUnit | undefined {
@@ -488,7 +496,6 @@ export class CompileHelper {
     const files = this.getFiles();
     const resolvedFileNames = new Map<string, string>();
     findAllFiles(files, resolvedFileNames, [], []);
-    console.log(`ASTONLY?: ${astOnly}`);
 
     const compilerOptions = getCombinedCompilerOptions(optimize, optionOverrides);
     const compileResult = compile(
@@ -603,7 +610,6 @@ export class CompileHelper {
     //   throw Error(`WasmCompiler not found for ${version}`);
     // }
     const options = getCombinedCompilerOptions(optimize, optionOverrides);
-    console.log(`ASTONLY?: ${astOnly}`);
     const compileResult = compile(
       compiler,
       files,

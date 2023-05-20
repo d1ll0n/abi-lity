@@ -33,11 +33,13 @@ function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
     let type: TupleType | StructType;
     if (fragment.internalType) {
       const name = fragment.internalType.replace("struct ", "");
+      console.log(`Creating struct type ${name}`);
       type = new StructType(members, name);
     } else {
       type = new TupleType(members);
     }
     type.labelFromParent = param.name;
+    type.isIndexed = param.indexed;
     return type;
   } else if (param.baseType === "array") {
     const _fragment = {
@@ -49,6 +51,7 @@ function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
     const length = Math.max(param.arrayLength, 0) || undefined;
     const array = new ArrayType(baseType, length);
     array.labelFromParent = param.name;
+    array.isIndexed = param.indexed;
     return array;
   } else {
     if (fragment.internalType?.includes("enum")) {
@@ -57,10 +60,12 @@ function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
         `UnknownMember2`
       ]);
       type.labelFromParent = param.name;
+      type.isIndexed = param.indexed;
       return type;
     }
     const elementary = elementaryTypeStringToTypeNode(param.baseType);
     elementary.labelFromParent = param.name;
+    elementary.isIndexed = param.indexed;
     return elementary;
   }
 }
@@ -110,7 +115,7 @@ function eventFragmentToTypeNode(fn: EventFragment, jsonFragment: JsonFragment) 
     parameters = new TupleType(members);
   }
 
-  return new EventType(fn.name, parameters);
+  return new EventType(fn.name, parameters, jsonFragment.anonymous);
 }
 
 class InterfaceTypes {
@@ -119,6 +124,7 @@ class InterfaceTypes {
   structs: StructType[] = [];
   events: EventType[] = [];
   errors: ErrorType[] = [];
+  enums: EnumType[] = [];
 
   constructor(protected jsonFragments: JsonFragment[], protected context: ASTContext) {
     this.interface = new Interface(jsonFragments);
@@ -160,6 +166,8 @@ class InterfaceTypes {
       this.functions.push(node);
       this.addTypeNode(node.parameters);
       this.addTypeNode(node.returnParameters);
+    } else if (node instanceof EnumType) {
+      this.enums.push(node);
     }
     if (node) {
       node.context = this.context;
@@ -179,6 +187,7 @@ class InterfaceTypes {
 
 export function readTypeNodesFromABI(_jsonFragments: JsonFragment[]): TypeNodeReaderResult {
   const context = new ASTContext();
+  _jsonFragments = _jsonFragments.filter((fn) => fn.type !== "constructor");
   const parser = new InterfaceTypes(_jsonFragments, context);
   for (const fn of parser.interfaceFunctions) {
     const jsonFragment = parser.getJsonFragment(fn);
@@ -199,6 +208,6 @@ export function readTypeNodesFromABI(_jsonFragments: JsonFragment[]): TypeNodeRe
     structs: parser.structs,
     events: parser.events,
     errors: parser.errors,
-    enums: []
+    enums: parser.enums
   };
 }

@@ -9,14 +9,12 @@
     "outDir": "dist",
     "removeComments": false,
 
-    "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
     "strictPropertyInitialization": true,
     "noImplicitThis": true,
-    "alwaysStrict": true,
 
     "noImplicitReturns": true,
 
@@ -25,5 +23,13 @@
     "resolveJsonModule": true
   },
 
-  "include": ["src/**/*", "src/**/*.json"]
+  "include": [
+    "src/**/*",
+    "src/**/*.json",
+    "test_garbage/**/*",
+    "scripts/**/*",
+    "maybe-dont-use/generic",
+    "maybe-dont-use/pack",
+    "maybe-dont-use/immutables"
+  ]
 }

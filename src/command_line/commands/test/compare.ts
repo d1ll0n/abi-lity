@@ -1,7 +1,7 @@
 import path from "path";
 import { Argv } from "yargs";
 import { writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths } from "../../utils";
+import { getCommandLineInputPaths } from "../../utils2";
 import { getAllContractDeployments, testDeployments } from "../../../test_utils/compare_contracts";
 
 const options = {
@@ -28,12 +28,11 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
     ]),
     options,
     async (args) => {
-      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
-        args,
-        true,
-        true,
-        { viaIR: true, optimizer: true, runs: "max" }
-      );
+      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args, true, {
+        viaIR: true,
+        optimizer: true,
+        runs: "max"
+      });
       const deployments = await getAllContractDeployments(helper);
       await testDeployments(deployments);
     }

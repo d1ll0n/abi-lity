@@ -1,9 +1,11 @@
 import { toArray } from "lodash";
 import { assert } from "solc-typed-ast";
 import { FunctionType, TupleType } from "../ast";
-import { CompileHelper, ContractOutput, getDefaultForType } from "../utils";
+import { CompileHelper } from "../utils/compile_utils/compile_helper";
 import { CallResult, getTestDeployment, TestDeployment } from "./deployment";
 import { err, info, diffPctString, toCommentTable } from "./logs";
+import { getDefaultForType } from "../utils";
+import { ContractOutput } from "../utils/compile_utils/solc";
 
 type FunctionTestInput = {
   function: FunctionType;

@@ -1,16 +1,17 @@
-import { DataLocation, isInstanceOf, LatestCompilerVersion } from "solc-typed-ast";
+import {
+  CompilationOutput,
+  DataLocation,
+  isInstanceOf,
+  LatestCompilerVersion
+} from "solc-typed-ast";
 import { EnumType, StructType, TupleType } from "../ast";
 import { CallResult } from "./deployment";
-import {
-  addSeparators,
-  coerceArray,
-  CompileHelper,
-  UserCompilerOptions,
-  writeNestedStructure
-} from "../utils";
-import { upgradeSourceCoders } from "../codegen";
+import { addSeparators, coerceArray, writeNestedStructure } from "../utils";
+import { upgradeSourceCoders } from "../codegen/coders/generate";
 import { getUniqueTypeNodes } from "../codegen/utils";
+import { CompileHelper } from "../utils/compile_utils/compile_helper";
 import { getAllContractDeployments, testDeployments } from "./compare_contracts";
+import { getCompilerOptionsWithDefaults, UserCompilerOptions } from "../utils/compile_utils/solc";
 
 export async function testCopiers(helper: CompileHelper, types: CopyTestType[]): Promise<void> {
   const names = copierNames.map((n) => n.replace(`.sol`, ""));
@@ -108,15 +109,29 @@ export async function createCalldataCopiers(
     copierFile.replace(`contract BaseCopier`, `contract CopierWithSwitch`)
   );
   console.log(`Compiling copy test files...`);
-  const helper = await CompileHelper.fromFiles(LatestCompilerVersion, files, undefined, true);
+  const helper = await CompileHelper.fromFiles(files);
   upgradeSourceCoders(helper, `CopierWithDecoders.sol`, {
     functionSwitch: false,
-    decoderFileName: "Decoders.sol"
+    replaceReturnStatements: true,
+    decoderFileName: "Decoders1.sol"
   });
   upgradeSourceCoders(helper, `CopierWithSwitch.sol`, {
     functionSwitch: true,
-    decoderFileName: "Decoders.sol"
+    decoderFileName: "Decoders2.sol"
   });
-  helper.recompile(true, compilerOptions);
+  helper.recompile({
+    outputs: [
+      CompilationOutput.ABI,
+      CompilationOutput.AST,
+      "evm.deployedBytecode.object" as any,
+      CompilationOutput.EVM_BYTECODE_OBJECT
+    ],
+    settings: getCompilerOptionsWithDefaults({
+      optimizer: true,
+      runs: "max",
+      metadata: false,
+      viaIR: true
+    })
+  });
   return helper;
 }

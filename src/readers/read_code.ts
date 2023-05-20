@@ -10,29 +10,33 @@ import {
   TypeDefinition,
   ASTVisitor,
   NumberLiteral,
-  VariableDeclaration
+  VariableDeclaration,
   // AssemblyAssignment,
   // AssemblyBlock,
-  // AssemblyCall,
+  AssemblyCall,
   // AssemblyFor,
   // AssemblyIf,
   // AssemblyCase,
   // AssemblySwitch,
-  // AssemblyLiteral,
-  // Identifier,
+  AssemblyLiteral,
+  AssemblyLocalDefinition,
+  AssemblyMemberAccess,
+  AssemblyAssignment,
+  Identifier,
   // AssemblyMemberAccess,
-  // ASTNode,
+  ASTNode
   // AssemblyStackAssignment,
   // AssemblyLocalDefinition
 } from "@solidity-parser/parser/src/ast-types";
 import {
   FunctionStateMutability,
   FunctionVisibility,
-  staticNodeFactory
-  // ASTContext,
-  // YulLiteralKind,
-  // YulIdentifier,
-  // YulTypedName
+  staticNodeFactory,
+  ASTContext,
+  YulLiteralKind,
+  YulIdentifier,
+  YulTypedName,
+  DataLocation
 } from "solc-typed-ast";
 import {
   ArrayType,
@@ -162,6 +166,7 @@ class ParserTypes implements AddMethods {
 
   parsedNodes: RelevantDefinition[] = [];
   mappedTypes: Map<string, TypeNode> = new Map();
+  constructor(public allowUndefinedUserTypes = false) {}
 
   getTypeNode(node: TypeName): TypeNode {
     if (node.type === "ElementaryTypeName") return elementaryTypeStringToTypeNode(node.name);
@@ -172,8 +177,26 @@ class ParserTypes implements AddMethods {
     }
     if (node.type === "UserDefinedTypeName") {
       const type = this.mappedTypes.get(node.namePath);
-      if (!type) throw Error(`UserDefinedTypeName ${node.namePath} not found!`);
+
+      if (!type) {
+        if (this.allowUndefinedUserTypes) {
+          return new EnumType(node.namePath, []);
+        }
+        throw Error(`UserDefinedTypeName ${node.namePath} not found!`);
+      }
       return type.copy();
+    }
+    if (node.type === "FunctionTypeName") {
+      const parameters = this.convertVariableDeclarations(node.parameterTypes);
+      const returnParameters = this.convertVariableDeclarations(node.returnTypes);
+
+      return new FunctionType(
+        "",
+        parameters.length > 0 ? new TupleType(parameters) : undefined,
+        returnParameters.length > 0 ? new TupleType(returnParameters) : undefined,
+        this.convertVisibility(node.visibility),
+        this.convertMutability(node.stateMutability ?? "")
+      );
     }
     throw Error(`Unimplemented TypeName ${node.type}`);
   }
@@ -243,7 +266,17 @@ class ParserTypes implements AddMethods {
       ast.visibility as FunctionVisibility,
       ast.stateMutability as FunctionStateMutability
     );
-    this.mappedTypes.set(type.functionSelector, type);
+    if (
+      this.mappedTypes.has(type.functionSelector) &&
+      ![FunctionVisibility.External, FunctionVisibility.Public].includes(type.visibility as any)
+    ) {
+      // console.log(
+      // `Duplicate external selector for ${type.name} but visibility is ${type.visibility} - adding with internal signature`
+      // );
+      this.mappedTypes.set(type.internalSignature(), type);
+    } else {
+      this.mappedTypes.set(type.functionSelector, type);
+    }
   }
 
   addEventDefinition(ast: EventDefinition) {
@@ -256,6 +289,36 @@ class ParserTypes implements AddMethods {
     const parameters = this.convertVariableDeclarations(ast.parameters);
     const type = new ErrorType(ast.name, parameters.length ? new TupleType(parameters) : undefined);
     this.mappedTypes.set(type.errorSelector, type);
+  }
+
+  convertVisibility(visibility: string): FunctionVisibility {
+    switch (visibility) {
+      case "external":
+        return FunctionVisibility.External;
+      case "internal":
+        return FunctionVisibility.Internal;
+      case "public":
+        return FunctionVisibility.Public;
+      case "private":
+        return FunctionVisibility.Private;
+      default:
+        return FunctionVisibility.Default;
+    }
+  }
+
+  convertMutability(mutability: string): FunctionStateMutability {
+    switch (mutability) {
+      case "pure":
+        return FunctionStateMutability.Pure;
+      case "view":
+        return FunctionStateMutability.View;
+      case "payable":
+        return FunctionStateMutability.Payable;
+      case "constant":
+        return FunctionStateMutability.Constant;
+      default:
+        return FunctionStateMutability.NonPayable;
+    }
   }
 
   addStateVariableDeclaration(ast: StateVariableDeclaration) {
@@ -280,8 +343,38 @@ class ParserTypes implements AddMethods {
   }
 }
 
-export function readTypeNodesFromSolidity(code: string): TypeNodeReaderResult {
-  const types = new ParserTypes();
+/* function doTest(code: string) {
+  const visitor = (
+    [
+      "StructDefinition",
+      "EnumDefinition",
+      "FunctionDefinition",
+      "CustomErrorDefinition",
+      "EventDefinition",
+      "StateVariableDeclaration",
+      "TypeDefinition",
+      "VariableDeclaration"
+    ] as Array<RelevantDefinition["type"] | "VariableDeclaration">
+  ).reduce((obj, key) => {
+    obj[key] = (node: RelevantDefinition | VariableDeclaration) => {
+      switch (node.type) {
+        case "VariableDeclaration": {
+          node.
+        }
+      }
+      console.log(node);
+    };
+    return obj;
+  }, {} as ASTVisitor);
+  const parseResult = parser.parse(code, { tolerant: true });
+  parser.visit(parseResult, visitor);
+} */
+
+export function readTypeNodesFromSolidity(
+  code: string,
+  allowUndefinedUserTypes = false
+): TypeNodeReaderResult {
+  const types = new ParserTypes(allowUndefinedUserTypes);
   const visitor = (
     [
       "StructDefinition",
@@ -298,7 +391,9 @@ export function readTypeNodesFromSolidity(code: string): TypeNodeReaderResult {
     };
     return obj;
   }, {} as ASTVisitor);
+  const ts = Date.now();
   const parseResult = parser.parse(code, { tolerant: true });
+  console.log(`Parsing took ${(Date.now() - ts) / 1000}seconds`);
   parser.visit(parseResult, visitor);
   sortTypesByDependencies(types.parsedNodes);
   types.parsedNodes.forEach((node) => {
@@ -337,10 +432,6 @@ const extractUserDefinedTypes = (fields: Array<{ typeName: TypeName | null }>): 
   });
   return types;
 };
-
-function t(f: FunctionDefinition) {
-  return staticNodeFactory.makeFunctionDefinition;
-}
 
 function extractTypeDependencies(type: RelevantDefinition): string[] {
   switch (type.type) {
@@ -412,3 +503,22 @@ function sortTypesByDependencies(types: RelevantDefinition[]): void {
     return 0;
   });
 }
+
+// const time = Date.now();
+// console.log(
+//   readTypeNodesFromSolidity(
+//     `function exec(
+//       function (ABC memory, uint256[] calldata) internal returns (uint256) fnarg
+//     ) internal view returns (uint256) {}
+//     function exec(
+//       function (ABC memory) internal returns (uint256) fnarg
+//     ) internal view returns (uint256) {}
+
+// `,
+//     true
+//   ).functions[0].internalSignature()
+// );
+
+// const since = Date.now() - time;
+// // Print seconds since
+// console.log(`Seconds since: ${since / 1000}`);
