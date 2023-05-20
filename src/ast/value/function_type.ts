@@ -1,10 +1,10 @@
 import { keccak256 } from "@ethersproject/keccak256";
 import { toUtf8Bytes } from "@ethersproject/strings";
-import { FunctionStateMutability, FunctionVisibility } from "solc-typed-ast";
+import { DataLocation, FunctionStateMutability, FunctionVisibility } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
-import { ValueType } from "../value";
+import { ValueType } from "../value/value_type";
 
 export class FunctionType extends ValueType {
   readonly kind = ABITypeKind.Function;
@@ -54,11 +54,48 @@ export class FunctionType extends ValueType {
   }
 
   signatureInExternalFunction(): string {
-    return this.name;
+    return "function";
+  }
+
+  signature(_structsByName: boolean): string {
+    return [this.name, this.parameters?.signatureInExternalFunction(_structsByName) ?? "()"].join(
+      ""
+    );
+  }
+
+  signatureInInternalFunction(): string {
+    const modifiers = [
+      this.visibility !== FunctionVisibility.Default && this.visibility,
+      this.stateMutability !== FunctionStateMutability.NonPayable && this.stateMutability,
+      (this.returnParameters?.vMembers ?? []).length > 0 &&
+        `returns${this.returnParameters!.signatureInInternalFunction()}`
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return [`function`, this.parameters?.signatureInInternalFunction() ?? "()", modifiers].join("");
+  }
+
+  internalSignature(): string {
+    return [`function ${this.name}`, this.parameters?.signatureInInternalFunction() ?? "()"].join(
+      ""
+    );
+  }
+
+  writeDefinition(): string {
+    return [
+      `function ${this.name}`,
+      this.parameters?.writeParameter(DataLocation.CallData) ?? "()",
+      this.visibility !== FunctionVisibility.Default && this.visibility,
+      this.stateMutability !== "nonpayable" && this.stateMutability,
+      this.returnParameters &&
+        `returns ${this.returnParameters.writeParameter(DataLocation.Memory)}`
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
 
   get functionSignature(): string {
-    return [this.name, this.parameters?.signatureInExternalFunction(false) ?? "()"].join("");
+    return this.signature(false);
   }
 
   get functionSelector(): string {

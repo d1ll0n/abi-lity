@@ -19,6 +19,8 @@ export abstract class TypeNode extends Node<TypeNode> {
 
   labelFromParent?: string;
 
+  isIndexed = false;
+
   abstract copy(): TypeNode;
 
   pp(): string {
@@ -173,6 +175,10 @@ export abstract class TypeNode extends Node<TypeNode> {
    * structs are given by canonical name like `ContractName.StructName[2]`.
    */
   abstract signatureInExternalFunction(structsByName: boolean): string;
+
+  signatureInInternalFunction(): string {
+    return this.signatureInExternalFunction(true);
+  }
 
   /** @returns the canonical name of this type for use in library function signatures. */
   abstract canonicalName: string;

@@ -18,9 +18,10 @@ export class IntegerType extends ValueType {
   leftAligned = false;
   encodingType = undefined;
 
-  get kind(): ABITypeKind {
-    if (this.signed) return ABITypeKind.Int;
-    return ABITypeKind.Uint;
+  get kind(): ABITypeKind.Integer {
+    return ABITypeKind.Integer;
+    // if (this.signed) return ABITypeKind.Int;
+    // return ABITypeKind.Uint;
   }
 
   /// Maximum value (inclusive) representable by this int type.

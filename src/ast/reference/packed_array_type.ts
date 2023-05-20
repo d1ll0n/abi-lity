@@ -19,6 +19,10 @@ export class BytesType extends ReferenceType {
     return new BytesType();
   }
 
+  get kind(): ABITypeKind.Bytes {
+    return ABITypeKind.Bytes;
+  }
+
   get calldataEncodedSize(): number {
     throw Error(`Can not read calldata size of dynamically encoded ${this.canonicalName}`);
   }
@@ -33,10 +37,6 @@ export class BytesType extends ReferenceType {
 
   get extendedMemoryDataSize(): number | undefined {
     return undefined;
-  }
-
-  get kind(): ABITypeKind {
-    return this.isBytes ? ABITypeKind.Bytes : ABITypeKind.String;
   }
 
   get canonicalName(): string {

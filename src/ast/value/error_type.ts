@@ -3,7 +3,7 @@ import { toUtf8Bytes } from "@ethersproject/strings";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
-import { ValueType } from ".";
+import { ValueType } from "./value_type";
 
 export class ErrorType extends ValueType {
   readonly kind = ABITypeKind.Error;
@@ -49,5 +49,10 @@ export class ErrorType extends ValueType {
   get errorSelector(): string {
     const signature = this.errorSignature;
     return keccak256(toUtf8Bytes(signature)).slice(0, 10);
+  }
+
+  writeDefinition(): string {
+    const memberTypeStrings = this.children.map((c) => c.signatureInExternalFunction(true));
+    return [`error ${this.name} (`, memberTypeStrings, ")"].join("");
   }
 }

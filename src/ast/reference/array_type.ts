@@ -106,6 +106,15 @@ export class ArrayType extends TypeNodeWithChildren<TypeNode> {
     );
   }
 
+  signatureInInternalFunction(): string {
+    return (
+      this.baseType.signatureInInternalFunction() +
+      "[" +
+      (this.isDynamicallySized ? "" : this.length) +
+      "]"
+    );
+  }
+
   get children(): TypeNode[] {
     return this.pickNodes(this.baseType);
   }

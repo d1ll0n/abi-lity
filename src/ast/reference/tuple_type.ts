@@ -64,6 +64,11 @@ export abstract class TupleLikeType extends TypeNodeWithChildren<TypeNode> {
     return "(" + memberTypeStrings.join(",") + ")";
   }
 
+  signatureInInternalFunction(): string {
+    const memberTypeStrings = this.children.map((c) => c.signatureInInternalFunction());
+    return "(" + memberTypeStrings.join(",") + ")";
+  }
+
   readonly encodingType = undefined;
   readonly isValueType = false;
   readonly leftAligned = false;
@@ -77,6 +82,10 @@ export class TupleType extends TupleLikeType {
     return `tuple_${this.ownChildren.map((child) => child.identifier).join("_")}`;
   }
 
+  getIndexedNames(base: string): string[] {
+    return this.vMembers.map((_, i) => (this.vMembers.length > 1 ? `${base}${i}` : base));
+  }
+
   copy(): TupleType {
     const tuple = new TupleType(this.ownChildren.map((member) => member.copy()));
     tuple.labelFromParent = this.labelFromParent;
@@ -84,7 +93,7 @@ export class TupleType extends TupleLikeType {
   }
 
   pp(): string {
-    const memberTypeStrings = this.children.map((c, i) =>
+    const memberTypeStrings = this.children.map((c) =>
       [c.signatureInExternalFunction(true), c.labelFromParent].filter(Boolean).join(" ")
     );
     return "(" + memberTypeStrings.join(",") + ")";

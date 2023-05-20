@@ -10,3 +10,5 @@ export * from "./tuple_type";
 export * from "./reference_type";
 
 export type UReferenceType = ArrayType | BytesType | StringType | StructType | TupleType;
+
+export const PossibleReferenceTypes = [ArrayType, BytesType, StringType, StructType, TupleType];

@@ -3,23 +3,39 @@ import { toUtf8Bytes } from "@ethersproject/strings";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
-import { ValueType } from ".";
+import { ValueType } from "./value_type";
+import _ from "lodash";
 
 export class EventType extends ValueType {
   readonly kind = ABITypeKind.Event;
 
   name: string;
   parameters?: TupleType;
+  unindexedParameters: TypeNode[];
+  indexedParameters: TypeNode[];
 
   leftAligned = false;
   encodingType = undefined;
   exactBits = 192;
+  anonymous = false;
 
-  constructor(name: string, parameters?: TupleType) {
+  constructor(name: string, parameters?: TupleType, anonymous?: boolean) {
     super();
     this.name = name;
+    [this.indexedParameters, this.unindexedParameters] = _.partition(
+      parameters?.vMembers ?? [],
+      (m) => m.isIndexed
+    );
     this.parameters = parameters;
     this.acceptChildren();
+    this.anonymous = anonymous ?? false;
+  }
+
+  get topic0(): string | undefined {
+    if (this.anonymous) {
+      return undefined;
+    }
+    return this.eventSelector;
   }
 
   copy(): EventType {
@@ -49,5 +65,14 @@ export class EventType extends ValueType {
   get eventSelector(): string {
     const signature = this.eventSignature;
     return keccak256(toUtf8Bytes(signature)).slice(0, 10);
+  }
+
+  writeDefinition(): string {
+    const memberTypeStrings =
+      this.parameters?.signatureInExternalFunction(true) ?? "()"; /* this.children.map((c) => {
+      const typeString = c.signatureInExternalFunction(true);
+      return [typeString, c.isIndexed ? " indexed" : ""].join("");
+    }) */
+    return [`event ${this.name} `, memberTypeStrings].join("");
   }
 }
