@@ -5,3 +5,5 @@ export const getPointerLibraries = (): string => require("./PointerLibraries.jso
 export const getSTDAssertionsShim = (): string => require("./STDAssertionsShim.json").join("\n");
 
 export const getVMShim = (): string => require("./VmShim.json").join("\n");
+
+export const getLibJson = (): string => require("./LibJson.json").join("\n");
