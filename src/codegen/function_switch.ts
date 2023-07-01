@@ -1,5 +1,4 @@
 import {
-  assert,
   ASTNodeFactory,
   ContractDefinition,
   DataLocation,
@@ -25,7 +24,7 @@ import { addImports, getParentSourceUnit, makeFunctionCallFor, isExternalFunctio
 import {
   createReturnFunctionForReturnParameters,
   replaceReturnStatementsWithCall
-} from "./abi_encode";
+} from "./coders/abi_encode";
 import { dependsOnCalldataLocation } from "./utils";
 import NameGen from "./names";
 
