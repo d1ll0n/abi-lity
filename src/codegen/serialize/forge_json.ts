@@ -1,3 +1,4 @@
+import { DataLocation } from "solc-typed-ast";
 import {
   ArrayType,
   ContractType,
@@ -19,23 +20,28 @@ const builtinSerializers = {
   bytes32: "serializeBytes32",
   string: "serializeString",
   bytes: "serializeBytes",
-  "bool[]": "serializeBool",
-  "uint256[]": "serializeUint",
-  "int256[]": "serializeInt",
-  "address[]": "serializeAddress",
-  "bytes32[]": "serializeBytes32",
-  "string[]": "serializeString"
+  "bool[]": "serializeBoolArray",
+  "uint256[]": "serializeUintArray",
+  "int256[]": "serializeIntArray",
+  "address[]": "serializeAddressArray",
+  "bytes32[]": "serializeBytes32Array",
+  "string[]": "serializeStringArray"
 } as Record<string, string>;
 
-// export function canGenerateSerializer(type: TypeNode) {
-//   type.walkChildren((node) => !(node instanceof ))
-// }
+const obj = {
+  "bool[]": "serializeBoolArray",
+  // "uint256[]": "serializeUintArray",
+  "int256[]": "serializeIntArray",
+  "address[]": "serializeAddressArray",
+  "bytes32[]": "serializeBytes32Array",
+  "string[]": "serializeStringArray"
+};
 
 export function getForgeJsonSerializeFunction(ctx: CodegenContext, type: TypeNode): string {
   const baseSignature = type.signatureInExternalFunction(true);
   const builtinName = builtinSerializers[baseSignature];
   if (builtinName) {
-    const body = [`return vm.${builtinName}(objectKey, valueKey, value);`];
+    const body = [`return LibJson.${builtinName}(value);`];
     return addSerializeFunction(ctx, type, body);
   }
   if (type instanceof ArrayType) {
@@ -62,13 +68,12 @@ export function getForgeJsonSerializeFunction(ctx: CodegenContext, type: TypeNod
 }
 
 export function getForgeSerializeEnumFunction(ctx: CodegenContext, type: EnumType): string {
-  // const baseSerialize = getForgeJsonSerializeFunction(ctx, type);
   const body: StructuredText<string> = [
     `string[${type.members.length}] memory members = [`,
     addCommaSeparators(type.members.map((m) => `"${m}"`)),
     "];",
     `uint256 index = uint256(value);`,
-    `return vm.serializeString(objectKey, valueKey, members[index]);`
+    `return members[index];`
   ];
   return addSerializeFunction(ctx, type, body);
 }
@@ -76,11 +81,12 @@ export function getForgeSerializeEnumFunction(ctx: CodegenContext, type: EnumTyp
 // const randomId
 
 function addSerializeFunction(ctx: CodegenContext, type: TypeNode, body: StructuredText<string>) {
-  const baseSignature = type.canonicalName; //signatureInExternalFunction(true);
-  const typeWithLocation = type.isReferenceType ? `${baseSignature} memory` : baseSignature;
-  const name = `tojson${type.pascalCaseName}`;
+  const name = `serialize${type.pascalCaseName}`;
   const code = [
-    `function ${name}(string memory objectKey, string memory valueKey, ${typeWithLocation} value) returns (string memory) {`,
+    `function ${name}(${type.writeParameter(
+      DataLocation.Memory,
+      "value"
+    )}) pure returns (string memory) {`,
     body,
     "}"
   ];
@@ -89,38 +95,39 @@ function addSerializeFunction(ctx: CodegenContext, type: TypeNode, body: Structu
 
 export function getForgeSerializeArrayFunction(ctx: CodegenContext, type: ArrayType): string {
   const baseSerialize = getForgeJsonSerializeFunction(ctx, type.baseType);
-  let ref = `value[i]`;
-  if (type.baseType instanceof ContractType) {
-    ref = `address(${ref})`;
-  }
-  const body = [
-    `string memory obj = string.concat(objectKey, valueKey);`,
-    `uint256 length = value.length;`,
-    `string memory out;`, //${type.signatureInExternalFunction(true)}
-    `for (uint256 i; i < length; i++) {`,
-    [`out = ${baseSerialize}(obj, vm.toString(i), ${ref});`],
-    `}`,
-    `return vm.serializeString(objectKey, valueKey, out);`
+  const baseArg = type.baseType.writeParameter(DataLocation.Memory, "");
+  const body: StructuredText[] = [
+    `function(uint256[] memory, function(uint256) pure returns (string memory)) internal pure returns (string memory) _fn = serializeArray;`,
+    `function(${type.writeParameter(
+      DataLocation.Memory,
+      ""
+    )}, function(${baseArg}) pure returns (string memory)) internal pure returns (string memory) fn;`,
+    `assembly { fn := _fn }`,
+    `return fn(value, ${baseSerialize});`
   ];
   return addSerializeFunction(ctx, type, body);
 }
 
+/*       '{"account":', data.account.serializeAddress(),
+      ',"userBalance":', data.userBalance.serializeUint(),
+      ',"someArray":', data.someArray.serializeArray(LibJson.serializeUint),
+      '}' */
+
 export function getForgeSerializeStructFunction(ctx: CodegenContext, struct: StructType): string {
-  const body: StructuredText<string> = [`string memory obj = string.concat(objectKey, valueKey);`];
+  const segments: StructuredText[] = [];
   struct.children.forEach((child, i) => {
     const fn = getForgeJsonSerializeFunction(ctx, child);
     let ref = `value.${child.labelFromParent}`;
     if (child instanceof ContractType) {
       ref = `address(${ref})`;
     }
-    const statement = `${fn}(obj, "${child.labelFromParent}", ${ref});`;
-
-    if (i === struct.children.length - 1) {
-      body.push(`string memory finalJson = ${statement}`);
-      body.push(`return vm.serializeString(objectKey, valueKey, finalJson);`);
-    } else {
-      body.push(statement);
-    }
+    const prefix = i === 0 ? "{" : ",";
+    segments.push(`'${prefix}"${child.labelFromParent}":'`);
+    segments.push(`${fn}(${ref})`);
+    // const segment = ["'", i === 0 ? "{" : ",", `"${child.labelFromParent}":'`, `${fn}(${ref})`];
+    // segments.push(...segment);
   });
-  return addSerializeFunction(ctx, struct, body);
+  segments.push("'}'");
+  // addCommaSeparators(segments);
+  return addSerializeFunction(ctx, struct, [`return string.concat(`, segments.join(","), `);`]);
 }
