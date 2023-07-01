@@ -100,7 +100,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
       .getChildrenByType(UserDefinedValueTypeDefinition)
       .find((child) => child.name === name);
     let typeName: TypeName | undefined;
-    if (referenced_id) {
+    if (referenced_id !== undefined) {
       assert(type !== undefined, `Type ${name} not found`);
       referenced_id = type.id;
       typeName = this.factory.makeUserDefinedTypeName(
