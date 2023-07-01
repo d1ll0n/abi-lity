@@ -61,7 +61,7 @@ export function getTestsForCommonFunctions(deployments: TestDeployment[]): Funct
       function: fn,
       name,
       label: name,
-      args: getDefaultForType(fn, i) as any[]
+      args: getDefaultForType(fn, 1) as any[]
     };
   });
 }
@@ -97,6 +97,11 @@ export async function testFunctionForDeployments(
     const result = await deployment.call(input.name, ...toArray(inputData));
 
     const match = result.rawData === result.rawReturnData;
+    if (!match) {
+      console.log(
+        `${deployment.name} Input Size: ${result.rawData.length} | Output Size: ${result.rawReturnData.length}`
+      );
+    }
     const gas = Number(result.executionGasUsed);
     results.push({ result, match, gas });
   }
@@ -149,6 +154,11 @@ export async function testDeployments(
       const gasString = diffPctString(gas, baseGasCost);
       row.push(copyTest && !match ? err(`fail`) : gasString);
     });
+    if (!copyTest) {
+      if (!results.every((r) => r.result.rawReturnData === results[0].result.rawReturnData)) {
+        console.log(`Return data mismatch for ${test.name}`);
+      }
+    }
     outputRows.push(row);
   }
 
