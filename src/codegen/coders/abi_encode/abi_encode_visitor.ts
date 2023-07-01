@@ -19,7 +19,7 @@ import { typeCastFunction } from "./type_cast";
 import { WrappedScope } from "../../ctx/contract_wrapper";
 import { abiEncodeBytes } from "../templates/templates";
 
-export const VisitorByScope: WeakMap<WrappedScope, AbiEncodeVisitor> = new Map();
+export const EncodeVisitorByScope: WeakMap<WrappedScope, AbiEncodeVisitor> = new Map();
 
 export function abiEncodingFunction(ctx: WrappedScope, type: TypeNode): string {
   const visitor = AbiEncodeVisitor.getVisitor(ctx);
@@ -54,11 +54,11 @@ export class AbiEncodeVisitor extends DefaultVisitor {
 
   constructor(private ctx: WrappedScope) {
     super();
-    VisitorByScope.set(ctx, this);
+    EncodeVisitorByScope.set(ctx, this);
   }
 
   static getVisitor(ctx: WrappedScope): AbiEncodeVisitor {
-    let visitor = VisitorByScope.get(ctx);
+    let visitor = EncodeVisitorByScope.get(ctx);
     if (!visitor) {
       visitor = new AbiEncodeVisitor(ctx);
     }
@@ -345,17 +345,23 @@ export class AbiEncodeVisitor extends DefaultVisitor {
       );
       setSizeStatement = [`size = ${encodedSizeExpression};`];
     }
-    body.push(
-      `while (srcHead.lt(srcHeadEnd)) {`,
-      [
-        `MemoryPointer srcTail = srcHead.pptr();`,
+
+    /* Compare with
+    srcHead starting at srcLength,
+    srcTail = (srcHead = srcHead.next()).pptr()
+    */
+    const innerLoop = [`MemoryPointer srcTail = srcHead.pptr();`, `srcHead = srcHead.next();`];
+
+    if (type.baseType.maxNestedReferenceTypes === 1) {
+      innerLoop.push(
         `srcTail.copy(dstHead, ${tailSizeName});`,
-        `srcHead = srcHead.next();`,
         `dstHead = dstHead.offset(${tailSizeName});`
-      ],
-      `}`,
-      ...setSizeStatement
-    );
+      );
+    } else {
+      const encodeFn = this.visit(type.baseType);
+      innerLoop.push(`dstHead = dstHead.offset(${encodeFn}(srcTail, dstHead));`);
+    }
+    body.push(`while (srcHead.lt(srcHeadEnd)) {`, innerLoop, `}`, ...setSizeStatement);
 
     return this.addEncoderFunction(type, [inPtr, outPtr], body);
   }
