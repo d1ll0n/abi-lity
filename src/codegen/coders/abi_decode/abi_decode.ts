@@ -36,7 +36,7 @@ export function getDecoderForFunction(ctx: WrappedScope, fn: FunctionDefinition)
   // return decoderFn;
 }
 
-export const VisitorByScope: WeakMap<WrappedScope, AbiDecodeVisitor> = new Map();
+export const DecodeVisitorByScope: WeakMap<WrappedScope, AbiDecodeVisitor> = new Map();
 
 /**
  * The `visit` function should return a string that is the name of the function
@@ -49,11 +49,11 @@ export class AbiDecodeVisitor extends DefaultVisitor {
 
   constructor(private ctx: WrappedScope) {
     super();
-    VisitorByScope.set(ctx, this);
+    DecodeVisitorByScope.set(ctx, this);
   }
 
   static getVisitor(ctx: WrappedScope): AbiDecodeVisitor {
-    let visitor = VisitorByScope.get(ctx);
+    let visitor = DecodeVisitorByScope.get(ctx);
     if (!visitor) {
       visitor = new AbiDecodeVisitor(ctx);
     }
@@ -141,7 +141,7 @@ export class AbiDecodeVisitor extends DefaultVisitor {
         size = sizeName;
       } else if (segment.length === 1) {
         if (segment[0].isValueType) {
-          size = this.ctx.addConstant(`OneWord`, "0x20");
+          size = "OneWord";
         } else {
           size = this.getConstant("structMemberSize", size, segment[0]);
         }
