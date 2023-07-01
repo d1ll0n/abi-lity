@@ -38,6 +38,7 @@ Currently supports decoding calldata. Returndata decoding and ABI encoding are t
       - If `vOverrideSpecifier.vOverrides` is empty, remove `vOverrideSpecifier`.
       - If `vOverrideSpecifier.vOverrides` has >1 member, remove the override which points to the interface function.
       - If `vOverrideSpecifier.vOverrides` has 1 member after the last step, delete `vOverrideSpecifier.vOverrides` but leave `vOverrideSpecifier`.
+- [ ] Compare specific array decoders/encoders with array helpers (map/reduce)
 
 **Generics**
 Determine whether certain abstractions can be made with zero cost.
