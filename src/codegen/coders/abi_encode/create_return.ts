@@ -128,7 +128,7 @@ export function createReturnFunction(ctx: WrappedScope, type: TupleType): string
   } else if (
     type.vMembers.length === 1 &&
     (type.vMembers[0] instanceof BytesType ||
-      (type.vMembers[0] instanceof ArrayType && type.vMembers[0].isValueType))
+      (type.vMembers[0] instanceof ArrayType && type.vMembers[0].baseType.isValueType))
   ) {
     console.log(`Entering bytes return`);
     const member = type.vMembers[0];
@@ -153,7 +153,7 @@ export function createReturnFunction(ctx: WrappedScope, type: TupleType): string
           `let ptr := sub(value, 0x20)`,
           `mstore(ptr, 0x20)`,
           `/// Get size of array data and add two words for length and offset`,
-          `let size := shl(OneWordShift, add(mload(length), 2))`
+          `let size := shl(OneWordShift, add(mload(value), 2))`
         );
         size = `size`;
         ptr = "ptr";
@@ -176,8 +176,11 @@ export function createReturnFunction(ctx: WrappedScope, type: TupleType): string
     } else {
       body.push(`MemoryPointer dst = getFreeMemoryPointer();`);
     }
-    const encodeParams =
-      paramNames.length > 1 ? [dst, ...paramNames].join(", ") : `${paramNames[0]}, ${dst}`;
+
+    const shouldUnwrap = type.vMembers.length === 1 && !type.vMembers[0].isDynamicallyEncoded;
+    const encodeParams = shouldUnwrap
+      ? `${paramNames[0]}, ${dst}`
+      : [dst, ...paramNames].join(", ");
     body.push(`uint256 size = ${encodeFn}(${encodeParams});`);
     body.push(`${dst}.returnData(size);`);
   }
