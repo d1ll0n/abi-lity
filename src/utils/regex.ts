@@ -1,4 +1,5 @@
 import {
+  DataLocation,
   FunctionStateMutability,
   FunctionVisibility,
   PossibleDataLocations,
@@ -109,27 +110,44 @@ const FunctionVariable = [
   optional(capture(Identifier))
 ].join("");
 
+const parseModifiers = (_modifiers: string) =>
+  _modifiers
+
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((x) => x.replace(/\s\s+/g, " ").trim());
+
+// const parseParamsList = (_params: string) =>
+//   _params.split(",").map((x) => x.replace(/\s\s+/g, " ").trim());
+
 function parseFunctionVariable(variable: string) {
   const re = new RegExp(FunctionVariable);
   const result = re.exec(variable);
   if (!result) {
     return undefined;
   }
-  const [, params, modifiers, returns, name] = result;
+  const [, _params, _modifiers, _returns, name] = result;
+  const modifiers = parseModifiers(_modifiers);
+  const params = parseParamsList(_params);
+  const returns = parseParamsList(_returns);
   let visibility = FunctionVisibility.Default;
   let mutability = FunctionStateMutability.NonPayable;
-  for (const modifier of modifiers.split(/\s+/).filter(Boolean)) {
+  const actualModifiers = [];
+  for (const i in modifiers) {
+    modifiers[i];
+  }
+  for (const modifier of modifiers) {
     if (PossibleFunctionVisibilities.has(modifier)) {
       visibility = modifier as FunctionVisibility;
     } else if (PossibleFunctionStateMutabilities.has(modifier)) {
       mutability = modifier as FunctionStateMutability;
     } else {
-      console.log("Unknown modifier", modifier);
+      actualModifiers.push(modifier);
     }
   }
   return {
     params,
-    modifiers,
+    modifiers: actualModifiers,
     returns,
     name,
     visibility,
@@ -139,11 +157,18 @@ function parseFunctionVariable(variable: string) {
 
 const BaseVariable = [
   // capture(FunctionVariable),
-  nonCaptureGroup(or(nonCaptureGroup(...getFunctionVariableType(true)), capture(Identifier))),
-
+  // nonCaptureGroup(or(nonCaptureGroup(...getFunctionVariableType(true)), capture(Identifier))),
+  capture(Identifier),
   optional(
     nonCaptureGroup(OptionalWhiteSpace),
-    capture("\\[", nonCaptureGroup(BalancedSquareBrackets), "\\]")
+    capture(
+      "\\[",
+      nonCaptureGroup(OptionalWhiteSpace),
+      optional(capture("\\d+")),
+      nonCaptureGroup(OptionalWhiteSpace),
+      "\\]"
+    )
+    // capture(paren(BalancedSquareBrackets))
   ),
 
   // capture(
@@ -207,7 +232,7 @@ function unwrapCall(call: string) {
   }
   const [, identifier, params] = result;
 
-  const unwrappedParams = splitParameters(params);
+  const unwrappedParams = parseParamsList(params);
   if (identifier) {
     return {
       type: "call",
@@ -221,22 +246,130 @@ function unwrapCall(call: string) {
   };
 }
 
-function splitParameters(params: string): any[] {
-  const inner = params.split(unbalancedParentheses).filter(Boolean);
+enum ParameterKind {
+  Function = "Function",
+  Elementary = "Elementary",
+  Array = "Array",
+  UserDefinedValueType = "UserDefinedValueType",
+  UserDefinedReferenceType = "UserDefinedReferenceType"
+}
+
+type FunctionParameter = {
+  kind: ParameterKind.Function;
+  name: string;
+  params: ParameterType[];
+  returns: ParameterType[];
+  visibility: FunctionVisibility;
+  mutability: FunctionStateMutability;
+};
+
+type ElementaryParameter = {
+  kind: ParameterKind.Elementary;
+  type: string;
+  name: string;
+};
+
+type UserDefinedValueTypeParameter = {
+  kind: ParameterKind.UserDefinedValueType;
+  type: string;
+  name: string;
+};
+
+type UserDefinedReferenceTypeParameter = {
+  kind: ParameterKind.UserDefinedReferenceType;
+  type: string;
+  name: string;
+  location: DataLocation;
+};
+
+type ArrayParameter = {
+  kind: ParameterKind.Array;
+  baseType: string;
+  name: string;
+  location: DataLocation;
+  length?: string;
+};
+
+type ParameterType =
+  | FunctionParameter
+  | ElementaryParameter
+  | UserDefinedValueTypeParameter
+  | UserDefinedReferenceTypeParameter
+  | ArrayParameter;
+
+const parseParameter = (parameter: string): any => {
+  if (parameter.includes("(")) {
+    return parseFunctionVariable(parameter);
+  }
+  const re = new RegExp(BaseVariable.join(""));
+  const result = re.exec(parameter);
+  if (!result) {
+    return undefined;
+  }
+  const [, type, _isArray, arrayLength, _location, name] = result;
+  const isArray = !!_isArray;
+  const location = toLocation(_location);
+
+  if (isArray) {
+    const length = arrayLength && +arrayLength;
+    return {
+      kind: ParameterKind.Array,
+      baseType: parseParameter(type),
+      name,
+      location,
+      length
+    };
+  }
+  return {
+    type,
+    isArray: !!isArray,
+    arrayLength,
+    location,
+    name
+  };
+};
+
+function parseParamsList(params: string): any[] {
+  const inner = params.split(unbalancedParentheses).map((x) => x.trim());
   const result = [];
   for (const param of inner) {
     if (param.includes("(")) {
-      result.push(unwrapCall(param));
+      result.push(parseFunctionVariable(param));
     } else {
+      console.log(`<<--param---`);
+      console.log(param);
+      console.log(new RegExp(BaseVariable.join(""), "g").exec(param));
+      console.log(`>>---param---`);
       result.push(param);
     }
   }
   return result;
 }
 
+const toLocation = (location: string) => {
+  if (PossibleDataLocations.has(location)) {
+    return location as DataLocation;
+  }
+  return DataLocation.Default;
+};
+
+const toVisibility = (visibility: string) => {
+  if (PossibleFunctionVisibilities.has(visibility)) {
+    return visibility as FunctionVisibility;
+  }
+  return FunctionVisibility.Default;
+};
+
+const toMutability = (mutability: string) => {
+  if (PossibleFunctionStateMutabilities.has(mutability)) {
+    return mutability as FunctionStateMutability;
+  }
+  return FunctionStateMutability.NonPayable;
+};
+
 function test1() {
-  const code = `function someShit(
-    function (uint) internal mod(a) pure returns (uint256) a,
+  const code = `function someFn(
+    function (uint ) internal pure returns (uint256 ) a,
     uint256 b
   ) internal pure mod(a) returns (uint256) {}`;
   const ts = Date.now();
@@ -246,35 +379,61 @@ function test1() {
   console.log(Date.now() - ts);
 
   if (result) {
-    const [, name, params, modifiers, returns] = result;
-    console.log({
-      name,
-      params,
-      modifiers,
-      returns
-    });
+    const [, name, _params, _modifiers, _returns] = result;
+    const modifiers = parseModifiers(_modifiers);
+    const params = parseParamsList(_params);
+    const returns = parseParamsList(_returns);
+    let visibility = FunctionVisibility.Default;
+    let mutability = FunctionStateMutability.NonPayable;
+    const actualModifiers = [];
+    for (const modifier of modifiers) {
+      if (PossibleFunctionVisibilities.has(modifier)) {
+        visibility = modifier as FunctionVisibility;
+      } else if (PossibleFunctionStateMutabilities.has(modifier)) {
+        mutability = modifier as FunctionStateMutability;
+      } else {
+        actualModifiers.push(modifier);
+      }
+    }
+    console.log(
+      JSON.stringify(
+        {
+          name,
+          params,
+          modifiers: actualModifiers,
+          visibility,
+          mutability,
+          returns
+        },
+        null,
+        2
+      )
+    );
   }
 }
 
-function parseVariableResults(result: string[]) {
-  const [, params, modifiers, returns, baseTypeIdentifier, arrayBrackets, location, identifier] =
-    result;
-}
-// test1();
-console.log(
-  new RegExp(BaseVariable.join("")).exec(`uint256[] memory a`),
-  new RegExp(BaseVariable.join("")).exec(
-    `function (uint) internal mod pure returns (uint256[]) memory a`
-  )
-  // parseFunctionVariable(`function (uint) internal mod pure returns (uint256[]) a`)
-  // new RegExp(FunctionVariable).exec(`function (uint) internal mod pure returns (uint256[]) a`)
-);
+// function parseVariableResults(result: string[]) {
+//   const [, params, modifiers, returns, baseTypeIdentifier, arrayBrackets, location, identifier] =
+//     result;
+// }
+// // test1();
 // console.log(
-//   new RegExp(capture(Identifier, OptionalWhiteSpace, paren(BalancedParenthesesInner)), "g").exec(
-//     `a((a, b, c))`
+//   new RegExp(BaseVariable.join("")).exec(`uint256[] memory a`),
+//   new RegExp(BaseVariable.join("")).exec(
+//     `function (uint) internal mod pure returns (uint256[]) memory a`
 //   )
+//   // parseFunctionVariable(`function (uint) internal mod pure returns (uint256[]) a`)
+//   // new RegExp(FunctionVariable).exec(`function (uint) internal mod pure returns (uint256[]) a`)
 // );
+// // console.log(
+// //   new RegExp(capture(Identifier, OptionalWhiteSpace, paren(BalancedParenthesesInner)), "g").exec(
+// //     `a((a, b, c))`
+// //   )
+// // );
 
-const x = `function (uint) internal mod pure returns (uint256[]) memory a`.match(
-  new RegExp(BaseVariable.join(""))
-);
+// const x = `function (uint) internal mod pure returns (uint256[]) memory a`.match(
+//   new RegExp(BaseVariable.join(""))
+// );
+// test1();
+
+console.log(parseParameter(`uint256 a`));
