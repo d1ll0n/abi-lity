@@ -2,7 +2,7 @@ import { assert } from "solc-typed-ast";
 import { StructType } from "../ast";
 import { StructuredText, toHex } from "../utils";
 
-function getHuffHelpers(type: StructType) {
+/* function getHuffHelpers(type: StructType) {
   const constants = [];
   const macros = [];
   const members = type.vMembers;
@@ -39,3 +39,4 @@ function getHuffHelpers(type: StructType) {
     const macro = `#define macro READ_${name.toUpperCase()} = ${size};`;
   }
 }
+ */
