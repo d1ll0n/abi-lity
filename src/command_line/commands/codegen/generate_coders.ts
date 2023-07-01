@@ -4,7 +4,8 @@ import { Argv } from "yargs";
 import { upgradeSourceCoders } from "../../../codegen/generate";
 import { cleanIR } from "../../../codegen/utils";
 import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths, renameFile } from "../../utils";
+import { getCommandLineInputPaths, renameFile } from "../../utils2";
+import { CompilerOutputConfigs } from "../../../utils/compile_utils/solc";
 
 const options = {
   input: {
@@ -63,16 +64,24 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
         args,
         false,
-        false
+        undefined,
+        "CODEGEN"
       );
-
       const logger = new DebugLogger();
       upgradeSourceCoders(helper, fileName, { functionSwitch: !decoderOnly }, logger);
 
       if (unoptimized || irFlag) {
         mkdirIfNotExists(output);
         console.log(`re-compiling for IR output...`);
-        helper.recompile(true);
+        helper.recompile({
+          settings: {
+            optimizer: true,
+            runs: "max",
+            metadata: false,
+            viaIR: true
+          },
+          outputs: CompilerOutputConfigs["IR_OPTIMIZED"]
+        });
 
         const contract = helper.getContractForFile(fileName);
         const { ir, irOptimized, name } = contract;

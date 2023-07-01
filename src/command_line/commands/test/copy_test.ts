@@ -7,7 +7,7 @@ import { functionDefinitionToTypeNode, readTypeNodesFromSolcAST } from "../../..
 import { StructType, TupleType } from "../../../ast";
 import { isExternalFunctionDefinitionOrType } from "../../../codegen";
 import { createCalldataCopiers, testCopiers } from "../../../test_utils";
-import { writeCompilerOptions } from "../../utils2";
+import { printCompilerOptions } from "../../utils2";
 
 const options = {
   input: {
@@ -88,7 +88,7 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         viaIR: !noIR
       });
       await testCopiers(copyHelpers, types);
-      console.log(writeCompilerOptions(copyHelpers.compilerOptions));
+      console.log(printCompilerOptions(copyHelpers.compilerOptions));
       if (output) {
         copyHelpers.writeFilesTo(output);
         if (ir) {

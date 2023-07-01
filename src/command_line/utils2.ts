@@ -11,7 +11,6 @@ import {
 } from "../utils";
 import { CompileHelper } from "../utils/compile_utils/compile_helper";
 import {
-  CompilerOptions,
   getCompilerOptionsWithDefaults,
   UserCompilerOptions,
   CompilerOutputConfigs,
@@ -51,10 +50,11 @@ export async function getTypesFromCommandLineInputs({
   const abiByContract: Record<string, any> = {};
   if (ext === ".json") {
     const data = JSON.parse(readFileSync(input).toString());
+    const name = fileName.replace(".json", "");
     if (Array.isArray(data)) {
-      abiByContract[fileName] = data;
+      abiByContract[name] = data;
     } else if (data.abi) {
-      abiByContract[fileName] = data.abi;
+      abiByContract[name] = data.abi;
     } else {
       throw Error(`ABI not found in JSON file ${input}`);
     }
@@ -161,7 +161,7 @@ export function renameFile(
   }
 }
 
-export function writeCompilerOptions(compilerOptions?: CompilerOpts): StructuredText {
+export function printCompilerOptions(compilerOptions?: CompilerOpts): StructuredText {
   const settings = compilerOptions?.settings;
   return [
     `Settings:`,
@@ -195,7 +195,7 @@ export function printCodeSize(helper: CompileHelper, fileName: string): void {
   console.log(
     writeNestedStructure([
       `Contract: ${contract.name}`,
-      [...output, ...writeCompilerOptions(helper.compilerOptions)]
+      [...output, ...printCompilerOptions(helper.compilerOptions)]
     ])
   );
 }

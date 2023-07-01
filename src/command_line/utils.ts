@@ -100,7 +100,7 @@ export function renameFile(
   }
 }
 
-export function writeCompilerOptions(compilerOptions?: CompilerOptions): StructuredText {
+export function printCompilerOptions(compilerOptions?: CompilerOptions): StructuredText {
   return [
     `Settings:`,
     [
@@ -135,7 +135,7 @@ export function printCodeSize(helper: CompileHelper, fileName: string): void {
   console.log(
     writeNestedStructure([
       `Contract: ${contract.name}`,
-      [...output, ...writeCompilerOptions(helper.compilerOptions)]
+      [...output, ...printCompilerOptions(helper.compilerOptions)]
     ])
   );
 }

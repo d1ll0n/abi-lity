@@ -1,7 +1,7 @@
 import path from "path";
 import { Argv } from "yargs";
 import { DebugLogger, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths, renameFile } from "../../utils";
+import { getCommandLineInputPaths, renameFile } from "../../utils2";
 import { addExternalWrappers } from "../../../codegen";
 
 const options = {
@@ -19,6 +19,23 @@ const options = {
   }
 } as const;
 
+export async function wrappersCommand(args: { input: string; output?: string }): Promise<void> {
+  const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args);
+
+  const logger = new DebugLogger();
+  addExternalWrappers(helper, fileName, logger);
+
+  console.log(`writing files...`);
+  const files = helper.getFiles();
+  if (output === basePath) {
+    const suffix = `ExternalFile.sol`;
+    const newFileName = fileName.replace(".sol", suffix);
+    renameFile(fileName, newFileName, files);
+  }
+  writeFilesTo(output, files);
+  console.log(`done!`);
+}
+
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "wrappers <input> [output]",
@@ -32,9 +49,10 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
 
       console.log(`writing files...`);
       const files = helper.getFiles();
-      if (output === basePath /* && !decoderOnly */) {
+      if (output === basePath) {
         const suffix = `ExternalFile.sol`;
         const newFileName = fileName.replace(".sol", suffix);
+        console.log(`${fileName} -> ${newFileName}`);
         renameFile(fileName, newFileName, files);
       }
       writeFilesTo(output, files);

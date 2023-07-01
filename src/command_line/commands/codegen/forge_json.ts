@@ -1,8 +1,8 @@
 import path from "path";
 import { Argv } from "yargs";
 import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths } from "../../utils";
-import { generateSerializers } from "../../../codegen";
+import { generateJsonSerializers } from "../../../codegen";
+import { getCommandLineInputPaths } from "../../utils2";
 
 const options = {
   input: {
@@ -33,12 +33,8 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
         args,
         false,
-        false,
-        {
-          optimizer: false,
-          runs: 0,
-          viaIR: false
-        }
+        undefined,
+        "CODEGEN"
       );
       const logger = new DebugLogger();
       mkdirIfNotExists(output);
@@ -46,12 +42,11 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         output,
         path.basename(fileName.replace(".sol", "Serializers.sol"))
       );
-      generateSerializers(
+      generateJsonSerializers(
         helper,
         fileName,
         {
           outPath: output,
-          functionSwitch: false,
           decoderFileName: primaryFilePath
         },
         args.struct as string | string[],
@@ -59,17 +54,6 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       );
       console.log(`writing serializer...`);
       const files = helper.getFiles();
-      const newCode = writeNestedStructure([
-        `import { Vm } from "forge-std/Vm.sol";`,
-        "",
-        `address constant VM_ADDRESS = address(`,
-        [`uint160(uint256(keccak256("hevm cheat code")))`],
-        `);`,
-        `Vm constant vm = Vm(VM_ADDRESS);`
-      ]);
-      const code = files.get(primaryFilePath) as string;
-      files.clear();
-      files.set(primaryFilePath, code.replace(`import "./Temp___Vm.sol";`, newCode));
       writeFilesTo(output, files);
       console.log(`done!`);
     }
