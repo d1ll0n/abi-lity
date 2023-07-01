@@ -14,6 +14,7 @@ import {
 import { JsonFragment } from "@ethersproject/abi";
 import { writeFileSync } from "fs";
 import path from "path";
+import { writeFilesTo } from "./compile_helper";
 
 export function compile(
   compiler: WasmCompiler | NativeCompiler,
@@ -29,10 +30,8 @@ export function compile(
     return data;
   }
   console.log(errors);
-  const key = [...files.keys()].find((k) => k.includes("CopierWithSwitch"));
-  if (key) {
-    console.log(files.get(key as string));
-    writeFileSync(path.join(__dirname, "debug.sol"), files.get(key as string) as string);
+  if (process.env.DEBUG) {
+    writeFilesTo(path.join(__dirname, "debug"), files);
   }
   throw new CompileFailedError([{ compilerVersion: compiler.version, errors }]);
 }

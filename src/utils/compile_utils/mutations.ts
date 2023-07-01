@@ -27,6 +27,7 @@ import {
 import { CompileHelper } from "./compile_helper";
 import { compile } from "./solc";
 import { getParentSourceUnit } from "../solc_ast_utils";
+import { readTypeNodesFromSolidity } from "../../readers";
 
 export type CodeMutation = (SourceUnitAddition | NodeMutation) & {
   id?: string;
@@ -158,6 +159,7 @@ class MutationApplier {
   protected compile() {
     for (const [sourcePath, editor] of this.editors.entries()) {
       this.files.set(sourcePath, editor.text);
+      // console.log(editor.text);
     }
 
     const resolvedFileNames = new Map<string, string>();
@@ -294,10 +296,28 @@ export function getInsertionMutation({
       if (scope instanceof ContractDefinition) {
         search = ASTSearch.from(search.find("ContractDefinition", { name: scope.name })[0]);
       }
-      const node = search.find(type, { name })[0];
-      if (!node) {
-        console.log(`Could not find inserted function ${name}`);
+      const nodes = search.find(type, { name });
+      let node:
+        | ContractDefinition
+        | StructDefinition
+        | EnumDefinition
+        | FunctionDefinition
+        | EventDefinition
+        | ErrorDefinition
+        | undefined;
+
+      if (type === "FunctionDefinition") {
+        const fn = readTypeNodesFromSolidity(code, true).functions[0];
+        node = (nodes as FunctionDefinition[]).find(
+          (n) =>
+            n.vParameters.vParameters.length === (fn.parameters?.vMembers.length ?? 0) &&
+            n.vReturnParameters.vParameters.length === (fn.returnParameters?.vMembers.length ?? 0)
+        );
+      } else {
+        node = nodes[0];
       }
+
+      assert(node !== undefined, `Could not find inserted function ${name}`);
       return node;
     },
     cb
