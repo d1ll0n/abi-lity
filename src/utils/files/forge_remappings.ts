@@ -1,7 +1,7 @@
 import path from "path";
 import toml from "toml";
 import fs, { existsSync } from "fs";
-import { coerceArray, deepFindIn, getFilesAndRemappings } from "solc-typed-ast";
+import { coerceArray, deepFindIn, getFilesAndRemappings, parsePathRemapping } from "solc-typed-ast";
 import { getAllFilesInDirectory, getCommonBasePath, isDirectory } from "./path_utils";
 const findUpSync = require("findup-sync");
 
@@ -27,51 +27,84 @@ export type ResolvedSolidityFiles = {
   basePath?: string;
 };
 
-export function getForgeRemappings(currentDir: string): string[] {
-  const remappings = new Map<string, string>();
+function addRemappings(
+  rootPath: string,
+  remappings: Map<string, string>,
+  newRemappings: string[],
+  overwrite?: boolean
+) {
+  newRemappings.forEach((r) => {
+    const remapping = r.split("=");
+    if (remapping.length !== 2) return;
+    const [alias, subpath] = remapping.map(stripTrailingSlash);
+    const libPath = path.isAbsolute(subpath) ? subpath : path.join(rootPath, subpath);
+    if (!fs.existsSync(libPath)) return;
+    if (overwrite || !remappings.get(alias)) {
+      remappings.set(alias, libPath);
+    }
+  });
+}
+
+function parseFoundryTomlRemappings(foundryPath: string, remappings: Map<string, string>) {
+  const tomlFileTxt = fs.readFileSync(foundryPath, { encoding: "utf8" });
+  const tomlData = toml.parse(tomlFileTxt);
+  const [tomlRemappings] = deepFindIn(tomlData, "remappings");
+  addRemappings(path.join(foundryPath, ".."), remappings, tomlRemappings ?? [], true);
+}
+
+/* function addFoundryProjectRemappings(currentDir: string, remappings: Map<string, string>) {
   const foundryPath = findUpSync("foundry.toml", { cwd: currentDir });
   if (!foundryPath) return [];
-  const remappingsPath = findUpSync("remappings.txt", { cwd: currentDir });
+  // First parse the foundry.toml remappings, then remappings.txt, then infer
+  // remappings for installed libs.
+  const tomlData = toml.parse(fs.readFileSync(foundryPath, { encoding: "utf8" }));
+  const [tomlRemappings] = deepFindIn(tomlData, "remappings");
+  addRemappings(path.join(foundryPath, ".."), remappings, tomlRemappings ?? []);
 
-  const foundryToml = toml.parse(fs.readFileSync(foundryPath, { encoding: "utf8" }));
-  const [tomlRemappings] = deepFindIn(foundryToml, "remappings");
-  if (tomlRemappings) {
-    tomlRemappings.map((r: string) => {
-      const remapping = r.split("=");
-      if (remapping.length !== 2) return;
-      const [alias, subpath] = remapping.map(stripTrailingSlash);
-      const libPath = path.isAbsolute(subpath) ? subpath : path.join(foundryPath, "..", subpath);
-      if (!fs.existsSync(libPath)) return;
-      remappings.set(alias, libPath);
-    });
-  }
-
+  const remappingsPath = path.resolve(foundryPath, "../remappings.txt");
   if (remappingsPath) {
-    fs.readFileSync(remappingsPath, { encoding: "utf8" })
-      .split("\n")
-      .forEach((r: string) => {
-        const remapping = r.split("=");
-        if (remapping.length !== 2) return;
-        const [alias, subpath] = remapping.map(stripTrailingSlash);
-        const libPath = path.isAbsolute(subpath)
-          ? subpath
-          : path.join(remappingsPath, "..", subpath);
-        if (!fs.existsSync(libPath)) return;
-        if (!remappings.get(alias)) {
-          remappings.set(alias, libPath);
-        }
-      });
+    const newRemappings = fs.readFileSync(remappingsPath, { encoding: "utf8" }).split("\n");
+    addRemappings(path.join(remappingsPath, ".."), remappings, newRemappings);
   }
+
   const lib = path.resolve(foundryPath, "../lib");
   if (fs.existsSync(lib) && fs.statSync(lib).isDirectory()) {
-    fs.readdirSync(lib).forEach((libraryName: string) => {
+    for (let libraryName of fs.readdirSync(lib)) {
       libraryName = stripTrailingSlash(libraryName);
       const libPath = path.join(lib, libraryName);
       if (!fs.statSync(libPath).isDirectory()) return;
       if (!remappings.get(libraryName)) {
         remappings.set(libraryName, libPath);
       }
-    });
+    }
+  }
+} */
+
+export function getForgeRemappings(currentDir: string): string[] {
+  const remappings = new Map<string, string>();
+  // Find Foundry config file at or above current directory
+  const foundryPath = findUpSync("foundry.toml", { cwd: currentDir });
+  if (!foundryPath) return [];
+  // First parse the foundry.toml remappings, then remappings.txt, then infer
+  // remappings for installed libs.
+  parseFoundryTomlRemappings(foundryPath, remappings);
+
+  const remappingsPath = path.resolve(foundryPath, "../remappings.txt");
+  if (remappingsPath) {
+    const newRemappings = fs.readFileSync(remappingsPath, { encoding: "utf8" }).split("\n");
+    addRemappings(path.join(remappingsPath, ".."), remappings, newRemappings);
+  }
+
+  const lib = path.resolve(foundryPath, "../lib");
+  if (fs.existsSync(lib) && fs.statSync(lib).isDirectory()) {
+    for (let libraryName of fs.readdirSync(lib)) {
+      libraryName = stripTrailingSlash(libraryName);
+      const libPath = path.join(lib, libraryName);
+      if (!fs.statSync(libPath).isDirectory()) continue;
+      if (!remappings.get(libraryName)) {
+        remappings.set(libraryName, libPath);
+      }
+    }
   }
   return [...remappings.entries()].map(([key, value]) => `${key}=${value}`);
 }

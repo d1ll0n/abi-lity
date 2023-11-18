@@ -21,51 +21,56 @@ export function createEmitFunction(
   emitStatements: EmitStatement[]
 ): string {
   const fnName = NameGen.emit(type);
-  const encodeFn = abiEncodingFunction(ctx, type);
   const body = [];
-  let dst = "dst";
+  const dst = "dst";
 
   const topic0 = type.topic0;
   const { indexedParameters, unindexedParameters } = type;
 
   const members = type.parameters?.vMembers ?? [];
-  const topics = [];
+  const topics: string[] = [];
   if (topic0) {
     topics.push(topic0);
   }
+
   for (let i = 0; i < indexedParameters.length; i++) {
     const param = indexedParameters[i];
-    const inputName = `value${members.indexOf(param)}`;
-    const name = `topic${type.topic0 ? i + 1 : i}`;
 
     if (param.isReferenceType) {
       const hashFn = createHashFunction(ctx, new TupleType([param]), []);
-      body.push(`bytes32 ${name} = ${hashFn}(${inputName});`);
+      const name = `topic${type.topic0 ? i + 1 : i}`;
+      body.push(`bytes32 ${name} = ${hashFn}(${param.labelFromParent});`);
       topics.push(name);
     } else {
-      topics.push(inputName);
+      topics.push(param.labelFromParent as string);
     }
   }
   if (isValueTuple(unindexedParameters)) {
-    body.push(...emitValueTuple(topics, unindexedParameters.length));
+    body.push(...emitValueTuple(topics, unindexedParameters));
   } else {
     const logFn = `log${topics.length}`;
     const params = new TupleType(unindexedParameters);
+    const encodeFn = abiEncodingFunction(ctx, params);
+
     const useScratch = !params.isDynamicallyEncoded && params.embeddedCalldataHeadSize <= 0x80;
     if (useScratch) {
-      dst = "ScratchPtr";
+      body.push(`MemoryPointer dst = ScratchPtr;`);
     } else {
       body.push(`MemoryPointer dst = getFreeMemoryPointer();`);
     }
-    const encodeParams = [dst, ...unindexedParameters.map((_, i) => `value${i}`)].join(", ");
+
+    const shouldUnwrap = params.vMembers.length === 1 && !params.vMembers[0].isDynamicallyEncoded;
+    const encodeParams = [
+      ...(shouldUnwrap ? [] : [dst]),
+      ...unindexedParameters.map((param) => param.labelFromParent),
+      ...(shouldUnwrap ? [dst] : [])
+    ].join(", ");
 
     body.push(`uint256 size = ${encodeFn}(${encodeParams});`);
-    body.push([`assembly {`, [`${logFn}(${dst}, size, ${topics.join(", ")}, ${dst})`], `}`]);
+    body.push([`assembly {`, [`${logFn}(${dst}, size, ${topics.join(", ")})`], `}`]);
   }
 
-  const params = members
-    .map((member, i) => member.writeParameter(DataLocation.Memory, `value${i}`))
-    .join(", ");
+  const params = members.map((member) => member.writeParameter(DataLocation.Memory)).join(", ");
 
   const cb =
     emitStatements.length > 0
@@ -73,11 +78,11 @@ export function createEmitFunction(
           console.log(
             `${fnName} added to AST - replacing ${emitStatements.length} emit statements with ${fnName}`
           );
-          emitStatements.forEach((hashCall) => {
-            const sourceUnit = getParentSourceUnit(hashCall);
+          emitStatements.forEach((emitStmt) => {
+            const sourceUnit = getParentSourceUnit(emitStmt);
             addImports(sourceUnit, ctx.sourceUnit, []);
             const fn = getFunctionReference(sourceUnit, ctx.sourceUnit, fnName);
-            replaceEmitStatement(hashCall, fn);
+            replaceEmitStatement(emitStmt, fn);
           });
         }
       : undefined;
@@ -111,21 +116,23 @@ export function replaceEmitStatement(stmt: EmitStatement, emitFn: Expression): v
 
 const isValueTuple = (types: TypeNode[]) => types.length <= 4 && types.every((m) => m.isValueType);
 
-const emitValueTuple = (topics: string[], length: number) => {
+const emitValueTuple = (topics: string[], unindexedParameters: TypeNode[]) => {
   const innerBody = [];
+  const length = topics.length;
   if (length > 3) {
     innerBody.push(
       `// Cache the free memory pointer so we can restore it after the event is emitted`,
       `let freePointer := mload(0x40)`
     );
   }
-  for (let i = 0; i < length; i++) {
-    const offset = toHex(i * 32);
-    if (i === 0) innerBody.push(`mstore(0, value${i})`);
-    else innerBody.push(`mstore(${offset}, value${i})`);
-  }
 
-  const size = toHex(length * 32);
+  unindexedParameters.forEach((param, i) => {
+    const offset = toHex(i * 32);
+    if (i === 0) innerBody.push(`mstore(0, ${param.labelFromParent})`);
+    else innerBody.push(`mstore(${offset}, ${param.labelFromParent})`);
+  });
+
+  const size = toHex(unindexedParameters.length * 32);
   const logFn = `log${topics.length}`;
   const args = [`0`, size, ...topics].join(", ");
   innerBody.push(`${logFn}(${args})`);

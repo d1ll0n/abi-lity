@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
+import chalk, { ForegroundColor } from "chalk";
 import {
   ASTNode,
   ASTWriter,
+  Assignment,
   Block,
   ContractDefinition,
   DefaultASTWriterMapping,
@@ -16,18 +18,24 @@ import {
   SourceUnit,
   StructDefinition,
   TupleExpression,
+  VariableDeclarationStatement,
+  YulAssignment,
   isInstanceOf
 } from "solc-typed-ast";
 
 export type ASTSourceMap = Map<ASTNode, [number, number]>;
 export type SourceUnitSourceMaps = Map<string, ASTSourceMap>;
+// export
+type ColorName = typeof ForegroundColor;
 
 export class SourceEditor {
   edits: Array<{ index: number; sizeDiff: number }> = [];
   originalText: string;
+
   constructor(public text: string, public sourceMap: Map<ASTNode, [number, number]>) {
     this.originalText = this.text;
   }
+
   getOffset(oldOffset: number): number {
     let offset = 0;
     let lastEdit = 0;
@@ -83,6 +91,15 @@ export class SourceEditor {
     }
   }
 
+  highlightNode(node: ASTNode, color: chalk.Chalk | ColorName = chalk.redBright): void {
+    if (typeof color === "string") {
+      color = chalk[color as ColorName];
+    }
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const [offset, length] = this.sourceMap.get(node)!;
+    this.replace(node, color(this.originalText.slice(offset, offset + length)));
+  }
+
   insertAfter(node: ASTNode, text: string): void {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const [offset, length] = this.sourceMap.get(node)!;
@@ -95,7 +112,7 @@ export class SourceEditor {
     this._insertAt(offset, text);
   }
 
-  static fromNode(node: ASTNode): SourceEditor {
+  static sourceUnitFromNode(node: ASTNode): SourceEditor {
     const writer = new ASTWriter(
       DefaultASTWriterMapping,
       new PrettyFormatter(2),
@@ -105,5 +122,43 @@ export class SourceEditor {
     const sourceUnit = node.getClosestParentByType(SourceUnit) as SourceUnit;
     const sourceCode = writer.write(sourceUnit, sourceMap);
     return new SourceEditor(sourceCode, sourceMap);
+  }
+
+  static fromNode(node: ASTNode, onlyTopLevel?: boolean): SourceEditor {
+    const writer = new ASTWriter(
+      DefaultASTWriterMapping,
+      new PrettyFormatter(2),
+      LatestCompilerVersion
+    );
+    const sourceMap = new Map<ASTNode, [number, number]>();
+    if (onlyTopLevel) {
+      let parent = node.getClosestParentBySelector(
+        (n) =>
+          (n instanceof Block && n.parent instanceof FunctionDefinition) ||
+          isInstanceOf(
+            n,
+            Block,
+            FunctionDefinition,
+            Assignment,
+            YulAssignment,
+            VariableDeclarationStatement
+          )
+      );
+      if (parent instanceof FunctionDefinition) {
+        const body = parent.vBody;
+        const text = new SourceEditor(writer.write(parent, sourceMap), sourceMap);
+        if (body) {
+          text.replace(body, `{`);
+        }
+        return text;
+      }
+      if (parent instanceof VariableDeclarationStatement) {
+        parent = node.getClosestParentByType(FunctionDefinition);
+      }
+      if (parent) {
+        node = parent;
+      }
+    }
+    return new SourceEditor(writer.write(node, sourceMap), sourceMap);
   }
 }

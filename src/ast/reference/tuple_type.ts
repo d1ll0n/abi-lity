@@ -1,6 +1,7 @@
 import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TypeNode, TypeNodeWithChildren } from "../type_node";
+import { sumBy } from "lodash";
 
 export abstract class TupleLikeType extends TypeNodeWithChildren<TypeNode> {
   constructor(members: TypeNode[]) {
@@ -84,6 +85,16 @@ export class TupleType extends TupleLikeType {
 
   getIndexedNames(base: string): string[] {
     return this.vMembers.map((_, i) => (this.vMembers.length > 1 ? `${base}${i}` : base));
+  }
+
+  /**
+   * Get a list of names for the tuple parameters, using `base<index>` for unnamed parameters
+   * @param base Base text to use for parameters without names, suffixed with index
+   */
+  getParamNames(base: string): string[] {
+    return this.vMembers.map(
+      (member, i) => member.labelFromParent ?? (this.vMembers.length > 1 ? `${base}${i}` : base)
+    );
   }
 
   copy(): TupleType {

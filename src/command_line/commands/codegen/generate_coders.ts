@@ -1,10 +1,10 @@
 import { writeFileSync } from "fs";
 import path from "path";
 import { Argv } from "yargs";
-import { upgradeSourceCoders } from "../../../codegen/generate";
+import { upgradeSourceCoders } from "../../../codegen/coders/generate";
 import { cleanIR } from "../../../codegen/utils";
 import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths, renameFile } from "../../utils";
+import { getCommandLineInputPaths, renameFile } from "../../utils2";
 
 const options = {
   input: {
@@ -60,19 +60,31 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       verbose,
       ...args
     }): Promise<void> => {
-      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
-        args,
-        false,
-        false
-      );
+      const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args, false, {
+        viaIR: true
+      });
 
       const logger = new DebugLogger();
-      upgradeSourceCoders(helper, fileName, { functionSwitch: !decoderOnly }, logger);
+      upgradeSourceCoders(
+        helper,
+        fileName,
+        {
+          functionSwitch: !decoderOnly,
+          replaceReturnStatements: true,
+          replaceRevertCalls: true,
+          replaceHashCalls: true,
+          replaceEmitCalls: true,
+          replaceAbiEncodeCalls: true,
+          replaceStateVariables: true,
+          
+        },
+        logger
+      );
 
       if (unoptimized || irFlag) {
         mkdirIfNotExists(output);
         console.log(`re-compiling for IR output...`);
-        helper.recompile(true);
+        helper.recompile();
 
         const contract = helper.getContractForFile(fileName);
         const { ir, irOptimized, name } = contract;

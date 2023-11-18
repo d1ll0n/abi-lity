@@ -2,12 +2,9 @@
 import {
   assert,
   ASTNodeFactory,
-  ASTSearch,
-  ASTWriter,
   ContractDefinition,
   ContractKind,
   DataLocation,
-  DefaultASTWriterMapping,
   Expression,
   FunctionCall,
   FunctionCallKind,
@@ -15,11 +12,8 @@ import {
   FunctionKind,
   FunctionStateMutability,
   FunctionVisibility,
-  LatestCompilerVersion,
   LiteralKind,
-  MemberAccess,
   Mutability,
-  PrettyFormatter,
   SourceUnit,
   StateVariableVisibility,
   staticNodeFactory,
@@ -34,17 +28,13 @@ import {
   getParentSourceUnit,
   makeFunctionCallFor,
   isExternalFunction,
-  resolveOverriddenFunctions,
-  getUniqueNameInScope
+  resolveOverriddenFunctions
 } from "../../utils";
 import { replaceReturnStatementsWithCall } from "./abi_encode";
 import { dependsOnCalldataLocation } from "../utils";
 import NameGen from "../names";
 import { err } from "../../test_utils/logs";
 import _ from "lodash";
-import { writeFileSync } from "fs";
-import path from "path";
-import { getReferencesToFunctionOrVariable } from "./state_variables";
 
 function getFunctionSelectorDeclaration(
   factory: ASTNodeFactory,

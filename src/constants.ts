@@ -19,7 +19,8 @@ export enum ABITypeKind {
   Struct = "struct",
   Function = "function",
   Error = "error",
-  Event = "event"
+  Event = "event",
+  UserDefined = "userDefined"
 }
 
 export enum EncodingScheme {
@@ -29,7 +30,7 @@ export enum EncodingScheme {
   SuperPacked
 }
 
-export enum InternalDataType {
+export enum DataLocation {
   Storage = "StorageSlot",
   Memory = "MemoryPointer",
   Calldata = "CalldataPointer",
@@ -37,10 +38,10 @@ export enum InternalDataType {
   Stack = "uint256"
 }
 
-export const InternalDataTypes = [
-  InternalDataType.Storage,
-  InternalDataType.Memory,
-  InternalDataType.Calldata,
-  InternalDataType.Returndata,
-  InternalDataType.Stack
+export const DataLocations = [
+  DataLocation.Storage,
+  DataLocation.Memory,
+  DataLocation.Calldata,
+  DataLocation.Returndata,
+  DataLocation.Stack
 ];

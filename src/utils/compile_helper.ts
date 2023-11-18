@@ -634,7 +634,7 @@ export class CompileHelper {
   }
 }
 
-export function writeFilesTo(basePath: string, files: Map<string, string>): void {
+export function writeFilesTo(basePath: string | undefined, files: Map<string, string>): void {
   const filePaths = [...files.keys()];
   const allAbsolutePaths = filePaths.every(path.isAbsolute);
   const commonPath = allAbsolutePaths && getCommonBasePath(filePaths);

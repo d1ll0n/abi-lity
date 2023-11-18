@@ -31,6 +31,7 @@ import {
   SymbolAlias,
   TypeName,
   UserDefinedTypeName,
+  UserDefinedValueTypeDefinition,
   UserDefinition,
   VariableDeclaration,
   VariableDeclarationStatement,
@@ -83,6 +84,19 @@ export function makeVariableDeclarationStatementFromFunctionCall(
     variableDeclarations.map((v) => v.id),
     variableDeclarations,
     functionCall
+  );
+}
+
+export function makeElementaryTypeConversion(
+  factory: ASTNodeFactory,
+  elementaryType: string,
+  expression: Expression
+): FunctionCall {
+  return factory.makeFunctionCall(
+    elementaryType,
+    FunctionCallKind.TypeConversion,
+    factory.makeIdentifier(elementaryType, elementaryType, -1),
+    [expression]
   );
 }
 
@@ -440,10 +454,45 @@ export function addTypeImport(
   addImports(sourceUnit, parentSourceUnit, []);
 }
 
+/* function getDependencies(definitions: UserDefinition | UserDefinition[], inclusive = false) {
+  definitions = coerceArray(definitions);
+  const typeDependencies = flatten(
+    definitions.map((def) => def.getChildrenByType(UserDefinedTypeName))
+  );
+  const dependencies = typeDependencies.map((t) => t.vReferencedDeclaration as UserDefinition);
+  if (inclusive) {
+    dependencies.push(...definitions);
+  }
+  return dependencies;
+}
+
+function importDependenciesAndReturnReferences(
+  ctx: ContractDefinition | SourceUnit,
+  definitions: UserDefinition | UserDefinition[]
+) {
+
+} */
+/* 
+function getRequiredImportsFor(
+  callingContext: ContractDefinition | SourceUnit,
+  fn: FunctionDefinition
+) {
+  if (fn.vScope.type === "SourceUnit") {
+    const callingSourceUnit = getParentSourceUnit(callingContext);
+    const fnSourceUnit = fn.vScope as SourceUnit;
+    if (callingSourceUnit !== fnSourceUnit) {
+    }
+  }
+} */
+
 export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDefinition[]): void {
   const importsNeeded = definitions.reduce((importDirectives, type) => {
     const parent = getParentSourceUnit(type);
     if (parent === sourceUnit) return importDirectives;
+    if (!type.vScope) {
+      console.log(`No scope for type?`);
+      console.log(type.print(1));
+    }
     const foreignSymbol = staticNodeFactory.makeIdentifierFor(
       type.vScope.type === "SourceUnit" ? type : (type.vScope as ContractDefinition)
     );
@@ -464,6 +513,13 @@ export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDe
   const ctx = sourceUnit.requiredContext;
   for (const [sourceId, symbolAliases] of entries) {
     const importSource = ctx.locate(+sourceId) as SourceUnit;
+    console.log(`Adding import for ${importSource.absolutePath}`);
+    console.log(
+      symbolAliases
+        .map((s) => (s.foreign instanceof Identifier ? s.foreign.name : s.foreign))
+        .join(", ")
+    );
+
     addImports(sourceUnit, importSource, symbolAliases);
   }
 }
@@ -471,12 +527,29 @@ export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDe
 export function addDependencyImports(
   sourceUnit: SourceUnit,
   functions: FunctionDefinition | StructDefinition | Array<FunctionDefinition | StructDefinition>
+  // inclusive = false
 ): void {
   functions = coerceArray(functions);
   const typeDependencies = flatten(
     functions.map((fn) => fn.getChildrenByType(UserDefinedTypeName))
   );
-  const definitions = typeDependencies.map((t) => t.vReferencedDeclaration as UserDefinition);
+  // @todo why does this sometimes yield YulFunctionCall???
+  const definitions = typeDependencies
+    .map((t) => t.vReferencedDeclaration as UserDefinition)
+    .filter((t) =>
+      isInstanceOf(
+        t,
+        ContractDefinition,
+        StructDefinition,
+        EnumDefinition,
+        UserDefinedValueTypeDefinition
+      )
+    );
+  // if (inclusive) {
+  //   definitions.push(
+  //     ...(functions.filter((fn) => fn instanceof StructDefinition) as StructDefinition[])
+  //   );
+  // }
   addDefinitionImports(sourceUnit, definitions);
 }
 
@@ -513,6 +586,12 @@ export function addFunctionImports(
   const ctx = sourceUnit.requiredContext;
   for (const [sourceId, symbolAliases] of entries) {
     const importSource = ctx.locate(+sourceId) as SourceUnit;
+    console.log(`Adding import for ${importSource.absolutePath} to ${sourceUnit.absolutePath}`);
+    console.log(
+      symbolAliases
+        .map((s) => (s.foreign instanceof Identifier ? s.foreign.name : s.foreign))
+        .join(", ")
+    );
     addImports(sourceUnit, importSource, symbolAliases);
   }
 }

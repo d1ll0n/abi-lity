@@ -2,6 +2,8 @@ import { DataLocation } from "solc-typed-ast";
 import { ABITypeKind } from "../constants";
 import { sumOrUndefined } from "../utils/array";
 import { Node, NodeSelector } from "./node";
+import { assert } from "solc-typed-ast";
+import { sumBy } from "lodash";
 
 export abstract class TypeNode extends Node<TypeNode> {
   parent?: TypeNodeWithChildren<TypeNode>;
@@ -169,6 +171,13 @@ export abstract class TypeNode extends Node<TypeNode> {
     return this.memoryDataSize;
   }
 
+  get extendedMemoryAllocationSize(): number {
+    return 0;
+    // const size = this.extendedMemoryDataSize;
+    // assert(size !== undefined, `extendedMemoryDataSize undefined`);
+    // return size;
+  }
+
   /**
    * @returns the signature of this type in external functions, i.e. `uint256` for integers
    * or `(uint256,bytes8)[2]` for an array of structs. If @structsByName
@@ -248,6 +257,17 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
 
   get embeddedCalldataHeadSize(): number {
     return this.ownChildren.reduce((sum, child) => sum + child.calldataHeadSize, 0);
+  }
+
+  get extendedMemoryAllocationSize(): number {
+    const headSize = this.embeddedMemoryHeadSize;
+    const dataSize = sumBy(this.ownChildren, (v) => {
+      if (v.isValueType || v.isDynamicallySized) {
+        return 0;
+      }
+      return v.extendedMemoryAllocationSize;
+    });
+    return headSize + dataSize;
   }
 
   requireFindChildIndexBySelector(selector: NodeSelector<T>): number {

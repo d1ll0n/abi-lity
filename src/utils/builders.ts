@@ -1,4 +1,4 @@
-import { ContractDefinition, FunctionDefinition, SourceUnit } from "solc-typed-ast";
+import { ContractDefinition, FunctionDefinition, InferType, SourceUnit } from "solc-typed-ast";
 import { ASTNodeKind } from "solc-typed-ast/dist/ast/implementation";
 import {
   ASTNodeConstructorOf,
@@ -41,7 +41,7 @@ type SearchFn<T extends NodeSearchMap> = {
   [K in keyof typeof NodeSearchMethods]: T[K];
 };
 
-type Addition<Target extends ContractDefinition | SourceUnit, NodeType extends keyof ASTNodeMap> = {
-  type: NodeType;
-  find;
-};
+// type Addition<Target extends ContractDefinition | SourceUnit, NodeType extends keyof ASTNodeMap> = {
+//   type: NodeType;
+//   find;
+// };

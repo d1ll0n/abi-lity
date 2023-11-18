@@ -21,6 +21,7 @@ import {
 import { ArrayType, BytesType, FunctionType, TupleType } from "../../../ast";
 import {
   addUniqueFunctionDefinition,
+  makeElementaryTypeConversion,
   makeGlobalFunctionDefinition,
   makeVariableDeclarationStatement,
   toHex
@@ -128,7 +129,7 @@ export function createReturnFunction(ctx: WrappedScope, type: TupleType): string
   } else if (
     type.vMembers.length === 1 &&
     (type.vMembers[0] instanceof BytesType ||
-      (type.vMembers[0] instanceof ArrayType && type.vMembers[0].isValueType))
+      (type.vMembers[0] instanceof ArrayType && type.vMembers[0].baseType.isValueType))
   ) {
     console.log(`Entering bytes return`);
     const member = type.vMembers[0];
@@ -212,12 +213,7 @@ export function replaceReturnStatementsWithCall(
     for (let i = 0; i < args.length; i++) {
       const _arg = args[i];
       if (_arg.typeString.startsWith("contract")) {
-        args[i] = factory.makeFunctionCall(
-          "address",
-          FunctionCallKind.TypeConversion,
-          factory.makeIdentifier("address", "address", -1),
-          [_arg]
-        );
+        args[i] = makeElementaryTypeConversion(factory, "address", _arg);
       }
     }
     return factory.makeExpressionStatement(

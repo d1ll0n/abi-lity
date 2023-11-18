@@ -1,24 +1,9 @@
 import { writeFileSync } from "fs";
 import path from "path";
 import { Argv } from "yargs";
-import {
-  CompileHelper,
-  DebugLogger,
-  StructuredText,
-  getRelativePath,
-  mkdirIfNotExists,
-  writeNestedStructure
-} from "../../../utils";
-import { ContractDefinition, FunctionDefinition, LatestCompilerVersion } from "solc-typed-ast";
-import { functionDefinitionToTypeNode, readTypeNodesFromSolcAST } from "../../../readers";
-import { StructType, TupleType } from "../../../ast";
-import { isExternalFunctionDefinitionOrType } from "../../../codegen";
-import { createCalldataCopiers, testCopiers } from "../../../test_utils";
-import {
-  writeCompilerOptions,
-  getCommandLineInputPaths,
-  getTypesFromCommandLineInputs
-} from "../../utils2";
+import { StructuredText, mkdirIfNotExists, writeNestedStructure } from "../../../utils";
+import { LatestCompilerVersion } from "solc-typed-ast";
+import { getTypesFromCommandLineInputs } from "../../utils2";
 
 const options = {
   input: {

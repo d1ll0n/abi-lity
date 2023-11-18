@@ -4,6 +4,7 @@ import {
   BytesType,
   DefaultVisitor,
   ErrorType,
+  EventType,
   FunctionType,
   StructType,
   TupleType,
@@ -174,6 +175,8 @@ export class AbiEncodeVisitor extends DefaultVisitor {
   visitError(type: ErrorType): string {
     return this.visitFunctionOrError(type);
   }
+
+  // visitEvent(type: EventType): string {}
 
   /// @todo add ability to return a fn that takes the parameter name
   /// and returns an expression to do the encoding (inline or fn call)

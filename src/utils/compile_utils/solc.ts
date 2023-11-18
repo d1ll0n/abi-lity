@@ -105,7 +105,8 @@ export const CompilerOutputConfigs = {
   TESTS: [CompilationOutput.ABI, CompilationOutput.AST, "evm.deployedBytecode.object" as any],
   IR: ["ir" as any, CompilationOutput.AST],
   IR_OPTIMIZED: ["irOptimized" as any, CompilationOutput.AST],
-  CODEGEN: [CompilationOutput.AST]
+  CODEGEN: [CompilationOutput.AST],
+  ABI: [CompilationOutput.ABI, CompilationOutput.AST]
 };
 
 // Compiler options given by API consumer (e.g. cli, fn that triggers a compile)

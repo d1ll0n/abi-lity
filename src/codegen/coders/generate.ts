@@ -10,7 +10,15 @@ import {
   StringOrNumberAttributes,
   assert
 } from "solc-typed-ast";
-import { ASTNodeKind, ASTNodeMap } from "solc-typed-ast/dist/ast/implementation";
+import {
+  ASTNodeKind,
+  ASTNodeMap,
+  EmitStatement,
+  ErrorDefinition,
+  Expression,
+  FunctionCall,
+  RevertStatement
+} from "solc-typed-ast/dist/ast/implementation";
 import { buildDecoderFile, replaceExternalFunctionReferenceTypeParameters } from "./abi_decode";
 import {
   Logger,
@@ -23,18 +31,24 @@ import {
 import { getFunctionSelectorSwitch, upgradeFunctionCoders } from "./function_switch";
 import { CompileHelper } from "../../utils/compile_utils/compile_helper";
 import { renamePublicStateVariables } from "./state_variables";
-import { eventDefinitionToTypeNode, functionDefinitionToTypeNode } from "../../readers";
+import {
+  errorDefinitionToTypeNode,
+  eventDefinitionToTypeNode,
+  functionDefinitionToTypeNode
+} from "../../readers";
 import {
   createAbiEncodingFunctionWithAllocation,
   createEmitFunction,
   createHashFunction,
   createReturnFunction
 } from "./abi_encode";
-import { TypeNode } from "../../ast";
+import { ErrorType, EventType, TupleType, TypeNode } from "../../ast";
+import { createRevertFunction } from "./abi_encode/create_revert";
 
 export type Options = {
   outputPath?: string;
   replaceReturnStatements?: boolean;
+  replaceRevertCalls?: boolean;
   replaceHashCalls?: boolean;
   replaceEmitCalls?: boolean;
   replaceAbiEncodeCalls?: boolean;
@@ -43,6 +57,7 @@ export type Options = {
   decoderFileName?: string;
   functionSwitch?: boolean;
 };
+
 type WithInvertedProperties<Obj> = Obj & {
   any?: Obj | Obj[];
   not?: Obj | Obj[];
@@ -113,6 +128,74 @@ function getMostDerivedContracts(sourceUnit: SourceUnit): ContractDefinition[] {
   return contractDefinitions;
 }
 
+export function getEmitsByEvent(search: ASTSearch): Array<[EventType, EmitStatement[]]> {
+  return mapAllNodes(search, "EmitStatement", (stmt) => {
+    const call = stmt.vEventCall;
+    const definition = call.vReferencedDeclaration;
+    assert(
+      definition instanceof EventDefinition,
+      `Error in EmitStatement: Expected call to EventDefinition, got ${definition?.type}`
+    );
+    const type = eventDefinitionToTypeNode(definition);
+    return [type.writeDefinition(), type];
+  });
+}
+
+export function getRevertsByError(search: ASTSearch): Array<[ErrorType, RevertStatement[]]> {
+  return mapAllNodes(search, "RevertStatement", (stmt) => {
+    const call = stmt.errorCall;
+    const definition = call.vReferencedDeclaration;
+    assert(
+      definition instanceof ErrorDefinition,
+      `Error in RevertStatement: Expected call to ErrorDefinition, got ${definition?.type}`
+    );
+    const type = errorDefinitionToTypeNode(definition);
+    return [type.writeDefinition(), type];
+  });
+}
+
+export function getHashCallsWithCommonParameters(
+  search: ASTSearch
+): Array<[TupleType, FunctionCall[]]> {
+  return mapAllNodes(
+    search,
+    "FunctionCall",
+    (call) => {
+      if (!(call.vArguments.length === 1 && isAbiEncodeCall(call.vArguments[0]))) {
+        return undefined;
+      }
+      const type = getHashWithAbiEncodeParameterTypes(call);
+      const id = type.identifier;
+      return [id, type];
+    },
+    {
+      vFunctionCallType: ExternalReferenceType.Builtin,
+      vFunctionName: "keccak256"
+    }
+  );
+}
+
+export function getAbiEncodeCallsWithCommonParameters(
+  search: ASTSearch,
+  excludedCalls: Set<Expression>
+): Array<[TupleType, FunctionCall[]]> {
+  return mapAllNodes(
+    search,
+    "FunctionCall",
+    (call) => {
+      if (excludedCalls.has(call)) return undefined;
+      const type = getAbiEncodeParameterTypes(call);
+      const id = type.identifier;
+      return [id, type];
+    },
+    {
+      vFunctionCallType: ExternalReferenceType.Builtin,
+      vFunctionName: "encode",
+      vIdentifier: "abi"
+    }
+  );
+}
+
 export function upgradeSourceCoders(
   helper: CompileHelper,
   fileName: string,
@@ -144,6 +227,7 @@ export function upgradeSourceCoders(
     logger.log(`generating decoders for ${fileName}...`);
     const ctx = buildDecoderFile(helper, fileName, decoderFileName, options);
     decoderSourceUnit = ctx.sourceUnit;
+    console.log(`decoder source unit = ${decoderSourceUnit.absolutePath}`);
     const functions = sourceUnit.getChildrenBySelector(isExternalFunction) as FunctionDefinition[];
 
     const functionTypes = functions.map(functionDefinitionToTypeNode);
@@ -158,43 +242,24 @@ export function upgradeSourceCoders(
     const search = ASTSearch.from(helper.sourceUnits);
 
     if (options.replaceEmitCalls) {
-      const eventsWithEmitStatements = mapAllNodes(search, "EmitStatement", (stmt) => {
-        const call = stmt.vEventCall;
-        const definition = call.vReferencedDeclaration;
-        assert(
-          definition instanceof EventDefinition,
-          `Error in EmitStatement: Expected call to EventDefinition, got ${definition?.type}`
-        );
-        const type = eventDefinitionToTypeNode(definition);
-        return [type.writeDefinition(), type];
-      });
-      for (const [type, statements] of eventsWithEmitStatements) {
+      const emitsByEvent = getEmitsByEvent(search);
+      for (const [type, statements] of emitsByEvent) {
         createEmitFunction(ctx, type, statements);
       }
     }
 
-    const hashCalls = new Set();
+    if (options.replaceRevertCalls) {
+      const revertsByError = getRevertsByError(search);
+      for (const [type, statements] of revertsByError) {
+        createRevertFunction(ctx, type, statements);
+      }
+    }
+
+    const hashCalls: Set<Expression> = new Set();
     if (options.replaceHashCalls) {
-      const hashTypesWithCalls = mapAllNodes(
-        search,
-        "FunctionCall",
-        (call) => {
-          if (!(call.vArguments.length === 1 && isAbiEncodeCall(call.vArguments[0]))) {
-            return undefined;
-          }
-          const type = getHashWithAbiEncodeParameterTypes(call);
-          const id = type.identifier;
-          return [id, type];
-        },
-        {
-          vFunctionCallType: ExternalReferenceType.Builtin,
-          vFunctionName: "keccak256"
-        }
-      );
-      for (const [type, calls] of hashTypesWithCalls) {
-        for (const call of calls) {
-          hashCalls.add(call.vArguments[0]);
-        }
+      const hashCallsByParameters = getHashCallsWithCommonParameters(search);
+      for (const [type, calls] of hashCallsByParameters) {
+        calls.forEach((call) => hashCalls.add(call.vArguments[0]));
         createHashFunction(ctx, type, calls);
       }
     }
@@ -202,22 +267,9 @@ export function upgradeSourceCoders(
     /// This must be done after createHashFunction because the hash
     /// function searches for keccak256 calls which use abi.encode
     if (options.replaceAbiEncodeCalls) {
-      const abiEncodeCalls = mapAllNodes(
-        search,
-        "FunctionCall",
-        (call) => {
-          if (hashCalls.has(call)) return undefined;
-          const type = getAbiEncodeParameterTypes(call);
-          const id = type.identifier;
-          return [id, type];
-        },
-        {
-          vFunctionCallType: ExternalReferenceType.Builtin,
-          vFunctionName: "encode",
-          vIdentifier: "abi"
-        }
-      );
-      for (const [type, calls] of abiEncodeCalls) {
+      const encodeCallsByParameters = getAbiEncodeCallsWithCommonParameters(search, hashCalls);
+
+      for (const [type, calls] of encodeCallsByParameters) {
         createAbiEncodingFunctionWithAllocation(ctx, type, calls);
       }
     }

@@ -94,6 +94,10 @@ export class FunctionType extends ValueType {
       .join(" ");
   }
 
+  writeParameter(location: DataLocation, name?: string | undefined): string {
+    return [this.signatureInInternalFunction(), name].join(" ");
+  }
+
   get functionSignature(): string {
     return this.signature(false);
   }

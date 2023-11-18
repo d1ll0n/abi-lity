@@ -18,6 +18,10 @@ export abstract class ValueType extends TypeNode {
     throw Error(`Value types do not have calldata tail`);
   }
 
+  get extendedMemoryAllocationSize(): number {
+    return 0;
+  }
+
   max(): bigint | undefined {
     return undefined;
   }

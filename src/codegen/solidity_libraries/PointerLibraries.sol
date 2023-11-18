@@ -265,6 +265,12 @@ library MemoryPointerLib {
     }
   }
 
+  function revertData(MemoryPointer mPtr, uint256 size) internal pure {
+    assembly {
+      revert(mPtr, size)
+    }
+  }
+
   function copyWord(MemoryPointer src, MemoryPointer dst) internal pure {
     assembly {
       mstore(dst, mload(src))

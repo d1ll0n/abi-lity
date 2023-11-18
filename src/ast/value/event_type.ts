@@ -29,6 +29,13 @@ export class EventType extends ValueType {
     this.parameters = parameters;
     this.acceptChildren();
     this.anonymous = anonymous ?? false;
+    const paramNames = this.parameters?.getParamNames("value") ?? [];
+
+    parameters?.vMembers.forEach((m, i) => {
+      if (!m.labelFromParent) {
+        m.labelFromParent = paramNames[i];
+      }
+    });
   }
 
   get topic0(): string | undefined {
@@ -64,15 +71,15 @@ export class EventType extends ValueType {
 
   get eventSelector(): string {
     const signature = this.eventSignature;
-    return keccak256(toUtf8Bytes(signature)).slice(0, 10);
+    return keccak256(toUtf8Bytes(signature));
   }
 
   writeDefinition(): string {
-    const memberTypeStrings =
-      this.parameters?.signatureInExternalFunction(true) ?? "()"; /* this.children.map((c) => {
-      const typeString = c.signatureInExternalFunction(true);
-      return [typeString, c.isIndexed ? " indexed" : ""].join("");
-    }) */
+    const memberTypeStrings = this.parameters?.signatureInExternalFunction(true) ?? "()";
+    /* this.children.map((c) => {
+        const typeString = c.signatureInExternalFunction(true);
+        return [typeString, c.isIndexed ? " indexed" : ""].join("");
+      }) */
     return [`event ${this.name} `, memberTypeStrings].join("");
   }
 }

@@ -21,6 +21,9 @@ export const NameGen = {
   innerAbiDecode: (type: TypeNode): string => {
     return `_${NameGen.abiDecode(type)}`;
   },
+  serialize: (type: TypeNode): string => {
+    return `serialize${type.pascalCaseName}`;
+  },
   abiEncode: (type: TypeNode): string => {
     type = unwrapTuple(type);
     return `abi_encode_${type.identifier === "string" ? "bytes" : type.identifier}`;
@@ -114,6 +117,16 @@ export const NameGen = {
       type = type.vMembers[0];
     }
     return `return_${type.identifier}`;
+  },
+  revert: (type: TypeNode): string => {
+    if (
+      type instanceof TupleType &&
+      type.vMembers.length === 1 &&
+      !type.vMembers[0].isDynamicallyEncoded
+    ) {
+      type = type.vMembers[0];
+    }
+    return `revert_${type.identifier}`;
   },
   selector: (type: FunctionType | ErrorType): string => {
     return `${type.name}_selector`;

@@ -18,7 +18,8 @@ import {
   Expression,
   FunctionCall,
   InferType,
-  LatestCompilerVersion
+  LatestCompilerVersion,
+  UserDefinedValueTypeDefinition
 } from "solc-typed-ast";
 import {
   ArrayType,
@@ -36,7 +37,8 @@ import {
   FixedBytesType,
   IntegerType,
   StringType,
-  ContractType
+  ContractType,
+  ValueType
 } from "../ast";
 import { elementaryTypeStringToTypeNode } from "./elementary";
 import { TypeNodeReaderResult } from "./types";
@@ -70,6 +72,7 @@ import { TupleType as SolcTupleType } from "solc-typed-ast/dist/types/ast/tuple_
 import { TypeNameType as SolcTypeNameType } from "solc-typed-ast/dist/types/ast/typename_type";
 import { UserDefinedType as SolcUserDefinedType } from "solc-typed-ast/dist/types/ast/user_defined_type";
 import { U256Type as SolcU256Type } from "solc-typed-ast/dist/types/ast/u256_type";
+import { UserDefinedValueType } from "../ast/value/user_defined_value_type";
 // import { InternalType as SolcInternalType } from "solc-typed-ast/dist/types/ast/internal";
 // import { RationalLiteralType as SolcRationalLiteralType } from "solc-typed-ast/dist/types/ast/rational_literal";
 // import { TypeNode as SolcTypeNode } from "solc-typed-ast/dist/types/ast/type";
@@ -227,6 +230,15 @@ export function typeNameToTypeNode(astT: TypeName): TypeNode {
     }
     if (def instanceof ContractDefinition) {
       return new ContractType(def.name);
+    }
+    if (def instanceof FunctionDefinition) {
+      return functionDefinitionToTypeNode(def);
+    }
+    if (def instanceof UserDefinedValueTypeDefinition) {
+      return new UserDefinedValueType(
+        def.name,
+        typeNameToTypeNode(def.underlyingType) as ValueType
+      );
     }
 
     throw new Error(`NYI typechecking of user-defined type ${def.print()}`);

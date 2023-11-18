@@ -16,6 +16,7 @@ import {
   SourceUnit,
   TupleExpression,
   TupleType,
+  TypeName,
   TypeNode,
   VariableDeclaration,
   VariableDeclarationStatement,
@@ -23,8 +24,15 @@ import {
   assert,
   isReferenceType
 } from "solc-typed-ast";
-import { functionDefinitionToTypeNode } from "../readers";
+import {
+  functionDefinitionToTypeNode,
+  solcTypeNodeToTypeNode,
+  typeNameToTypeNode
+} from "../readers";
 import chalk from "chalk";
+import { CompileHelper } from "../utils/compile_utils/compile_helper";
+import { ArrayType, BytesType, TypeNodeWithChildren, UABIType } from "../ast";
+import { SourceEditor } from "../utils/source_editor";
 
 /**
  * Filters an array of FunctionDefinition nodes to only those with
@@ -54,6 +62,7 @@ function mapTupleComponents(left: TupleExpression, right: TupleExpression) {
   }
   return assignments;
 }
+
 function destructureAssignment(left: Expression, right: Expression): DestructuredAssignment[] {
   if (left instanceof TupleExpression && right instanceof TupleExpression) {
     return mapTupleComponents(left, right);
@@ -108,6 +117,18 @@ const usesMemory = (node: Expression | TypeNode): boolean => {
     return node.elements.some(usesMemory);
   }
   return node instanceof PointerType && node.location === DataLocation.Memory;
+};
+
+const declarationUsesMemory = (decl: VariableDeclaration): boolean => {
+  const type = typeNameToTypeNode(decl.vType as TypeName);
+
+  if (type.isReferenceType && decl.storageLocation === DataLocation.Memory) {
+    if (type instanceof BytesType || (type instanceof ArrayType && type.length === undefined)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
 };
 
 function getIdentifiersInScope(scope: ASTNode, target: VariableDeclaration) {
@@ -217,16 +238,49 @@ function highlightNode(file: string, node: ASTNode) {
   );
 }
 
-function lookForMemoryWaste(source: SourceUnit, file: string) {
+function lookForMemoryWaste(source: SourceUnit, editor: SourceEditor) {
   const functions = source.getChildrenByType(FunctionDefinition);
   const writer = new ASTWriter(
     DefaultASTWriterMapping,
     new PrettyFormatter(2),
     LatestCompilerVersion
   );
+  // const editor = new SourceEditor(file, writer);
 
   for (const func of functions) {
     const assignments = getAssignmentsToReferenceType(func);
+    for (const decl of func.vReturnParameters.vParameters) {
+      if (!decl.name && decl.storageLocation === DataLocation.Memory) {
+        const type = typeNameToTypeNode(decl.vType as TypeName);
+        if (
+          type.isReferenceType &&
+          !(type instanceof BytesType || (type instanceof ArrayType && type.length === undefined))
+        ) {
+          const declText = writer.write(decl);
+          const parentText = writer
+            .write(func)
+            .replace(declText, chalk.underline(chalk.red(declText)));
+          const size = type.extendedMemoryAllocationSize;
+          editor.highlightNode(decl, chalk.red);
+          const comment = ` unnamed ${type.identifier} return parameter allocates and zeroes ${
+            size ? `${size} bytes of ` : ""
+          }memory`;
+          editor.insertBefore(decl, `/* ${comment} */`);
+
+          // type instanceof TypeNodeWithChildren
+          //   ? type.embeddedMemoryHeadSize + (type.extendedMemoryDataSize ?? type.memoryTailSize)
+          //   : type.extendedMemoryDataSize;
+          // if (size === undefined) {
+          //   const getSize = (type: UABIType) => {
+          //     return type.memoryDataSize
+
+          //   }
+          // }
+        }
+      }
+    }
+    console.log(editor.text);
+
     for (const assignment of assignments) {
       const parent = assignment.left.getClosestParentByType(Assignment) as Assignment;
 
@@ -251,6 +305,34 @@ function lookForMemoryWaste(source: SourceUnit, file: string) {
   return declarations;
 }
 
+async function testLookup() {
+  const code = `
+  contract Test {
+    struct ABC { uint256 a; uint256 b; bytes d; uint256[] arr; bytes[1] arr2; }
+
+    struct Info {
+      uint256 a;
+    }
+    
+    function abc() internal returns (Info memory) {
+      Info memory x;
+      x.a = 100;
+      return x;
+    }
+
+    function getABC() internal view returns (ABC memory) {
+      return ABC({ a: 1, b: 2, d: "", arr: new uint256[](0), arr2: [bytes("")] });
+    }
+  }
+  `;
+  const helper = await CompileHelper.fromFiles(new Map([["test.sol", code]]));
+  const sourceMap = new Map();
+  const files = helper.getFiles(sourceMap);
+  const editor = new SourceEditor(files.get("test.sol")!, sourceMap);
+  const source = helper.sourceUnits[0];
+  lookForMemoryWaste(source, editor);
+}
+testLookup();
 // function getFunctionsWithReferenceTypeReturnParameters
 
 // function getReturnKinds(fn: FunctionDefinition) {

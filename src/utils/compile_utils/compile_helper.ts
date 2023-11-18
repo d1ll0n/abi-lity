@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { writeFileSync } from "fs";
+import { readdirSync, writeFileSync } from "fs";
 import path from "path";
 import {
   assert,
@@ -177,28 +177,7 @@ export class CompileHelper {
 
   writeFilesTo(basePath = this.basePath): void {
     const files = this.getFiles();
-    const filePaths = [...files.keys()];
-    const allAbsolutePaths = filePaths.every(path.isAbsolute);
-    const commonPath = allAbsolutePaths && getCommonBasePath(filePaths);
-    if (basePath !== undefined) {
-      mkdirIfNotExists(basePath);
-    }
-    assert(
-      commonPath !== undefined || basePath !== undefined,
-      `Can not write files with non-absolute paths and no base path provided`
-    );
-    filePaths.forEach((filePath) => {
-      // If the existing file paths are absolute, replace the common base path
-      // with `basePath` if they are different.
-      // If they are relative, resolve with `basePath`
-      const file = files.get(filePath) as string;
-      let absolutePath: string = filePath;
-      if (basePath && commonPath !== basePath) {
-        const relativePath = commonPath ? path.relative(commonPath, filePath) : filePath;
-        absolutePath = path.resolve(basePath as string, relativePath);
-      }
-      writeFileSync(absolutePath, file);
-    });
+    writeFilesTo(basePath, files);
   }
 
   //---------------------------------------------------//
@@ -215,10 +194,12 @@ export class CompileHelper {
     if (contracts) {
       const fileNames = Object.keys(contracts);
       for (const fileName of fileNames) {
+        console.log(`File ${fileName}`);
         const fileContracts = contracts[fileName];
         const contractNames = Object.keys(fileContracts);
         this.fileContractsMap.set(fileName, contractNames);
         for (let contractName of contractNames) {
+          console.log(`Contract ${contractName} in ${fileName}`);
           const contract = fileContracts[contractName];
           if (this.contractsMap.has(contractName)) {
             // throw Error(`Duplicate contract name ${contractName}`);
@@ -257,6 +238,13 @@ export class CompileHelper {
     }
 
     const compileResult = compile(this.compiler, files, this.remapping ?? [], outputs, settings);
+
+    // const dir = path.join(__dirname, "compile_results");
+    // mkdirIfNotExists(dir);
+    // const dirChildCount = readdirSync(dir).length;
+    // const fileName = path.join(dir, `compile_result_${dirChildCount}.json`);
+    // writeFileSync(fileName, JSON.stringify({ ...compileResult, settings }, null, 2));
+
     this.handleCompilerOutput(compileResult);
   }
 
@@ -444,7 +432,7 @@ export class CompileHelper {
   }
 }
 
-export function writeFilesTo(basePath: string, files: Map<string, string>): void {
+export function writeFilesTo(basePath: string | undefined, files: Map<string, string>): void {
   const filePaths = [...files.keys()];
   const allAbsolutePaths = filePaths.every(path.isAbsolute);
   const commonPath = allAbsolutePaths && getCommonBasePath(filePaths);

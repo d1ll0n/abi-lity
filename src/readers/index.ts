@@ -201,11 +201,13 @@ function uninitializedDeclarations(fn: FunctionDefinition) {
 function checkFunction(fn: FunctionDefinition) {
   const declarations = uninitializedDeclarations(fn);
   const warnings: Warning[] = [];
+  console.log(`declarations: ${declarations.length}`);
   for (const decl of declarations) {
     warnings.push(...getWarningsForDeclaration(decl));
   }
   const output: StructuredText[] = [];
   for (const warning of warnings) {
+    // console.log(warning);
     const text = TextEdit.fromNode(warning.node);
     const clr = color[warning.severity];
     text.highlightNode(warning.node, clr);
@@ -241,6 +243,7 @@ function isInitialized(decl: VariableDeclaration) {
 }
 
 function getInitialMemorySize(type: TypeNode): number {
+  console.log(`Initial size`);
   if (type.isDynamicallySized) return 0;
   if (type instanceof ArrayType && type.length) {
     return (
@@ -261,12 +264,14 @@ function getWarningsForDeclaration({ decl, type }: DeclarationInfo) {
   const isReturn = isReturnParameter(decl);
   if (!type.isReferenceType || type.isDynamicallySized) return warnings;
   if (!isInitialized(decl)) {
+    const size = type.extendedMemoryAllocationSize;
+    const name = decl.name ?? type.identifier;
     warnings.push({
       severity: Severity.Warning,
-      message: `Reference type declared without assignment: ${decl.name}`,
+      message: `Reference type declared without assignment: ${name}`,
       node: decl,
       notes: [
-        `The compiler will allocate & overwrite memory to initialize ${decl.name} with 0's.`,
+        `The compiler will allocate & overwrite ${size} bytes of memory to initialize ${name} with 0's.`,
         `If it is reassigned, this memory is wasted, as is the gas used to clear it.`,
         ...(type instanceof ArrayType
           ? [
@@ -274,7 +279,7 @@ function getWarningsForDeclaration({ decl, type }: DeclarationInfo) {
             ]
           : []),
         isReturn
-          ? `Consider initializing ${decl.name} to its final value in the declaration or using a type cast.`
+          ? `Consider initializing ${name} to its final value in the declaration or using a type cast.`
           : `Consider using a type cast.`
       ]
     });
@@ -291,9 +296,7 @@ function getWarningsForDeclaration({ decl, type }: DeclarationInfo) {
       node: assignment,
       notes: [
         err(
-          `Global memory permanently expanded by ${getInitialMemorySize(
-            type
-          )} bytes for dropped reference.`
+          `Global memory permanently expanded by ${type.extendedMemoryAllocationSize} bytes for dropped reference.`
         ),
         `Cost of clearing memory is wasted.`
       ]
@@ -411,6 +414,11 @@ async function runtest() {
     struct Info {
       uint256 a;
     }
+    function abc() internal returns (Info memory) {
+      Info memory x;
+      x.a = 100;
+      return x;
+    }
     function bar(
       uint a0,
       uint a1,
@@ -457,14 +465,14 @@ async function runtest() {
   const helper2 = await docomp(files);
   console.log(`Compile time: ${Date.now() - t2}ms`);
   console.log(`${helper2.sourceUnits.length} | ${helper.sourceUnits.length}}`);
-  if (t2 > 0) {
-    return;
-  }
+  // if (t2 > 0) {
+  //   return;
+  // }
   const { irOptimized } = helper.getContractForFile("SomeFile.sol");
   // console.log(irOptimized);
   const sourceUnit = helper.sourceUnits[0];
-  const fn = sourceUnit.getChildrenByType(FunctionDefinition)[0];
-  checkFunction(fn);
+  const fns = sourceUnit.getChildrenByType(FunctionDefinition);
+  fns.forEach((fn) => checkFunction(fn));
 
   // const decl = sourceUnit.getChildrenByType(VariableDeclaration)[0];
   // const text = TextEdit.fromNode(decl);

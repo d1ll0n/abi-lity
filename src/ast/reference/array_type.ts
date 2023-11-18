@@ -78,6 +78,13 @@ export class ArrayType extends TypeNodeWithChildren<TypeNode> {
     return this.baseType.extendedMemoryDataSize * this.length;
   }
 
+  get extendedMemoryAllocationSize(): number {
+    if (this.length === undefined) return 0;
+    const headSize = this.embeddedMemoryHeadSize;
+    const dataSize = this.baseType.extendedMemoryAllocationSize * this.length;
+    return headSize + dataSize;
+  }
+
   get embeddedMemoryHeadSize(): number {
     if (this.isDynamicallySized) {
       throw Error("Can not determine embedded head size for dynamically sized array");

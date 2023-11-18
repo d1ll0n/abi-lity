@@ -33,7 +33,7 @@ function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
     let type: TupleType | StructType;
     if (fragment.internalType) {
       const name = fragment.internalType.replace("struct ", "");
-      console.log(`Creating struct type ${name}`);
+      // console.log(`Creating struct type ${name}`);
       type = new StructType(members, name);
     } else {
       type = new TupleType(members);

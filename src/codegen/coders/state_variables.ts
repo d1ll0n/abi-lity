@@ -25,6 +25,7 @@ import {
 } from "solc-typed-ast";
 
 import { getUniqueNameInScope } from "../../utils";
+import { getReferencesToFunctionOrVariable } from "../../utils/references";
 
 /**
  * When we find a public state variable with an override, the only thing that can
@@ -67,19 +68,6 @@ const getLoc = (decl: VariableDeclaration) => {
   }
   return DataLocation.Default;
 };
-
-export function getReferencesToFunctionOrVariable(
-  search: ASTSearch,
-  fnOrVar: VariableDeclaration | FunctionDefinition
-): Array<Identifier | MemberAccess> {
-  const identifiers = search.find("Identifier", {
-    referencedDeclaration: fnOrVar.id
-  });
-  const memberAccess = search.find("MemberAccess", {
-    referencedDeclaration: fnOrVar.id
-  });
-  return [...identifiers, ...memberAccess];
-}
 
 function makeStateVariableGetter(
   search: ASTSearch,

@@ -28,6 +28,7 @@ import {
   StructuredText,
   addDependencyImports,
   addEnumDefinition,
+  addFunctionImports,
   addImports,
   findContractDefinition,
   findFunctionDefinition,
@@ -38,7 +39,8 @@ import {
 } from "../../utils";
 import { ConstantKind } from "../../utils/make_constant";
 import path from "path";
-import { getPointerLibraries } from "../solidity_libraries";
+import { getPointerLibraries, SolidityLibraries } from "../solidity_libraries";
+import NameGen, { NameGenKey, NameGenParameters, NameGenTypeParams } from "../names";
 
 export type WrappableScope = ContractDefinition | SourceUnit;
 
@@ -140,6 +142,13 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     addDependencyImports(this.sourceUnit, functions);
   }
 
+  addFunctionImports(
+    functions: FunctionDefinition | FunctionDefinition[],
+    aliases?: string | string[]
+  ): void {
+    addFunctionImports(this.sourceUnit, functions, aliases);
+  }
+
   getFilePath(fileName: string): string {
     if (this.outputPath && !path.isAbsolute(fileName)) {
       fileName = path.join(this.outputPath, fileName);
@@ -151,7 +160,24 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return this.helper.addSourceUnit(this.getFilePath(fileName), code);
   }
 
+  getSolidityLibrary(name: keyof typeof SolidityLibraries & string): SourceUnit {
+    const fileName = `${name}.sol`;
+    let solidityLibrary = this.helper.sourceUnits.find(
+      (s) => path.basename(s.absolutePath) === fileName && !s.absolutePath.startsWith(".")
+    );
+    if (!solidityLibrary) {
+      solidityLibrary = this.helper.sourceUnits.find(
+        (s) => path.basename(s.absolutePath) === fileName
+      );
+    }
+    if (!solidityLibrary) {
+      solidityLibrary = this.addSourceUnit(fileName, SolidityLibraries[name]);
+    }
+    return solidityLibrary;
+  }
+
   getPointerLibraries(): SourceUnit {
+    // @todo replace with getSolidityLibrary("PointerLibraries")
     let pointerLibraries = this.helper.sourceUnits.find(
       (s) =>
         path.basename(s.absolutePath) === "PointerLibraries.sol" && !s.absolutePath.startsWith(".")
@@ -171,6 +197,10 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     this.addImports(this.getPointerLibraries());
   }
 
+  addSolidityLibrary(name: keyof typeof SolidityLibraries & string): void {
+    this.addImports(this.getSolidityLibrary(name));
+  }
+
   addEnum(
     name: string,
     members: string[],
@@ -186,6 +216,14 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     size = 256
   ): Identifier {
     return getConstant(this.scope, name, value, kind, size);
+  }
+
+  getNameGenConstant<K extends NameGenKey>(
+    key: K,
+    value: string | number,
+    ...args: NameGenParameters<K>
+  ): string {
+    return this.addConstant((NameGen as NameGenTypeParams)[key](...args), value);
   }
 
   addConstant(
