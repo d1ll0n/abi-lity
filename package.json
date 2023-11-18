@@ -37,6 +37,7 @@
     "eslint": "^8.27.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-prettier": "^4.2.1",
+    "ethereum-waffle": "^4.0.10",
     "expect": "^29.3.1",
     "mocha": "^10.1.0",
     "prettier": "^2.7.1",
