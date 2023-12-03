@@ -88,6 +88,7 @@ export function buildExternalWrapper(
     false,
     true,
     [],
+    [],
     []
   );
   const factory = new ASTNodeFactory(sourceUnit.requiredContext);
