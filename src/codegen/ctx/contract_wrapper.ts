@@ -426,6 +426,7 @@ export class WrappedContract extends WrappedScope<ContractDefinition> {
         false,
         true,
         linearizedBaseContracts,
+        [],
         []
       );
       if (linearizedBaseContracts.length) {
