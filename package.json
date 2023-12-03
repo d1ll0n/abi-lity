@@ -20,7 +20,7 @@
     "@types/lodash": "^4.14.189",
     "lodash": "^4.17.21",
     "mathjs": "npm:@d1ll0n/mathjs",
-    "solc-typed-ast": "npm:@d1ll0n/solc-typed-ast@10.4.5",
+    "solc-typed-ast": "npm:@d1ll0n/solc-typed-ast@17.0.4",
     "toml": "^3.0.0"
   },
   "devDependencies": {
