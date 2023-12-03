@@ -10,6 +10,8 @@ import {
   FunctionKind,
   FunctionStateMutability,
   FunctionVisibility,
+  InferType,
+  LatestCompilerVersion,
   LiteralKind,
   Mutability,
   SourceUnit,
@@ -18,7 +20,6 @@ import {
   VariableDeclaration,
   VariableDeclarationStatement
 } from "solc-typed-ast";
-import { ABIEncoderVersion } from "solc-typed-ast/dist/types/abi";
 import { TupleType, TypeNode } from "../ast";
 import { functionDefinitionToTypeNode } from "../readers";
 import { addImports, getParentSourceUnit, makeFunctionCallFor, isExternalFunction } from "../utils";
@@ -84,6 +85,8 @@ function getCalldataReadExpression(factory: ASTNodeFactory, type: TypeNode): Fun
   return readCall;
 }
 
+const infer = new InferType(LatestCompilerVersion);
+
 /**
  * Generate a function selector switch as a fallback function and
  * add it to `contract`.
@@ -133,7 +136,7 @@ export function getFunctionSelectorSwitch(
       "",
       LiteralKind.Number,
       "",
-      `0x${fn.canonicalSignatureHash(ABIEncoderVersion.V2)}`
+      `0x${infer.signatureHash(fn)}`
     );
     body.appendChild(
       factory.makeIfStatement(

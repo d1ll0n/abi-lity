@@ -18,6 +18,8 @@ import {
   FunctionStateMutability,
   FunctionVisibility,
   Identifier,
+  IdentifierPath,
+  InferType,
   isInstanceOf,
   LatestCompilerVersion,
   MemberAccess,
@@ -687,18 +689,20 @@ export function getFunctionSignatureForOverride(fn: FunctionDefinition): string 
   if (fn.kind === FunctionKind.Receive) {
     return "receive";
   }
-  return fn.canonicalSignature(ABIEncoderVersion.V2);
+  const infer = new InferType(LatestCompilerVersion);
+  return infer.signature(fn);
 }
 
 export function resolveOverriddenFunctions(
   overriding: FunctionDefinition | VariableDeclaration
 ): FunctionDefinition[] {
+  const infer = new InferType(LatestCompilerVersion);
   const contract = overriding.getClosestParentByType(ContractDefinition);
   assert(contract !== undefined, "Overriding function must be in a contract");
   const baseContracts = contract.vLinearizedBaseContracts.slice(1);
   const signature =
     overriding instanceof VariableDeclaration
-      ? overriding.getterCanonicalSignature(ABIEncoderVersion.V2)
+      ? infer.signature(overriding)
       : getFunctionSignatureForOverride(overriding);
 
   const overridden: FunctionDefinition[] = [];
@@ -713,7 +717,7 @@ export function resolveOverriddenFunctions(
 }
 
 export function getUniqueNameInScope(scope: ASTNode, name: string, prefix: string): string {
-  while (resolveAny(name, scope, LatestCompilerVersion, true, false).size > 0) {
+  while (resolveAny(name, scope, new InferType(LatestCompilerVersion), true, false).size > 0) {
     name = `${prefix}${name}`;
   }
   return name;
@@ -796,7 +800,7 @@ export function getUsingForDirectiveFunctions(
 
     if (directive.vFunctionList) {
       for (const funId of directive.vFunctionList) {
-        if (funId.name === functionName) {
+        if (funId instanceof IdentifierPath && funId.name === functionName) {
           const funDef = funId.vReferencedDeclaration;
 
           assert(

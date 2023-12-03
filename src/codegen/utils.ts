@@ -292,6 +292,7 @@ export class ContractCodegenContext {
         false,
         true,
         linearizedBaseContracts,
+        [],
         []
       );
       if (linearizedBaseContracts.length) {
