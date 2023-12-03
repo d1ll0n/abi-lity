@@ -10,13 +10,14 @@ import { WrappedScope, WrappedSourceUnit } from "../../ctx/contract_wrapper";
 export type GenerateDecoderOptions = {
   outputPath?: string;
   outputToLibrary?: boolean;
+  generateTypeDecoders?: boolean;
 };
 
 export function buildDecoderFile(
   helper: CompileHelper,
   primaryFileName: string,
   decoderFileName = primaryFileName.replace(".sol", "Decoder.sol"),
-  { outputPath, outputToLibrary }: GenerateDecoderOptions
+  { outputPath, outputToLibrary, generateTypeDecoders }: GenerateDecoderOptions
 ): WrappedScope {
   let ctx: WrappedScope = WrappedSourceUnit.getWrapper(helper, decoderFileName, outputPath);
   ctx.addPointerLibraries();
@@ -31,7 +32,7 @@ export function buildDecoderFile(
 
   ctx.addDependencyImports(functions);
   const functionTypes = functions.map(functionDefinitionToTypeNode);
-  addTypeDecoders(ctx, [...functionTypes]);
+  if (generateTypeDecoders) addTypeDecoders(ctx, [...functionTypes]);
   return ctx;
 }
 

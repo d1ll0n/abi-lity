@@ -119,7 +119,7 @@ const isValueTuple = (types: TypeNode[]) => types.length <= 4 && types.every((m)
 const emitValueTuple = (topics: string[], unindexedParameters: TypeNode[]) => {
   const innerBody = [];
   const length = topics.length;
-  if (length > 3) {
+  if (unindexedParameters.length > 2) {
     innerBody.push(
       `// Cache the free memory pointer so we can restore it after the event is emitted`,
       `let freePointer := mload(0x40)`
@@ -136,10 +136,10 @@ const emitValueTuple = (topics: string[], unindexedParameters: TypeNode[]) => {
   const logFn = `log${topics.length}`;
   const args = [`0`, size, ...topics].join(", ");
   innerBody.push(`${logFn}(${args})`);
-  if (length > 2) {
-    innerBody.push(`// Restore the zero slot`, `mstore(0x60, 0)`);
-    if (length > 3) {
-      innerBody.push(`// Restore the free memory pointer`, `mstore(0x40, freePointer)`);
+  if (unindexedParameters.length > 2) {
+    innerBody.push(`// Restore the free memory pointer`, `mstore(0x40, freePointer)`);
+    if (unindexedParameters.length > 3) {
+      innerBody.push(`// Restore the zero slot`, `mstore(0x60, 0)`);
     }
   }
   return [`assembly {`, innerBody, `}`];

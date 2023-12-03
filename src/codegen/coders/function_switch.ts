@@ -12,6 +12,8 @@ import {
   FunctionKind,
   FunctionStateMutability,
   FunctionVisibility,
+  InferType,
+  LatestCompilerVersion,
   LiteralKind,
   Mutability,
   SourceUnit,
@@ -20,7 +22,6 @@ import {
   VariableDeclaration,
   VariableDeclarationStatement
 } from "solc-typed-ast";
-import { ABIEncoderVersion } from "solc-typed-ast/dist/types/abi";
 import { TupleType, TypeNode } from "../../ast";
 import { functionDefinitionToTypeNode } from "../../readers";
 import {
@@ -198,6 +199,8 @@ type SearchResults = {
 // }
 
 function getAllFunctions(factory: ASTNodeFactory, originalContract: ContractDefinition) {
+  const infer = new InferType(LatestCompilerVersion);
+
   const functionsBySignature = new Map<string, FunctionDefinition[]>();
   const interfaceFunctionSignatures = new Set<string>();
   const fallbackByContract = new Map<ContractDefinition, FunctionDefinition>();
@@ -212,7 +215,7 @@ function getAllFunctions(factory: ASTNodeFactory, originalContract: ContractDefi
 
   for (const iface of interfaces) {
     for (const fn of iface.vFunctions) {
-      const signature = fn.canonicalSignatureHash(ABIEncoderVersion.V2);
+      const signature = infer.signatureHash(fn);
       interfaceFunctionSignatures.add(signature);
     }
   }
@@ -265,7 +268,7 @@ function getAllFunctions(factory: ASTNodeFactory, originalContract: ContractDefi
       } else if (fn.kind === FunctionKind.Receive) {
         receive = fn;
       } else if (isExternalFunction(fn)) {
-        const signature = fn.canonicalSignatureHash(ABIEncoderVersion.V2);
+        const signature = infer.signatureHash(fn);
         if (interfaceFunctionSignatures.has(signature)) {
           continue;
         }
@@ -424,6 +427,7 @@ export function getFunctionSelectorSwitch(
       factory.makeIdentifier("uint256", "uint256(uint32(msg.sig))", -1)
     )
   );
+  const infer = new InferType(LatestCompilerVersion);
   const msgSelector = factory.makeIdentifierFor(selectorDeclaration);
   for (const fn of externalFunctions) {
     if (fn.isConstructor || fn.visibility !== FunctionVisibility.External) continue;
@@ -448,7 +452,7 @@ export function getFunctionSelectorSwitch(
         "",
         LiteralKind.Number,
         "",
-        `0x${fn.canonicalSignatureHash(ABIEncoderVersion.V2)}`
+        `0x${infer.signatureHash(fn)}`
       );
       body.appendChild(
         factory.makeIfStatement(

@@ -33,7 +33,8 @@ export function createRevertFunction(
   const paramNames = type.parameters?.getIndexedNames(`value`) ?? [];
 
   if (isValueTuple(members)) {
-    body.push(...encodeValueTuple(paramNames));
+    // const selector = ctx.getNameGenConstant("selector", type.errorSelector, type);
+    body.push(...encodeValueTuple([type.errorSelector, ...paramNames]));
   } else if (
     members.length === 1 &&
     (members[0] instanceof BytesType ||
@@ -127,7 +128,7 @@ export function createRevertFunction(
     params,
     undefined,
     body,
-    FunctionStateMutability.NonPayable,
+    FunctionStateMutability.Pure,
     undefined,
     false,
     cb
@@ -143,8 +144,8 @@ const encodeValueTuple = (paramNames: string[]) => {
     if (i === 0) innerBody.push(`mstore(0, ${paramNames[i]})`);
     else innerBody.push(`mstore(${offset}, ${paramNames[i]})`);
   }
-  const size = toHex(paramNames.length * 32);
-  innerBody.push(`revert(0, ${size})`);
+  const size = toHex((paramNames.length - 1) * 32 + 4);
+  innerBody.push(`revert(0x1c, ${size})`);
   return [`assembly {`, innerBody, `}`];
 };
 

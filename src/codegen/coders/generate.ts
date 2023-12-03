@@ -6,6 +6,7 @@ import {
   EventDefinition,
   ExternalReferenceType,
   FunctionDefinition,
+  SolSearchAttributes,
   SourceUnit,
   StringOrNumberAttributes,
   assert
@@ -45,35 +46,19 @@ import {
 import { ErrorType, EventType, TupleType, TypeNode } from "../../ast";
 import { createRevertFunction } from "./abi_encode/create_revert";
 
-export type Options = {
+export type UpgradeCoderOptions = {
   outputPath?: string;
   replaceReturnStatements?: boolean;
   replaceRevertCalls?: boolean;
   replaceHashCalls?: boolean;
   replaceEmitCalls?: boolean;
   replaceAbiEncodeCalls?: boolean;
+  replaceExternalParameters?: boolean;
   replaceStateVariables?: boolean;
   outputToLibrary?: boolean;
   decoderFileName?: string;
   functionSwitch?: boolean;
 };
-
-type WithInvertedProperties<Obj> = Obj & {
-  any?: Obj | Obj[];
-  not?: Obj | Obj[];
-  notAny?: Obj | Obj[];
-};
-type SolChildSearchType = {
-  [K in ASTNodeKind]: {
-    tag: K;
-  } & SolSearchAttributes<K>;
-};
-type SolSearchAttributes<T extends ASTNodeKind> = WithInvertedProperties<
-  Partial<StringOrNumberAttributes<ASTNodeMap[T]>> & {
-    children?: Array<SolChildSearchType[keyof SolChildSearchType]>;
-    ancestors?: Array<SolChildSearchType[keyof SolChildSearchType]>;
-  }
->;
 
 /// @todo Identify pipelines where data is immediately going from one
 /// coder to another, e.g.:
@@ -199,11 +184,12 @@ export function getAbiEncodeCallsWithCommonParameters(
 export function upgradeSourceCoders(
   helper: CompileHelper,
   fileName: string,
-  options: Options,
+  options: UpgradeCoderOptions,
   logger: Logger = new NoopLogger()
 ): void {
   if (options.functionSwitch) {
     options.replaceReturnStatements = true;
+    options.replaceExternalParameters = true;
   }
   const decoderFileName = options.decoderFileName ?? fileName.replace(".sol", "Decoder.sol");
   let decoderSourceUnit: SourceUnit;
@@ -225,7 +211,10 @@ export function upgradeSourceCoders(
     decoderSourceUnit = helper.getSourceUnit(decoderFileName);
   } else {
     logger.log(`generating decoders for ${fileName}...`);
-    const ctx = buildDecoderFile(helper, fileName, decoderFileName, options);
+    const ctx = buildDecoderFile(helper, fileName, decoderFileName, {
+      ...options,
+      generateTypeDecoders: options.replaceExternalParameters
+    });
     decoderSourceUnit = ctx.sourceUnit;
     console.log(`decoder source unit = ${decoderSourceUnit.absolutePath}`);
     const functions = sourceUnit.getChildrenBySelector(isExternalFunction) as FunctionDefinition[];
@@ -277,8 +266,10 @@ export function upgradeSourceCoders(
     ctx.applyPendingFunctions();
   }
 
-  logger.log(`replacing parameter declarations in ${fileName}...`);
-  replaceExternalFunctionReferenceTypeParameters(sourceUnit, decoderSourceUnit);
+  if (options.replaceExternalParameters || options.replaceReturnStatements) {
+    logger.log(`replacing parameter declarations in ${fileName}...`);
+    replaceExternalFunctionReferenceTypeParameters(sourceUnit, decoderSourceUnit);
+  }
 
   for (const contractDefinition of contractDefinitions) {
     if (contractDefinition.kind !== ContractKind.Contract) continue;
@@ -290,7 +281,7 @@ export function upgradeSourceCoders(
         options.replaceReturnStatements
       );
       console.log(`generated dispatch for ${contractDefinition.name}...`);
-    } else {
+    } else if (options.replaceExternalParameters || options.replaceReturnStatements) {
       upgradeFunctionCoders(contractDefinition, decoderSourceUnit, options.replaceReturnStatements);
     }
   }

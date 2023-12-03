@@ -1,10 +1,11 @@
 import { writeFileSync } from "fs";
 import path from "path";
 import { Argv } from "yargs";
-import { upgradeSourceCoders } from "../../../codegen/coders/generate";
+import { UpgradeCoderOptions, upgradeSourceCoders } from "../../../codegen/coders/generate";
 import { cleanIR } from "../../../codegen/utils";
 import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
 import { getCommandLineInputPaths, renameFile } from "../../utils2";
+import _ from "lodash";
 
 const options = {
   input: {
@@ -42,8 +43,66 @@ const options = {
     describe: "Keep the constructor and sourcemap comments in IR output.",
     default: false,
     type: "boolean"
+  },
+  only: {
+    describe: writeNestedStructure([
+      "Only generate the specified coders.",
+      ["return", "revert", "hash", "emit", "encode", "state"].join(", ")
+    ]),
+    array: true,
+    type: "array"
   }
 } as const;
+
+const optionsMap = {
+  return: "replaceReturnStatements",
+  revert: "replaceRevertCalls",
+  hash: "replaceHashCalls",
+  emit: "replaceEmitCalls",
+  encode: "replaceAbiEncodeCalls",
+  state: "replaceStateVariables"
+} as const;
+
+const getOptions = (
+  decoderOnly: boolean,
+  only: Array<keyof typeof optionsMap> = []
+): UpgradeCoderOptions => {
+  if (!only.length) {
+    return {
+      functionSwitch: !decoderOnly,
+      replaceReturnStatements: true,
+      replaceRevertCalls: true,
+      replaceHashCalls: true,
+      replaceEmitCalls: true,
+      replaceAbiEncodeCalls: true,
+      replaceStateVariables: true
+    };
+  }
+
+  const opts: UpgradeCoderOptions = {};
+  for (const option of only) {
+    opts[optionsMap[option]] = true;
+  }
+  return opts;
+};
+
+const defaultOptions = {
+  functionSwitch: true,
+  replaceReturnStatements: true,
+  replaceRevertCalls: true,
+  replaceHashCalls: true,
+  replaceEmitCalls: true,
+  replaceAbiEncodeCalls: true,
+  replaceStateVariables: true
+};
+
+if (
+  !_.isEqual(getOptions(false), defaultOptions) ||
+  !_.isEqual(getOptions(false, []), defaultOptions) ||
+  !_.isEqual(getOptions(true), { ...defaultOptions, functionSwitch: false })
+) {
+  throw Error("getOptions is broken");
+}
 
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
@@ -63,21 +122,25 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args, false, {
         viaIR: true
       });
+      const only = args.only as Array<keyof typeof optionsMap> | undefined;
+      console.log({ only, decoderOnly });
+      const options = getOptions(decoderOnly, only);
+      console.log(options);
 
       const logger = new DebugLogger();
       upgradeSourceCoders(
         helper,
         fileName,
-        {
-          functionSwitch: !decoderOnly,
-          replaceReturnStatements: true,
-          replaceRevertCalls: true,
-          replaceHashCalls: true,
-          replaceEmitCalls: true,
-          replaceAbiEncodeCalls: true,
-          replaceStateVariables: true,
-          
-        },
+        options,
+        // {
+        //   functionSwitch: !decoderOnly,
+        //   replaceReturnStatements: true,
+        //   replaceRevertCalls: true,
+        //   replaceHashCalls: true,
+        //   replaceEmitCalls: true,
+        //   replaceAbiEncodeCalls: true,
+        //   replaceStateVariables: true
+        // },
         logger
       );
 
