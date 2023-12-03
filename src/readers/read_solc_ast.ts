@@ -63,7 +63,6 @@ import { FunctionType as SolcFunctionType } from "solc-typed-ast/dist/types/ast/
 import { ImportRefType as SolcImportRefType } from "solc-typed-ast/dist/types/ast/import_ref_type";
 import { MappingType as SolcMappingType } from "solc-typed-ast/dist/types/ast/mapping_type";
 import { ModifierType as SolcModifierType } from "solc-typed-ast/dist/types/ast/modifier_type";
-import { ModuleType as SolcModuleType } from "solc-typed-ast/dist/types/ast/module_type";
 import { NumericLiteralType as SolcNumericLiteralType } from "solc-typed-ast/dist/types/ast/numeric_literal";
 import { StringType as SolcStringType } from "solc-typed-ast/dist/types/ast/string";
 import { StringLiteralType as SolcStringLiteralType } from "solc-typed-ast/dist/types/ast/string_literal";
@@ -106,7 +105,6 @@ type SolcTypeNode =
   | SolcImportRefType
   | SolcMappingType
   | SolcModifierType
-  | SolcModuleType
   | SolcSuperType;
 
 function UserDefinedTypeToTypeNode(type: SolcUserDefinedType) {
@@ -174,7 +172,7 @@ export function solcTypeNodeToTypeNode(type: SolcTypeNode): TypeNode {
     return new EventType(type.name!, parameters);
   }
   if (type instanceof SolcTupleType) {
-    return new TupleType(type.elements.map((c) => solcTypeNodeToTypeNode(c)));
+    return new TupleType(type.elements.map((c) => solcTypeNodeToTypeNode(c as SolcTypeNode)));
   }
   if (type instanceof SolcFunctionType) {
     const parameters =
@@ -209,7 +207,7 @@ export function typeNameToTypeNode(astT: TypeName): TypeNode {
     let size: bigint | undefined;
 
     if (astT.vLength) {
-      const result = evalConstantExpr(astT.vLength);
+      const result = evalConstantExpr(astT.vLength, Infer);
 
       assert(typeof result === "bigint", "Expected bigint for size of an array type", astT);
 
@@ -316,7 +314,7 @@ export function enumDefinitionToTypeNode(ast: EnumDefinition): EnumType {
 }
 
 export function structDefinitionToTypeNode(ast: StructDefinition): StructType {
-  const members = convertVariableDeclarations(ast.vMembers);
+  const members = convertVariableDeclarations([...ast.vMembers]);
   return new StructType(members, ast.name, ast.canonicalName);
 }
 
