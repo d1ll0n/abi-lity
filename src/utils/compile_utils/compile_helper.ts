@@ -206,7 +206,7 @@ export class CompileHelper {
             console.log(`Duplicate contract name ${contractName}`);
             contractName = `${fileName}:${contractName}`;
           }
-          const { ir, irOptimized, abi } = contract;
+          const { ir, irOptimized, irAst, irOptimizedAst, abi } = contract;
           const creationCode = contract.evm?.bytecode?.object ?? "";
           const runtimeCode = contract.evm?.deployedBytecode?.object ?? "";
           const generatedSources: any = contract.evm?.deployedBytecode?.generatedSources;
@@ -214,7 +214,9 @@ export class CompileHelper {
           const functionDebugData: any = contract.evm?.deployedBytecode?.functionDebugData;
           this.contractsMap.set(contractName, {
             ir,
+            irAst,
             irOptimized,
+            irOptimizedAst,
             abi,
             creationCode,
             runtimeCode,

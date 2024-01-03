@@ -83,7 +83,9 @@ export type ContractOutput = {
   creationCode: string;
   runtimeCode: string;
   irOptimized: string;
+  irOptimizedAst?: any;
   ir: string;
+  irAst?: any;
   generatedSources?: any;
   sourceMap?: string;
   functionDebugData?: any;
@@ -106,7 +108,15 @@ export const CompilerOutputConfigs = {
   IR: ["ir" as any, CompilationOutput.AST],
   IR_OPTIMIZED: ["irOptimized" as any, CompilationOutput.AST],
   CODEGEN: [CompilationOutput.AST],
-  ABI: [CompilationOutput.ABI, CompilationOutput.AST]
+  ABI: [CompilationOutput.ABI, CompilationOutput.AST],
+  IR_TRACE: [
+    CompilationOutput.EVM_ASSEMBLY,
+    CompilationOutput.IR,
+    CompilationOutput.IR_AST,
+    CompilationOutput.AST,
+    CompilationOutput.IR_OPTIMIZED,
+    CompilationOutput.IR_OPTIMIZED_AST
+  ]
 };
 
 // Compiler options given by API consumer (e.g. cli, fn that triggers a compile)
