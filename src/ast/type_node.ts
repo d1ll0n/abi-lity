@@ -127,7 +127,7 @@ export abstract class TypeNode extends Node<TypeNode> {
   /** @returns bytes required to represent the data, irrespective of ABI encoding rules */
   get exactBytes(): number | undefined {
     if (this.exactBits === undefined) return undefined;
-    return Math.ceil(this.exactBits / 8) * 8;
+    return Math.ceil(this.exactBits / 8);
   }
 
   /** @returns bits required to represent the data in packed ABI encoding*/

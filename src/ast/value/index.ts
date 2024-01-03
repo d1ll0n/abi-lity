@@ -7,6 +7,8 @@ import { FunctionType } from "./function_type";
 import { IntegerType } from "./integer_type";
 import { ErrorType } from "./error_type";
 import { EventType } from "./event_type";
+import { TypeNode } from "../type_node";
+import { isInstanceOf } from "solc-typed-ast";
 
 export * from "./address_type";
 export * from "./bool_type";
@@ -41,3 +43,7 @@ export const PossibleValueTypes = [
   FunctionType,
   IntegerType
 ];
+
+export const isUValueType = (type: TypeNode): type is UValueType => {
+  return isInstanceOf(type, ...PossibleValueTypes);
+};

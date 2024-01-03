@@ -16,6 +16,12 @@ export function getOffsetExpression(
   return offsetNotNull ? `${parent}.offset(${offsetString})` : parent;
 }
 
+export function getOffsetYulExpression(parent: string, offset: number | string): string {
+  const offsetString = typeof offset === "number" ? toHex(offset) : offset;
+  const offsetNotNull = Boolean(offset);
+  return offsetNotNull ? `add(${parent}, ${offsetString})` : parent;
+}
+
 function getOffset(type: TypeNode, encoding: EncodingScheme): number {
   switch (encoding) {
     case EncodingScheme.SolidityMemory:

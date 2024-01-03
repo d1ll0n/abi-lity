@@ -20,7 +20,8 @@ export class StructType extends TupleLikeType {
         copy.labelFromParent = member.labelFromParent;
         return copy;
       }),
-      this.name
+      this.name,
+      this.canonicalNameOverride
     );
     struct.labelFromParent = this.labelFromParent;
     return struct;

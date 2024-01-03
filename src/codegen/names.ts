@@ -198,6 +198,12 @@ export const NameGen = {
   ): string => {
     const middle = returnParameter ? "_returnParameters" : "_parameters";
     return `${type.name}${middle}_head_size`;
+  },
+  cacheType: (type: TypeNode): string => {
+    return `${type.identifier}Cache`;
+  },
+  cacheTypeLibrary: (type: TypeNode): string => {
+    return `Lib${type.identifier}Cache`;
   }
 } as const;
 
