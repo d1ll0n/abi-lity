@@ -1,8 +1,13 @@
-import { ContractKind, assert } from "solc-typed-ast";
+import { ContractKind, SourceUnit, StructDefinition, assert } from "solc-typed-ast";
 import { ArrayType, StructType, TypeNode, UValueType, ValueType, isUValueType } from "../../../ast";
-import { coerceArray } from "../../../utils";
+import { addDefinitionImports, coerceArray } from "../../../utils";
 import { readTypeNodesFromSolidity } from "../../../readers";
-import { WrappedContract, WrappedScope, WrappedSourceUnit } from "../../ctx/contract_wrapper";
+import {
+  WrappedContract,
+  WrappedScope,
+  WrappedSourceUnit,
+  wrapScope
+} from "../../ctx/contract_wrapper";
 import { getOffsetYulExpression } from "../../offsets";
 import NameGen from "../../names";
 
@@ -133,18 +138,24 @@ class StorageCacheLibraryGenerator {
   storagePositions: StoragePosition[] = [];
   cacheTypeName: string;
   cacheLibraryName: string;
-  library: WrappedContract;
+  ctx: WrappedContract;
 
-  constructor(public type: StructType | ArrayType, public ctx: WrappedSourceUnit) {
+  constructor(
+    public typeDefinition: StructDefinition | undefined,
+    public type: StructType | ArrayType,
+    sourceUnit: WrappedSourceUnit
+  ) {
     this.storagePositions = StoragePositionTracker.getPositions(type);
     this.cacheTypeName = NameGen.cacheType(type);
     this.cacheLibraryName = NameGen.cacheTypeLibrary(type);
-    this.library = ctx.addContract(this.cacheLibraryName, ContractKind.Library);
+    this.ctx = sourceUnit.addContract(this.cacheLibraryName, ContractKind.Library);
 
-    ctx.addValueTypeDefinition(this.cacheTypeName);
-    ctx.addCustomTypeUsingForDirective(
+    this.ctx.addValueTypeDefinition(this.cacheTypeName, false);
+    this.ctx.addCustomTypeUsingForDirective(
       this.cacheTypeName,
-      this.ctx.factory.makeIdentifierPath(this.cacheLibraryName, this.library.scope.id)
+      this.ctx.factory.makeIdentifierPath(this.cacheLibraryName, this.ctx.scope.id),
+      undefined,
+      true
     );
     if (this.numSlots > 32) {
       throw Error(`Not implemented: storage cache for type with more than 32 slots`);
@@ -157,6 +168,18 @@ class StorageCacheLibraryGenerator {
 
   get numSlots() {
     return Math.max(...this.storagePositions.map((p) => p.slot)) + 1;
+  }
+
+  addCacheReadGlobalFunction() {
+    // const sourceUnit = this.typeDefinition.getClosestParentByType(SourceUnit);
+    // if (sourceUnit && )
+    if (this.typeDefinition?.parent instanceof SourceUnit) {
+      // const fn = this.createReadFromStorageFunction();
+      // this.typeDefinition.parent.addFunction(fn);
+      addDefinitionImports(this.typeDefinition.parent, [this.ctx.scope]);
+      const scope = wrapScope(this.ctx.helper, this.typeDefinition.parent);
+      scope.addCustomTypeUsingForDirective(this.typeDefinition.name);
+    }
   }
 
   createReadFromStorageFunction() {
@@ -175,7 +198,8 @@ class StorageCacheLibraryGenerator {
       assemblyBody.push(`mstore(${memPointer}, sload(${storageSlot}))`);
     }
     const body = [`assembly {`, assemblyBody, `}`];
-    return this.ctx.addf(NameGen.cacheRead(this.type), [], this.cacheTypeName, body);
+
+    return this.ctx.addFunction("cache", [], this.cacheTypeName, body);
   }
 }
 
