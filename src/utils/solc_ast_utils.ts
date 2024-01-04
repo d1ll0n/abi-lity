@@ -495,6 +495,8 @@ export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDe
       console.log(`No scope for type?`);
       console.log(type.print(1));
     }
+    // If child scoped to file, import child directly.
+    // If contract, import contract.
     const foreignSymbol = staticNodeFactory.makeIdentifierFor(
       type.vScope.type === "SourceUnit" ? type : (type.vScope as ContractDefinition)
     );
