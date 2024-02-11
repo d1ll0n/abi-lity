@@ -310,24 +310,24 @@ const PossibleLinkedYulVariableTypes = [
   LinkedYulVariableType.Inner
 ];
 
-function parseYulVariableName(node: YulTypedName | YulIdentifier) {
-  const [_, originalName, astId, suffix] =
-    /(var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))*"/g.exec(node.name) ?? [];
-  if (astId) {
-    return {
-      originAstID: astId,
-      suffix:
-        suffix && PossibleLinkedYulVariableTypes.includes(suffix as any)
-          ? (suffix as LinkedYulVariableType)
-          : undefined
-    };
-  }
-}
+// function parseYulVariableName(node: YulTypedName | YulIdentifier) {
+//   const [_, originalName, astId, suffix] =
+//     /(var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))*"/g.exec(node.name) ?? [];
+//   if (astId) {
+//     return {
+//       originAstID: astId,
+//       suffix:
+//         suffix && PossibleLinkedYulVariableTypes.includes(suffix as any)
+//           ? (suffix as LinkedYulVariableType)
+//           : undefined
+//     };
+//   }
+// }
 
-function parseYulName(name: string) {
-  const [_, originalName, astId, suffix] =
-    /(var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))?"/g;
-}
+// function parseYulName(name: string) {
+// const [_, originalName, astId, suffix] =
+//   /(var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))?"/g;
+// }
 
 const CompileOptions = {
   outputs: [
@@ -386,12 +386,12 @@ async function testOutput() {
     )
   );
   const fnDef = search.findFunctionsByName("getThirdWord")![0];
-  const fnCall = search.findFunctionCalls(fnDef)[0]!;
-  console.log(fnCall.sourceInfo);
+  // const fnCall = search.findFunctionCalls(fnDef)[0]!;
+  // console.log(fnCall.sourceInfo);
   /*   const functionDefinition = ctx.sourceUnit
     .getChildrenByType(FunctionDefinition)
     .find((fd) => fd.name === "test2")!; */
-  const nodes = ctx.getIrCodeGeneratedFromNode(fnCall);
+  const nodes = ctx.getIrCodeGeneratedFromNode(fnDef);
   console.log(
     `Nodes generated from ${fnDef.name}: ${nodes.length}  | ${nodes.map((n) => n.type).join(",")}`
   );

@@ -1,5 +1,7 @@
 import { TextDecoder, TextEncoder } from "util";
 import { getAddress } from "@ethersproject/address";
+import { getOffsetYulExpression } from "../codegen/offsets";
+import { yulBuiltins } from "solc-typed-ast";
 
 export const toHex = (n: number | bigint): string => {
   let bytes = n.toString(16);
@@ -23,7 +25,7 @@ export const maxUint = (bits: number): bigint => 2n ** BigInt(bits) - 1n;
 export const getMaxUint = (bits: number): string =>
   `0x${maxUint(bits).toString(16).padStart(64, "0")}`;
 
-const getOmitMask = (offset: number, size: number) => {
+const getOmitMask = (size: number, offset: number) => {
   const bitsAfterStart = 256 - offset;
   const bitsAfter = bitsAfterStart - size;
   let mask = maxUint(offset) << BigInt(bitsAfterStart);
@@ -31,11 +33,15 @@ const getOmitMask = (offset: number, size: number) => {
   return mask;
 };
 
-export const getOmissionMask = (bitsBefore: number, size: number): string => {
-  return toHex(getOmitMask(bitsBefore, size));
+export const getOmissionMask = (size: number, offset: number): string => {
+  return toHex(getOmitMask(size, offset));
 };
 
-export const getInclusionMask = (bits: number): string => toHex(maxUint(bits));
+export const getInclusionMask = (bits: number, offset = 256 - bits): string => {
+  const bitsAfterStart = 256 - offset;
+  const bitsAfter = bitsAfterStart - bits;
+  return toHex(maxUint(bits) << BigInt(bitsAfter));
+};
 
 export const bitsRequired = (n: number, roundUp?: boolean): number => {
   const a = Math.ceil(Math.log2(n + 1));

@@ -1,0 +1,413 @@
+{
+  "storageLayout": {
+    "storage": [
+      {
+        "astId": 69418,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "_reentrancyGuard",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_uint256"
+      },
+      {
+        "astId": 80881,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "name",
+        "offset": 0,
+        "slot": "1",
+        "type": "t_string_storage"
+      },
+      {
+        "astId": 80884,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "symbol",
+        "offset": 0,
+        "slot": "2",
+        "type": "t_string_storage"
+      },
+      {
+        "astId": 80896,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "_state",
+        "offset": 0,
+        "slot": "3",
+        "type": "t_struct(MarketState)78902_storage"
+      },
+      {
+        "astId": 80901,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "_accounts",
+        "offset": 0,
+        "slot": "7",
+        "type": "t_mapping(t_address,t_struct(Account)78908_storage)"
+      },
+      {
+        "astId": 80904,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "_withdrawalData",
+        "offset": 0,
+        "slot": "8",
+        "type": "t_struct(WithdrawalData)80148_storage"
+      },
+      {
+        "astId": 82562,
+        "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+        "label": "allowance",
+        "offset": 0,
+        "slot": "12",
+        "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_bool": {
+        "encoding": "inplace",
+        "label": "bool",
+        "numberOfBytes": "1"
+      },
+      "t_enum(AuthRole)74919": {
+        "encoding": "inplace",
+        "label": "enum AuthRole",
+        "numberOfBytes": "1"
+      },
+      "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => mapping(address => uint256))",
+        "numberOfBytes": "32",
+        "value": "t_mapping(t_address,t_uint256)"
+      },
+      "t_mapping(t_address,t_struct(Account)78908_storage)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => struct Account)",
+        "numberOfBytes": "32",
+        "value": "t_struct(Account)78908_storage"
+      },
+      "t_mapping(t_address,t_struct(AccountWithdrawalStatus)80132_storage)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => struct AccountWithdrawalStatus)",
+        "numberOfBytes": "32",
+        "value": "t_struct(AccountWithdrawalStatus)80132_storage"
+      },
+      "t_mapping(t_address,t_uint256)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => uint256)",
+        "numberOfBytes": "32",
+        "value": "t_uint256"
+      },
+      "t_mapping(t_uint256,t_mapping(t_address,t_struct(AccountWithdrawalStatus)80132_storage))": {
+        "encoding": "mapping",
+        "key": "t_uint256",
+        "label": "mapping(uint256 => mapping(address => struct AccountWithdrawalStatus))",
+        "numberOfBytes": "32",
+        "value": "t_mapping(t_address,t_struct(AccountWithdrawalStatus)80132_storage)"
+      },
+      "t_mapping(t_uint256,t_uint32)": {
+        "encoding": "mapping",
+        "key": "t_uint256",
+        "label": "mapping(uint256 => uint32)",
+        "numberOfBytes": "32",
+        "value": "t_uint32"
+      },
+      "t_mapping(t_uint32,t_struct(WithdrawalBatch)80127_storage)": {
+        "encoding": "mapping",
+        "key": "t_uint32",
+        "label": "mapping(uint32 => struct WithdrawalBatch)",
+        "numberOfBytes": "32",
+        "value": "t_struct(WithdrawalBatch)80127_storage"
+      },
+      "t_string_storage": {
+        "encoding": "bytes",
+        "label": "string",
+        "numberOfBytes": "32"
+      },
+      "t_struct(Account)78908_storage": {
+        "encoding": "inplace",
+        "label": "struct Account",
+        "numberOfBytes": "32",
+        "members": [
+          {
+            "astId": 78905,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "approval",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_enum(AuthRole)74919"
+          },
+          {
+            "astId": 78907,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaledBalance",
+            "offset": 1,
+            "slot": "0",
+            "type": "t_uint104"
+          }
+        ]
+      },
+      "t_struct(AccountWithdrawalStatus)80132_storage": {
+        "encoding": "inplace",
+        "label": "struct AccountWithdrawalStatus",
+        "numberOfBytes": "32",
+        "members": [
+          {
+            "astId": 80129,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaledAmount",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint104"
+          },
+          {
+            "astId": 80131,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "normalizedAmountWithdrawn",
+            "offset": 13,
+            "slot": "0",
+            "type": "t_uint128"
+          }
+        ]
+      },
+      "t_struct(FIFOQueue)77770_storage": {
+        "encoding": "inplace",
+        "label": "struct FIFOQueue",
+        "numberOfBytes": "64",
+        "members": [
+          {
+            "astId": 77763,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "startIndex",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 77765,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "nextIndex",
+            "offset": 16,
+            "slot": "0",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 77769,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "data",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_mapping(t_uint256,t_uint32)"
+          }
+        ]
+      },
+      "t_struct(MarketState)78902_storage": {
+        "encoding": "inplace",
+        "label": "struct MarketState",
+        "numberOfBytes": "128",
+        "members": [
+          {
+            "astId": 78877,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "isClosed",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_bool"
+          },
+          {
+            "astId": 78879,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "maxTotalSupply",
+            "offset": 1,
+            "slot": "0",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 78881,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "accruedProtocolFees",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 78883,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "normalizedUnclaimedWithdrawals",
+            "offset": 16,
+            "slot": "1",
+            "type": "t_uint128"
+          },
+          {
+            "astId": 78885,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaledTotalSupply",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_uint104"
+          },
+          {
+            "astId": 78887,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaledPendingWithdrawals",
+            "offset": 13,
+            "slot": "2",
+            "type": "t_uint104"
+          },
+          {
+            "astId": 78889,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "pendingWithdrawalExpiry",
+            "offset": 26,
+            "slot": "2",
+            "type": "t_uint32"
+          },
+          {
+            "astId": 78891,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "isDelinquent",
+            "offset": 30,
+            "slot": "2",
+            "type": "t_bool"
+          },
+          {
+            "astId": 78893,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "timeDelinquent",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint32"
+          },
+          {
+            "astId": 78895,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "annualInterestBips",
+            "offset": 4,
+            "slot": "3",
+            "type": "t_uint16"
+          },
+          {
+            "astId": 78897,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "reserveRatioBips",
+            "offset": 6,
+            "slot": "3",
+            "type": "t_uint16"
+          },
+          {
+            "astId": 78899,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaleFactor",
+            "offset": 8,
+            "slot": "3",
+            "type": "t_uint112"
+          },
+          {
+            "astId": 78901,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "lastInterestAccruedTimestamp",
+            "offset": 22,
+            "slot": "3",
+            "type": "t_uint32"
+          }
+        ]
+      },
+      "t_struct(WithdrawalBatch)80127_storage": {
+        "encoding": "inplace",
+        "label": "struct WithdrawalBatch",
+        "numberOfBytes": "64",
+        "members": [
+          {
+            "astId": 80122,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaledTotalAmount",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint104"
+          },
+          {
+            "astId": 80124,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "scaledAmountBurned",
+            "offset": 13,
+            "slot": "0",
+            "type": "t_uint104"
+          },
+          {
+            "astId": 80126,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "normalizedAmountPaid",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint128"
+          }
+        ]
+      },
+      "t_struct(WithdrawalData)80148_storage": {
+        "encoding": "inplace",
+        "label": "struct WithdrawalData",
+        "numberOfBytes": "128",
+        "members": [
+          {
+            "astId": 80135,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "unpaidBatches",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_struct(FIFOQueue)77770_storage"
+          },
+          {
+            "astId": 80140,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "batches",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_mapping(t_uint32,t_struct(WithdrawalBatch)80127_storage)"
+          },
+          {
+            "astId": 80147,
+            "contract": "src/market/WildcatMarket.sol:WildcatMarket",
+            "label": "accountStatuses",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_mapping(t_uint256,t_mapping(t_address,t_struct(AccountWithdrawalStatus)80132_storage))"
+          }
+        ]
+      },
+      "t_uint104": {
+        "encoding": "inplace",
+        "label": "uint104",
+        "numberOfBytes": "13"
+      },
+      "t_uint112": {
+        "encoding": "inplace",
+        "label": "uint112",
+        "numberOfBytes": "14"
+      },
+      "t_uint128": {
+        "encoding": "inplace",
+        "label": "uint128",
+        "numberOfBytes": "16"
+      },
+      "t_uint16": {
+        "encoding": "inplace",
+        "label": "uint16",
+        "numberOfBytes": "2"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "label": "uint256",
+        "numberOfBytes": "32"
+      },
+      "t_uint32": {
+        "encoding": "inplace",
+        "label": "uint32",
+        "numberOfBytes": "4"
+      }
+    }
+  }
+}

@@ -1,7 +1,18 @@
-import { ContractKind, SourceUnit, StructDefinition, assert } from "solc-typed-ast";
+import {
+  ASTWriter,
+  ContractKind,
+  DataLocation,
+  DefaultASTWriterMapping,
+  FunctionStateMutability,
+  LatestCompilerVersion,
+  PrettyFormatter,
+  SourceUnit,
+  StructDefinition,
+  assert
+} from "solc-typed-ast";
 import { ArrayType, StructType, TypeNode, UValueType, ValueType, isUValueType } from "../../../ast";
-import { addDefinitionImports, coerceArray } from "../../../utils";
-import { readTypeNodesFromSolidity } from "../../../readers";
+import { addDefinitionImports, coerceArray, getInclusionMask, toHex } from "../../../utils";
+import { readTypeNodesFromSolcAST, readTypeNodesFromSolidity } from "../../../readers";
 import {
   WrappedContract,
   WrappedScope,
@@ -9,13 +20,28 @@ import {
   wrapScope
 } from "../../ctx/contract_wrapper";
 import { getOffsetYulExpression } from "../../offsets";
-import NameGen from "../../names";
+import NameGen, { toPascalCase } from "../../names";
+import { getReadFromMemoryAccessor } from "./accessors/read_options";
+import { getWriteToMemoryAccessor } from "./accessors/write_options";
+import { add } from "./accessors/utils";
+import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
+
+// type StoredValuePosition = {
+// slot: number;
+// slotOffsetBytes: number;
+// parentOffsetBytes: number;
+// stackBitsBefore: number;
+// stackBitsAfter: number;
+// bytesLength: number;
+// label: string;
+// type: ValueType;
+// };
 
 type StoragePosition = {
   slot: number;
-  offset: number;
-  absoluteOffset: number;
-  size: number;
+  slotOffsetBytes: number;
+  parentOffsetBytes: number;
+  bytesLength: number;
   label: string;
   type: ValueType;
 } & (
@@ -34,8 +60,8 @@ class StorageField<T extends number | undefined = undefined> {
   public arrayIndex: T;
   constructor(
     public slot: number,
-    public offset: number,
-    public size: number,
+    public slotOffsetBytes: number,
+    public bytesLength: number,
     public label: string,
     public type: ValueType,
     arrayParentId?: T,
@@ -48,32 +74,32 @@ class StorageField<T extends number | undefined = undefined> {
 
 class StoragePositionTracker {
   slot = 0;
-  offset = 0;
+  slotOffsetBytes = 0;
   positions: StoragePosition[] = [];
 
   forceNextSlot() {
-    if (this.offset !== 0) {
+    if (this.slotOffsetBytes !== 0) {
       this.slot++;
-      this.offset = 0;
+      this.slotOffsetBytes = 0;
     }
   }
 
   visitValueType(field: UValueType): StoragePosition {
     assert(field.labelFromParent !== undefined, "Expected field to have a label");
-    const size = field.exactBytes as number;
-    if (this.offset + size > 31) {
+    const bytesLength = field.exactBytes as number;
+    if (this.slotOffsetBytes + bytesLength > 31) {
       this.slot++;
-      this.offset = 0;
+      this.slotOffsetBytes = 0;
     }
     const position = {
       slot: this.slot,
-      offset: this.offset,
-      absoluteOffset: this.slot * 32 + this.offset,
-      size,
+      slotOffsetBytes: this.slotOffsetBytes,
+      parentOffsetBytes: this.slot * 32 + this.slotOffsetBytes,
+      bytesLength,
       label: field.labelFromParent,
       type: field
     };
-    this.offset += size;
+    this.slotOffsetBytes += bytesLength;
     return position;
   }
 
@@ -143,7 +169,9 @@ class StorageCacheLibraryGenerator {
   constructor(
     public typeDefinition: StructDefinition | undefined,
     public type: StructType | ArrayType,
-    sourceUnit: WrappedSourceUnit
+    sourceUnit: WrappedSourceUnit,
+    public gasToCodePreferenceRatio = 3,
+    public defaultSelectionForSameScore: "leastgas" | "leastcode" = "leastgas"
   ) {
     this.storagePositions = StoragePositionTracker.getPositions(type);
     this.cacheTypeName = NameGen.cacheType(type);
@@ -162,8 +190,23 @@ class StorageCacheLibraryGenerator {
     }
   }
 
+  static fromStruct(
+    typeDefinition: StructDefinition | undefined,
+    struct: StructType | ArrayType,
+    sourceUnit: WrappedSourceUnit
+  ) {
+    const generator = new StorageCacheLibraryGenerator(typeDefinition, struct, sourceUnit);
+    generator.createReadFromStorageFunction();
+    for (const position of generator.storagePositions) {
+      generator.createReadParameterFromMemoryFunction(position);
+      generator.createWriteParameterToMemoryFunction(position);
+    }
+    generator.createWriteToStorageFunction();
+    return generator;
+  }
+
   get memberBytes() {
-    return this.storagePositions.reduce((t, p) => p.size, 0);
+    return this.storagePositions.reduce((t, p) => t + p.bytesLength, 0);
   }
 
   get numSlots() {
@@ -182,24 +225,121 @@ class StorageCacheLibraryGenerator {
     }
   }
 
-  createReadFromStorageFunction() {
+  createReadFromStorageFunction(): string {
     const bytesToAllocate = Math.ceil((this.memberBytes + this.numSlots) / 32) * 32;
     const assemblyBody = [
-      `cache := mload(0x40)`,
+      `_cache := mload(0x40)`,
       `// Reserve space for the struct and the flags for updated slots`,
-      `mstore(0x40, add(cache, ${bytesToAllocate}))`,
+      `mstore(0x40, add(_cache, ${toHex(bytesToAllocate)}))`,
       `// Ensure the flags are zeroed`,
-      `mstore(cache, 0)`,
+      `mstore(_cache, 0)`,
       `// Read each storage value into memory`
     ];
     for (let i = 0; i < this.numSlots; i++) {
-      const memPointer = getOffsetYulExpression(`cache`, i * 32 + this.numSlots);
-      const storageSlot = getOffsetYulExpression(`stored`, i);
+      const memPointer = getOffsetYulExpression(`_cache`, i * 32 + this.numSlots);
+      const storageSlot = getOffsetYulExpression(`stored.slot`, i);
       assemblyBody.push(`mstore(${memPointer}, sload(${storageSlot}))`);
     }
     const body = [`assembly {`, assemblyBody, `}`];
 
-    return this.ctx.addFunction("cache", [], this.cacheTypeName, body);
+    return this.ctx.addInternalFunction(
+      "cache",
+      this.type.writeParameter(DataLocation.Storage, `stored`),
+      `${this.cacheTypeName} _cache`,
+      body
+    );
+  }
+
+  createReadParameterFromMemoryFunction(position: StoragePosition): string {
+    const label = position.label.split(".").pop() as string;
+    const absoluteOffsetBytes = position.parentOffsetBytes + this.numSlots;
+    const returnValue = position.type.writeParameter(DataLocation.Memory, label);
+    const accessor = getReadFromMemoryAccessor(
+      `_cache`,
+      position.type.leftAligned,
+      absoluteOffsetBytes,
+      position.bytesLength,
+      this.gasToCodePreferenceRatio,
+      this.defaultSelectionForSameScore
+    );
+
+    const body = `assembly { ${label} := ${accessor} }`;
+    return this.ctx.addInternalFunction(
+      `get${toPascalCase(label)}`,
+      `${this.cacheTypeName} _cache`,
+      returnValue,
+      body,
+      FunctionStateMutability.Pure
+    );
+  }
+
+  createWriteParameterToMemoryFunction(position: StoragePosition): string {
+    const label = position.label.split(".").pop() as string;
+    const absoluteOffsetBytes = position.parentOffsetBytes + this.numSlots;
+    const newValueParameter = position.type.writeParameter(DataLocation.Memory, label);
+    const accessor = getWriteToMemoryAccessor(
+      `_cache`,
+      position.type.leftAligned,
+      absoluteOffsetBytes,
+      position.bytesLength,
+      label,
+      this.gasToCodePreferenceRatio,
+      this.defaultSelectionForSameScore
+    );
+    const slotPointer = add(`_cache`, position.slot);
+    const body = [
+      `assembly {`,
+      [
+        `// Update slot update flag`,
+        `mstore8(${slotPointer}, 1)`,
+        `// Overwrite ${label} in cache`,
+        ...accessor.split("\n")
+      ],
+      `}`
+    ];
+    return this.ctx.addInternalFunction(
+      `set${toPascalCase(label)}`,
+      `${this.cacheTypeName} _cache, ${newValueParameter}`,
+      undefined,
+      body,
+      FunctionStateMutability.Pure
+    );
+  }
+
+  createWriteToStorageFunction(): string {
+    const body = [];
+    const numFlagWords = Math.ceil(this.numSlots / 32);
+
+    for (let i = 0; i < numFlagWords; i++) {
+      body.push(`${i === 0 ? "let " : ""}flags := mload(${add("_cache", i)})`);
+      const firstSlot = i * 32;
+      const lastByteToCheck = Math.min((i + 1) * 32, this.numSlots) - firstSlot;
+      for (let j = 0; j < lastByteToCheck; j++) {
+        const slot = firstSlot + j;
+        const slotMemoryPointer = add(`_cache`, this.numSlots + slot * 32);
+        const storagePointer = add(`stored.slot`, slot);
+        body.push(
+          `if byte(${j}, flags) { sstore(${storagePointer}, mload(${slotMemoryPointer})) }`
+        );
+      }
+    }
+    body.push(
+      `// Clear the cache update flags`,
+      `calldatacopy(_cache, calldatasize(), ${this.numSlots})`
+    );
+
+    const inputParameters = [
+      this.type.writeParameter(DataLocation.Storage, `stored`),
+      `${this.cacheTypeName} _cache`
+    ].join(", ");
+
+    return this.ctx.addInternalFunction(
+      "update",
+      inputParameters,
+      undefined,
+      [`assembly {`, body, `}`],
+      FunctionStateMutability.NonPayable
+    );
   }
 }
 
@@ -242,8 +382,10 @@ async function test() {
   const positions = StoragePositionTracker.getPositions(MarketState);
   const printPositions = (positions: StoragePosition[]) => {
     for (const position of positions) {
-      const end = position.offset + position.size;
-      console.log(`Slot ${position.slot} | [${position.offset}:${end}] | ${position.label}`);
+      const end = position.slotOffsetBytes + position.bytesLength;
+      console.log(
+        `Slot ${position.slot} | [${position.slotOffsetBytes}:${end}] | ${position.label}`
+      );
     }
   };
   // console.log(positions);
@@ -281,7 +423,89 @@ async function test() {
   rebuildStruct(MarketState, optimizedPositions);
 }
 
-test();
+// test();
+
+async function testGenerate() {
+  const h = await CompileHelper.fromFiles(
+    new Map([
+      [
+        "MarketState.sol",
+        `struct MarketState {
+      bool isClosed;
+      uint128 maxTotalSupply;
+      uint128 accruedProtocolFees;
+      // Underlying assets reserved for withdrawals which have been paid
+      // by the borrower but not yet executed.
+      uint128 normalizedUnclaimedWithdrawals;
+      // Scaled token supply (divided by scaleFactor)
+      uint104 scaledTotalSupply;
+      // Scaled token amount in withdrawal batches that have not been
+      // paid by borrower yet.
+      uint104 scaledPendingWithdrawals;
+      uint32 pendingWithdrawalExpiry;
+      // Whether market is currently delinquent (liquidity under requirement)
+      bool isDelinquent;
+      // Seconds borrower has been delinquent
+      uint32 timeDelinquent;
+      // Annual interest rate accrued to lenders, in basis points
+      uint16 annualInterestBips;
+      // Percentage of outstanding balance that must be held in liquid reserves
+      uint16 reserveRatioBips;
+      // Ratio between internal balances and underlying token amounts
+      uint112 scaleFactor;
+      uint32 lastInterestAccruedTimestamp;
+    }`
+      ]
+    ]),
+    `MarketState.sol`
+  );
+  const sourceUnit = WrappedSourceUnit.getWrapper(h, h.getSourceUnit("MarketState.sol"));
+  const typeDefinition = sourceUnit.scope.getChildrenByType(StructDefinition)[0];
+  const type = readTypeNodesFromSolcAST(false, sourceUnit.scope).structs[0] as StructType;
+  const reader = readTypeNodesFromSolidity(`struct MarketState {
+    bool isClosed;
+    uint128 maxTotalSupply;
+    uint128 accruedProtocolFees;
+    // Underlying assets reserved for withdrawals which have been paid
+    // by the borrower but not yet executed.
+    uint128 normalizedUnclaimedWithdrawals;
+    // Scaled token supply (divided by scaleFactor)
+    uint104 scaledTotalSupply;
+    // Scaled token amount in withdrawal batches that have not been
+    // paid by borrower yet.
+    uint104 scaledPendingWithdrawals;
+    uint32 pendingWithdrawalExpiry;
+    // Whether market is currently delinquent (liquidity under requirement)
+    bool isDelinquent;
+    // Seconds borrower has been delinquent
+    uint32 timeDelinquent;
+    // Annual interest rate accrued to lenders, in basis points
+    uint16 annualInterestBips;
+    // Percentage of outstanding balance that must be held in liquid reserves
+    uint16 reserveRatioBips;
+    // Ratio between internal balances and underlying token amounts
+    uint112 scaleFactor;
+    uint32 lastInterestAccruedTimestamp;
+  }`);
+  const MarketState = reader.structs[0];
+  MarketState.labelFromParent = "state";
+  console.log(MarketState.writeDefinition());
+
+  const generator = StorageCacheLibraryGenerator.fromStruct(
+    typeDefinition,
+    MarketState,
+    sourceUnit
+  );
+  await generator.ctx.applyPendingFunctions();
+  const codeOut = new ASTWriter(
+    DefaultASTWriterMapping,
+    new PrettyFormatter(2),
+    LatestCompilerVersion
+  ).write(generator.ctx.sourceUnit);
+  console.log(codeOut);
+}
+
+testGenerate();
 
 function optimizeStoragePositions(positions: StoragePosition[]): StoragePosition[][] {
   const MAX_SLOT_SIZE = 32;
@@ -289,12 +513,12 @@ function optimizeStoragePositions(positions: StoragePosition[]): StoragePosition
 
   const { arrayGroups, individualElements } = separateElements(positions);
 
-  // Sort individual elements by size in descending order
-  individualElements.sort((a, b) => b.size - a.size);
+  // Sort individual elements by bytesLength in descending order
+  individualElements.sort((a, b) => b.bytesLength - a.bytesLength);
 
   // Allocate individual elements to existing slots
   individualElements.forEach((element) => {
-    const slotsWithSpace = slots.filter((slot) => getAvailableSize(slot) >= element.size);
+    const slotsWithSpace = slots.filter((slot) => getAvailableSize(slot) >= element.bytesLength);
     slotsWithSpace.sort((a, b) => getAvailableSize(a) - getAvailableSize(b));
     const bestFit = slotsWithSpace[0];
     if (bestFit) {
@@ -310,13 +534,13 @@ function optimizeStoragePositions(positions: StoragePosition[]): StoragePosition
     let currentSlot: StoragePosition[] = [];
 
     group.forEach((item) => {
-      if (currentSlotSize + item.size > MAX_SLOT_SIZE) {
+      if (currentSlotSize + item.bytesLength > MAX_SLOT_SIZE) {
         slots.push(currentSlot);
         currentSlot = [];
         currentSlotSize = 0;
       }
       currentSlot.push(item);
-      currentSlotSize += item.size;
+      currentSlotSize += item.bytesLength;
     });
 
     if (currentSlotSize > 0) {
@@ -325,11 +549,11 @@ function optimizeStoragePositions(positions: StoragePosition[]): StoragePosition
   });
 
   for (let i = 0; i < slots.length; i++) {
-    let offset = 0;
+    let slotOffsetBytes = 0;
     for (const position of slots[i]) {
       position.slot = i;
-      position.offset = offset;
-      offset += position.size;
+      position.slotOffsetBytes = slotOffsetBytes;
+      slotOffsetBytes += position.bytesLength;
     }
   }
 
@@ -342,8 +566,8 @@ function optimizeStoragePositions1(positions: StoragePosition[]): StoragePositio
 
   const { arrayGroups, individualElements } = separateElements(positions);
 
-  // Sort individual elements by size in descending order
-  individualElements.sort((a, b) => b.size - a.size);
+  // Sort individual elements by bytesLength in descending order
+  individualElements.sort((a, b) => b.bytesLength - a.bytesLength);
 
   // Allocate arrays to new slots
   arrayGroups.forEach((group) => {
@@ -351,13 +575,13 @@ function optimizeStoragePositions1(positions: StoragePosition[]): StoragePositio
     let currentSlot: StoragePosition[] = [];
 
     group.forEach((item) => {
-      if (currentSlotSize + item.size > MAX_SLOT_SIZE) {
+      if (currentSlotSize + item.bytesLength > MAX_SLOT_SIZE) {
         slots.push(currentSlot);
         currentSlot = [];
         currentSlotSize = 0;
       }
       currentSlot.push(item);
-      currentSlotSize += item.size;
+      currentSlotSize += item.bytesLength;
     });
 
     if (currentSlotSize > 0) {
@@ -370,7 +594,7 @@ function optimizeStoragePositions1(positions: StoragePosition[]): StoragePositio
     let allocated = false;
 
     for (const slot of slots) {
-      if (getTotalSize(slot) + element.size <= MAX_SLOT_SIZE) {
+      if (getTotalSize(slot) + element.bytesLength <= MAX_SLOT_SIZE) {
         slot.push(element);
         allocated = true;
         break;
@@ -383,11 +607,11 @@ function optimizeStoragePositions1(positions: StoragePosition[]): StoragePositio
   });
 
   for (let i = 0; i < slots.length; i++) {
-    let offset = 0;
+    let slotOffsetBytes = 0;
     for (const position of slots[i]) {
       position.slot = i;
-      position.offset = offset;
-      offset += position.size;
+      position.slotOffsetBytes = slotOffsetBytes;
+      slotOffsetBytes += position.bytesLength;
     }
   }
 
@@ -419,7 +643,7 @@ function separateElements(positions: StoragePosition[]): {
 }
 
 function getTotalSize(positions: StoragePosition[]): number {
-  return positions.reduce((total, position) => total + position.size, 0);
+  return positions.reduce((total, position) => total + position.bytesLength, 0);
 }
 
 function getAvailableSize(positions: StoragePosition[]): number {
