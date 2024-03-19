@@ -41,7 +41,7 @@ type SearchFn<T extends NodeSearchMap> = {
   [K in keyof typeof NodeSearchMethods]: T[K];
 };
 
-type Addition<Target extends ContractDefinition | SourceUnit, NodeType extends keyof ASTNodeMap> = {
-  type: NodeType;
-  find;
-};
+// type Addition<Target extends ContractDefinition | SourceUnit, NodeType extends keyof ASTNodeMap> = {
+//   type: NodeType;
+//   find;
+// };

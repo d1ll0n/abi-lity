@@ -84,22 +84,20 @@ export function getForgeSerializeEnumFunction(ctx: WrappedScope, type: EnumType)
   return addSerializeFunction(ctx, type, body);
 }
 
-// const randomId
-
 function addSerializeFunction(ctx: WrappedScope, type: TypeNode, body: StructuredText<string>) {
   const name = `serialize${type.pascalCaseName}`;
   const inputs = `${type.writeParameter(DataLocation.Memory, "value")}`;
   const outputs = "string memory";
-  // const code = [`function ${name}() pure returns (string memory) {`, body, "}"];
-  return ctx.addInternalFunction(name, inputs, outputs, body);
-  // return ctx.addFunction(name, code);
+  const fn = ctx.addInternalFunction(name, inputs, outputs, body, FunctionStateMutability.Pure);
+  const prefix = type.isReferenceType ? `` : "LibJson.";
+  return `${prefix}${fn}`;
 }
 
 export function getForgeSerializeArrayFunction(ctx: WrappedScope, type: ArrayType): string {
   const baseSerialize = getForgeJsonSerializeFunction(ctx, type.baseType);
   const baseArg = type.baseType.writeParameter(DataLocation.Memory, "");
   const body: StructuredText[] = [
-    `function(uint256[] memory, function(uint256) pure returns (string memory)) internal pure returns (string memory) _fn = serializeArray;`,
+    `function(uint256[] memory, function(uint256) pure returns (string memory)) internal pure returns (string memory) _fn = LibJson.serializeArray;`,
     `function(${type.writeParameter(
       DataLocation.Memory,
       ""
@@ -291,11 +289,11 @@ function getTypeBuilderLibrary(ctx: WrappedSourceUnit, type: TypeNode) {
   if (type instanceof StructType) {
     return getStructTypeBuilderLibrary(ctx, type);
   }
-  if (type instanceof BytesType) {
-    return getBytesBuilderLibrary(ctx, type);
-  }
   if (type instanceof StringType) {
     return getStringBuilderLibrary(ctx, type);
+  }
+  if (type instanceof BytesType) {
+    return getBytesBuilderLibrary(ctx, type);
   }
   throw new Error(`Type ${type.canonicalName} is not supported`);
 }
@@ -303,11 +301,25 @@ function getTypeBuilderLibrary(ctx: WrappedSourceUnit, type: TypeNode) {
 function getBytesBuilderLibrary(ctx: WrappedSourceUnit, type: BytesType) {
   const libraryName = `${type.pascalCaseName}Lib`;
   const library = ctx.addContract(libraryName, ContractKind.Library);
+  library.addInternalFunction(
+    `copy`,
+    type.writeParameter(DataLocation.Memory, "obj"),
+    type.writeParameter(DataLocation.Memory, "result"),
+    [`result = obj;`],
+    FunctionStateMutability.Pure
+  );
   return library;
 }
 function getStringBuilderLibrary(ctx: WrappedSourceUnit, type: StringType) {
   const libraryName = `${type.pascalCaseName}Lib`;
   const library = ctx.addContract(libraryName, ContractKind.Library);
+  library.addInternalFunction(
+    `copy`,
+    type.writeParameter(DataLocation.Memory, "obj"),
+    type.writeParameter(DataLocation.Memory, "result"),
+    [`result = obj;`],
+    FunctionStateMutability.Pure
+  );
   return library;
 }
 
