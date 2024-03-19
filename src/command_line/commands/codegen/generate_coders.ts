@@ -68,7 +68,19 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         "CODEGEN"
       );
       const logger = new DebugLogger();
-      upgradeSourceCoders(helper, fileName, { functionSwitch: !decoderOnly }, logger);
+      upgradeSourceCoders(
+        helper,
+        fileName,
+        {
+          functionSwitch: !decoderOnly,
+
+          replaceReturnStatements: true,
+          replaceHashCalls: true,
+          replaceEmitCalls: true,
+          replaceAbiEncodeCalls: true
+        },
+        logger
+      );
 
       if (unoptimized || irFlag) {
         mkdirIfNotExists(output);
