@@ -1,35 +1,35 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import {
-  ASTWriter,
-  DefaultASTWriterMapping,
-  LatestCompilerVersion,
-  PrettyFormatter,
-  StructDefinition
-} from "solc-typed-ast";
+import { StructDefinition } from "solc-typed-ast";
 import { WrappedSourceUnit } from "../../ctx/contract_wrapper";
 import NameGen from "../../names";
 import { PackedStackTypeGenerator } from "./pack-stacker";
 import { PackedMemoryTypeGenerator } from "./packed-memory-struct";
 import { ArrayType, StructType } from "../../../ast";
-import { writeFileSync } from "fs";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import { readTypeNodesFromSolcAST } from "../../../readers";
+
+export type PackedTypeLibraryOptions = {
+  gasToCodePreferenceRatio?: number;
+  defaultSelectionForSameScore?: "leastgas" | "leastcode";
+  withStack?: boolean;
+  withMemory?: boolean;
+};
 
 function generatePackedTypeLibraries(
   typeDefinition: StructDefinition | undefined,
   type: StructType | ArrayType,
   sourceUnit: WrappedSourceUnit,
-  gasToCodePreferenceRatio = 3,
-  defaultSelectionForSameScore: "leastgas" | "leastcode" = "leastgas",
-  withStack = false,
-  withMemory = false
+  {
+    gasToCodePreferenceRatio = 3,
+    defaultSelectionForSameScore = "leastgas",
+    withStack = false,
+    withMemory = false
+  }: PackedTypeLibraryOptions
 ) {
   const stackSourceUnit = withStack
     ? WrappedSourceUnit.getWrapper(sourceUnit.helper, `${NameGen.packedStackType(type)}.sol`)
     : undefined;
-  const memorySourceUnit = sourceUnit; /*  withMemory
-    ? WrappedSourceUnit.getWrapper(sourceUnit.helper, `${NameGen.packedMemoryType(type)}.sol`)
-    : undefined; */
+  const memorySourceUnit = sourceUnit;
   if (withStack) {
     if (withMemory) {
       stackSourceUnit!.addImports(memorySourceUnit!.sourceUnit!);
@@ -66,11 +66,24 @@ async function test() {
     new Map([
       [
         "OldMarketState.sol",
-        `struct RoleProvider {
-               uint32 roleTimeToLive;
-               address providerAddress;
-               uint24 pullProviderIndex;
-             }`
+        `/// @param useDepositHook Whether to call hook contract for deposit
+        /// @param useRequestWithdrawalHook Whether to call hook contract for requestWithdrawal
+        /// @param useExecuteWithdrawalHook Whether to call hook contract for executeWithdrawal
+        /// @param useTransferHook Whether to call hook contract for transfer
+        /// @param useBorrowHook Whether to call hook contract for borrow
+        /// @param useRepayHook Whether to call hook contract for repay
+        /// @param useCloseMarketHook Whether to call hook contract for closeMarket
+        /// @param useAssetsSentToEscrowHook Whether to call hook contract when account sanctioned
+        struct MarketHookFlags {
+            bool useDepositHook;
+            bool useRequestWithdrawalHook;
+            bool useExecuteWithdrawalHook;
+            bool useTransferHook;
+            bool useBorrowHook;
+            bool useRepayHook;
+            bool useCloseMarketHook;
+            bool useAssetsSentToEscrowHook;
+        }`
       ]
     ]),
     `OldMarketState.sol`
@@ -82,10 +95,7 @@ async function test() {
     typeDefinition,
     type,
     sourceUnit,
-    undefined,
-    undefined,
-    true,
-    true
+    { withMemory: false, withStack: true }
   );
   console.log(memorySourceUnit?.outputPath);
   console.log(stackSourceUnit?.outputPath);
