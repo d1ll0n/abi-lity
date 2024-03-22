@@ -199,6 +199,12 @@ export const NameGen = {
     const middle = returnParameter ? "_returnParameters" : "_parameters";
     return `${type.name}${middle}_head_size`;
   },
+  packedStackType: (type: TypeNode): string => {
+    return `${type.identifier}Stack`;
+  },
+  packedMemoryType: (type: TypeNode): string => {
+    return `${type.identifier}Memory`;
+  },
   cacheType: (type: TypeNode): string => {
     return `${type.identifier}Cache`;
   },
