@@ -18,11 +18,6 @@ const options = {
     demandOption: false,
     coerce: path.resolve
   }
-  /* contract: {
-    alias: ["c"],
-    describe: "Contract(s) to generate interface for",
-    type: "array"
-  } */
 } as const;
 
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>

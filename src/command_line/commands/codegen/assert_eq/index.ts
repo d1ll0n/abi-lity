@@ -1,8 +1,13 @@
 import path from "path";
 import { Argv } from "yargs";
-import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths } from "../../utils";
-import { generateSerializers } from "../../../codegen/generate";
+import {
+  DebugLogger,
+  mkdirIfNotExists,
+  writeFilesTo,
+  writeNestedStructure
+} from "../../../../utils";
+import { getCommandLineInputPaths } from "../../../utils";
+import { generateAssertions } from "./generate";
 
 const options = {
   input: {
@@ -19,15 +24,15 @@ const options = {
   },
   struct: {
     alias: ["s"],
-    describe: "Struct to generate serializers for",
+    describe: "Struct to generate assertions for",
     type: "array"
   }
 } as const;
 
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
-    "forge-json <input> [output]",
-    writeNestedStructure(["Generate JSON serializers for forge"]),
+    "assert_eq <input> [output]",
+    writeNestedStructure(["Generate forge equality assertions for Solidity types"]),
     options,
     async (args) => {
       const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
@@ -44,14 +49,13 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       mkdirIfNotExists(output);
       const primaryFilePath = path.join(
         output,
-        path.basename(fileName.replace(".sol", "Serializers.sol"))
+        path.basename(fileName.replace(".sol", "Assertions.sol"))
       );
-      generateSerializers(
+      generateAssertions(
         helper,
         fileName,
         {
           outPath: output,
-          functionSwitch: false,
           decoderFileName: primaryFilePath
         },
         args.struct as string | string[],
@@ -60,16 +64,15 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       console.log(`writing serializer...`);
       const files = helper.getFiles();
       const newCode = writeNestedStructure([
-        `import { Vm } from "forge-std/Vm.sol";`,
-        "",
-        `address constant VM_ADDRESS = address(`,
-        [`uint160(uint256(keccak256("hevm cheat code")))`],
-        `);`,
-        `Vm constant vm = Vm(VM_ADDRESS);`
+        `import { StdAssertions } from "forge-std/StdAssertions.sol";`,
+        `import { LibString } from "solady/src/utils/LibString.sol";`
       ]);
       const code = files.get(primaryFilePath) as string;
       files.clear();
-      files.set(primaryFilePath, code.replace(`import "./Temp___Vm.sol";`, newCode));
+      files.set(
+        primaryFilePath,
+        code.replace(`import "./Tmp_Assert.sol";`, newCode).replace(/assertEq\w+\(/g, "assertEq(")
+      );
       writeFilesTo(output, files);
       console.log(`done!`);
     }

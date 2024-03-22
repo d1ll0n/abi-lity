@@ -1,8 +1,13 @@
 import path from "path";
 import { Argv } from "yargs";
-import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths } from "../../utils";
-import { generateSerializers } from "../../../codegen";
+import {
+  DebugLogger,
+  mkdirIfNotExists,
+  writeFilesTo,
+  writeNestedStructure
+} from "../../../../utils";
+import { getCommandLineInputPaths } from "../../../utils";
+import { generateForgeJsonSerializers } from "./generate";
 
 const options = {
   input: {
@@ -46,12 +51,11 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         output,
         path.basename(fileName.replace(".sol", "Serializers.sol"))
       );
-      generateSerializers(
+      generateForgeJsonSerializers(
         helper,
         fileName,
         {
           outPath: output,
-          functionSwitch: false,
           decoderFileName: primaryFilePath
         },
         args.struct as string | string[],

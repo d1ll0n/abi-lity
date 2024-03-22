@@ -1,7 +1,7 @@
 import path from "path";
 import { Argv } from "yargs";
 import { DebugLogger, writeFilesTo, writeNestedStructure } from "../../../utils";
-import { getCommandLineInputPaths, renameFile } from "../../utils";
+import { getCommandLineInputPaths, renameFile } from "../../utils2";
 import { addExternalWrappers } from "../../../codegen";
 
 const options = {

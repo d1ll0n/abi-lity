@@ -1,3 +1,23 @@
+import path from "path";
+import {
+  ContractDefinition,
+  ContractKind,
+  Mapping,
+  staticNodeFactory,
+  StructDefinition
+} from "solc-typed-ast";
+import {
+  addImports,
+  coerceArray,
+  CompileHelper,
+  Logger,
+  NoopLogger,
+  addCommaSeparators,
+  StructuredText
+} from "../../../../utils";
+import { getSTDAssertionsShim } from "../../../../codegen/solidity_libraries";
+import { CodegenContext, ContractCodegenContext } from "../../../../codegen/utils";
+import { structDefinitionToTypeNode } from "../../../../readers";
 import {
   ArrayType,
   ContractType,
@@ -9,9 +29,54 @@ import {
   StructType,
   TypeNode,
   ValueType
-} from "../../ast";
-import { addCommaSeparators, StructuredText } from "../../utils";
-import { ContractCodegenContext } from "../utils";
+} from "../../../../ast";
+
+export type CoderOptions = {
+  decoderFileName?: string;
+  outPath?: string;
+};
+export function generateAssertions(
+  helper: CompileHelper,
+  fileName: string,
+  options: CoderOptions = {},
+  struct?: string | string[],
+  logger: Logger = new NoopLogger()
+): void {
+  const serializerFileName = options.decoderFileName ?? fileName.replace(".sol", "Assertions.sol");
+  const ctx = new CodegenContext(helper, serializerFileName);
+
+  const sourceUnit = helper.getSourceUnit(fileName);
+  const vmName = options.outPath ? path.join(options.outPath, `Tmp_Assert.sol`) : `Tmp_Assert.sol`;
+  const vm = helper.addSourceUnit(vmName, getSTDAssertionsShim());
+  addImports(ctx.decoderSourceUnit, vm, []);
+  addImports(ctx.decoderSourceUnit, sourceUnit, []);
+  const lib = ctx.addContract("Assertions", ContractKind.Contract, [
+    vm.getChildrenByType(ContractDefinition).find((c) => c.name === "StdAssertions")?.id as number
+  ]);
+  ctx.addCustomTypeUsingForDirective(
+    "uint256",
+    staticNodeFactory.makeIdentifierPath(
+      sourceUnit.requiredContext,
+      "LibString",
+      vm.getChildrenByType(ContractDefinition).find((c) => c.name === "LibString")?.id as number
+    ),
+    undefined,
+    false
+  );
+  let structDefinitions = sourceUnit
+    .getChildrenByType(StructDefinition)
+    .filter((struct) => struct.getChildrenByType(Mapping).length === 0);
+  if (struct) {
+    structDefinitions = structDefinitions.filter((s) => coerceArray(struct).includes(s.name));
+  }
+
+  const structs = structDefinitions.map(structDefinitionToTypeNode);
+  for (const struct of structs) {
+    getForgeAssertEqualityFunction(lib, struct);
+  }
+  lib.applyPendingFunctions();
+  ctx.applyPendingContracts();
+}
 
 const builtinSerializers = {
   bool: "assertEq",
