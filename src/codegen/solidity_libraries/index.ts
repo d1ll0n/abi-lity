@@ -10,6 +10,8 @@ export const getVMShim = (): string => require("./VmShim.json").join("\n");
 
 export const getJsonLib = (): string => require("./JsonLib.json").join("\n");
 
+export const getLibJson = (): string => require("./LibJson.json").join("\n");
+
 export const getForgeTestShim = (): string => require("./ForgeTestShim.json").join("\n");
 
 export const SolidityLibraries = {
