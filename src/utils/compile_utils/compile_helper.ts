@@ -194,12 +194,12 @@ export class CompileHelper {
     if (contracts) {
       const fileNames = Object.keys(contracts);
       for (const fileName of fileNames) {
-        console.log(`File ${fileName}`);
+        // console.log(`File ${fileName}`);
         const fileContracts = contracts[fileName];
         const contractNames = Object.keys(fileContracts);
         this.fileContractsMap.set(fileName, contractNames);
         for (let contractName of contractNames) {
-          console.log(`Contract ${contractName} in ${fileName}`);
+          // console.log(`Contract ${contractName} in ${fileName}`);
           const contract = fileContracts[contractName];
           if (this.contractsMap.has(contractName)) {
             // throw Error(`Duplicate contract name ${contractName}`);

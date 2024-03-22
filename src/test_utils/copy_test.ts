@@ -1,9 +1,4 @@
-import {
-  CompilationOutput,
-  DataLocation,
-  isInstanceOf,
-  LatestCompilerVersion
-} from "solc-typed-ast";
+import { CompilationOutput, DataLocation, isInstanceOf } from "solc-typed-ast";
 import { EnumType, StructType, TupleType } from "../ast";
 import { CallResult } from "./deployment";
 import { addSeparators, coerceArray, writeNestedStructure } from "../utils";
@@ -54,11 +49,8 @@ function createCalldataCopyFunction(type: CopyTestType) {
   const input = getParams(type, DataLocation.CallData);
   const output = getParams(type, DataLocation.Memory, true);
   const inputNames = getNames(type, DataLocation.CallData);
-  // const outputNames = getNames(type, DataLocation.Memory, );
-  // const assignments = inputNames.map((input, i) => `{ ${outputNames[i]} = ${input}; }`);
   return writeNestedStructure([
     `function ${fnName} ${input} external view returns ${output} {`,
-    // assignments,
     [`return (${inputNames.join(",")});`],
     `}`
   ]);
