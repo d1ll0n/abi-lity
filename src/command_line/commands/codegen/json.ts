@@ -2,7 +2,7 @@ import path from "path";
 import { Argv } from "yargs";
 import { DebugLogger, mkdirIfNotExists, writeFilesTo, writeNestedStructure } from "../../../utils";
 import { getCommandLineInputPaths } from "../../utils";
-import { generateSerializers } from "../../../codegen";
+import { generateSerializers } from "../../../codegen/generate";
 
 const options = {
   input: {
