@@ -20,7 +20,11 @@ import {
   FunctionCall,
   RevertStatement
 } from "solc-typed-ast/dist/ast/implementation";
-import { buildDecoderFile, replaceExternalFunctionReferenceTypeParameters } from "./abi_decode";
+import {
+  buildDecoderFile,
+  buildExternalWrapper,
+  replaceExternalFunctionReferenceTypeParameters
+} from "./abi_decode";
 import {
   Logger,
   NoopLogger,
@@ -285,4 +289,15 @@ export function upgradeSourceCoders(
       upgradeFunctionCoders(contractDefinition, decoderSourceUnit, options.replaceReturnStatements);
     }
   }
+}
+
+export function addExternalWrappers(
+  helper: CompileHelper,
+  fileName: string,
+  logger: Logger = new NoopLogger()
+): void {
+  const decoderFileName = fileName.replace(".sol", "External.sol");
+
+  logger.log(`generating wrappers for ${fileName}...`);
+  buildExternalWrapper(helper, fileName, decoderFileName);
 }
