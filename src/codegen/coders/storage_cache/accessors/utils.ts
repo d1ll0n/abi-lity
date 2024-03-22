@@ -1,18 +1,73 @@
 import { yulBuiltins } from "solc-typed-ast";
 import { getInclusionMask, getOmissionMask, toHex } from "../../../../utils";
+import { ParameterLocation, ReadParameterArgs } from "./types";
 
 // Returns a Yul expression that masks out the bits from `offset` to `offset + bitsLength`
 export const maskOmit = (value: string, bitsLength: number, offset: number): string =>
   `and(${value}, ${getOmissionMask(bitsLength, offset)})`;
 
 // Returns a Yul expression that only includes the bits from `offset` to `offset + bitsLength`
-export const maskInclude = (value: string, bitsLength: number, offset: number): string =>
-  `and(${value}, ${getInclusionMask(bitsLength, offset)})`;
+export const maskInclude = (value: string, bitsLength: number, offset: number): string => {
+  if (offset === 0 && bitsLength === 256) return value;
+  return `and(${value}, ${getInclusionMask(bitsLength, offset)})`;
+};
 
 export function isNumeric(n: string | number): boolean {
   if (typeof n === "number") return true;
   return /^-?\d+$/.test(n) || n.startsWith("0x");
 }
+
+export const shiftAndMask = ({
+  dataReference,
+  offset,
+  leftAligned,
+  bytesLength
+}: ParameterLocation): string => {
+  const bitsLength = bytesLength * 8;
+  const bitsOffset = offset * 8;
+  const endOfFieldBitsOffset = bitsOffset + bitsLength;
+  // For left aligned values, mask then shift left
+  if (leftAligned) {
+    const rhs =
+      endOfFieldBitsOffset === 256
+        ? dataReference
+        : maskInclude(dataReference, bitsLength, bitsOffset);
+    return shl(bitsOffset, rhs);
+  }
+  // For right aligned values, shift right then mask
+  const bitsBeforeAfterShift = 256 - bitsLength;
+  const bitsAfter = 256 - endOfFieldBitsOffset;
+  if (bitsOffset === 0) {
+    return shr(bitsAfter, dataReference);
+  }
+  return maskInclude(shr(bitsAfter, dataReference), bitsLength, bitsBeforeAfterShift);
+};
+
+export const extractByte = ({ dataReference, offset, leftAligned }: ParameterLocation): string => {
+  const byteExpr = `byte(${offset}, ${dataReference})`;
+  return leftAligned ? shl(248, byteExpr) : byteExpr;
+};
+
+export const shiftTwice = ({
+  dataReference,
+  offset,
+  leftAligned,
+  bytesLength
+}: ParameterLocation): string => {
+  const bitsLength = bytesLength * 8;
+  const bitsOffset = offset * 8;
+  const endOfFieldBitsOffset = bitsOffset + bitsLength;
+  // For left aligned values, shift right then left
+  if (leftAligned) {
+    const bitsAfter = 256 - endOfFieldBitsOffset;
+    const bitsBeforeAfterShift = 256 - bitsLength;
+    return shl(bitsBeforeAfterShift, shr(bitsAfter, dataReference));
+  }
+  // For right aligned values, shift left then right
+  const bitsAfterAfterShift = 256 - bitsLength;
+  return shr(bitsAfterAfterShift, shl(bitsOffset, dataReference));
+};
+
 export const isNotNumeric = (n: string | number): n is string => !isNumeric(n);
 export const isZero = (n: string | number): boolean => isNumeric(n) && BigInt(n) === 0n;
 export const toValue = (n: string | number): string => (isNotNumeric(n) ? n : toHex(BigInt(n)));

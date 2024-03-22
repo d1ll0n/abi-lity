@@ -354,17 +354,36 @@ const getOptionsReplaceLeftAlignedValueInMemory = (
   return options;
 };
 
+type WriteValueArgs = {
+  dataReference: string;
+  memoryOffset: number;
+  bytesLength: number;
+  value: string | number;
+  valueLeftAligned: boolean;
+  gasToCodePreferenceRatio?: number;
+  defaultSelectionForSameScore?: "leastgas" | "leastcode";
+};
+
+export function getWriteWordToMemory(args: WriteValueArgs): string {
+  const options = getOptionsReplaceValueInMemory(args);
+  return pickBestCodeForPreferences(
+    options,
+    args.gasToCodePreferenceRatio,
+    args.defaultSelectionForSameScore
+  );
+}
+
 // For a given field, returns a list of options for writing the field to memory.
 // @todo Test all cases
-const getOptionsReplaceValueInMemory = (
-  dataReference: string,
-  memoryOffset: number,
-  value: string | number,
-  bytesLength: number,
-  valueLeftAligned: boolean
-) => {
+const getOptionsReplaceValueInMemory = ({
+  dataReference,
+  memoryOffset,
+  value,
+  bytesLength,
+  valueLeftAligned
+}: WriteValueArgs) => {
   if (bytesLength === 32) {
-    return `mstore(${add(dataReference, memoryOffset)}, ${toValue(value)})`;
+    return [`mstore(${add(dataReference, memoryOffset)}, ${toValue(value)})`];
   }
   const endOfFieldOffset = memoryOffset + bytesLength;
 
