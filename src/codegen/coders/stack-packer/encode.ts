@@ -3,7 +3,12 @@ import { TypeNode } from "../../../ast";
 import { DataLocation } from "../../../constants";
 import { toHex } from "../../../utils";
 
-function moveData(type: TypeNode, ref: string, src: DataLocation, dst: DataLocation) {
+export function moveData(
+  type: TypeNode,
+  ref: string,
+  src: DataLocation,
+  dst: DataLocation
+): string[] | undefined {
   const parent = type.parent!;
   // Reading from stack value can not occur on values that don't fit into a word.
   if (src === DataLocation.Stack && (parent.exactBits === undefined || parent.exactBits > 256)) {
@@ -45,4 +50,5 @@ function moveData(type: TypeNode, ref: string, src: DataLocation, dst: DataLocat
       return [`0.offset(${toHex(offset)}).copy(${ref}, ${toHex(size)});`];
     }
   }
+  return undefined;
 }
