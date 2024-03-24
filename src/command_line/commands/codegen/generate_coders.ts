@@ -175,6 +175,5 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         // throw Error(`Output can not match basePath when decoderOnly is false.`);
       }
       writeFilesTo(output, files);
-      console.log(`done!`);
     }
   );

@@ -75,6 +75,5 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
       files.clear();
       files.set(primaryFilePath, code.replace(`import "./Temp___Vm.sol";`, newCode));
       writeFilesTo(output, files);
-      console.log(`done!`);
     }
   );

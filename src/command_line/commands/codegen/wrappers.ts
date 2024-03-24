@@ -38,6 +38,5 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         renameFile(fileName, newFileName, files);
       }
       writeFilesTo(output, files);
-      console.log(`done!`);
     }
   );

@@ -1,64 +1,37 @@
-import { DataLocation, FunctionStateMutability, Mapping, StructDefinition } from "solc-typed-ast";
 import {
   ArrayType,
-  ContractType,
+  DefaultVisitor,
   EnumType,
   FixedBytesType,
   IntegerType,
   StructType,
   TypeNode,
+  UABIType,
   ValueType
 } from "../../../../ast";
-import {
-  addCommaSeparators,
-  coerceArray,
-  Logger,
-  NoopLogger,
-  StructuredText
-} from "../../../../utils";
-import { WrappedScope, WrappedSourceUnit } from "../../../../codegen/ctx/contract_wrapper";
-import { CompileHelper } from "../../../../utils/compile_utils/compile_helper";
-import { getLibJson } from "../../../../codegen/solidity_libraries";
+import { addCommaSeparators, coerceArray, StructuredText } from "../../../../utils";
+import { DataLocation, FunctionStateMutability, Mapping, StructDefinition } from "solc-typed-ast";
 import { structDefinitionToTypeNode } from "../../../../readers";
+import { WrappedScope, WrappedSourceUnit } from "../../../../codegen/ctx/contract_wrapper";
+import NameGen from "../../../../codegen/names";
+import { CompileHelper } from "../../../../utils/compile_utils/compile_helper";
 
-const builtinSerializers = {
-  bool: "serializeBool",
-  uint256: "serializeUint256",
-  int256: "serializeInt256",
-  address: "serializeAddress",
-  bytes32: "serializeBytes32",
-  string: "serializeString",
-  bytes: "serializeBytes",
-  "bool[]": "serializeBoolArray",
-  "uint256[]": "serializeUint256Array",
-  "int256[]": "serializeInt256Array",
-  "address[]": "serializeAddressArray",
-  "bytes32[]": "serializeBytes32Array",
-  "string[]": "serializeStringArray"
-} as Record<string, string>;
-
-export type CoderOptions = {
-  decoderFileName?: string;
-  outPath?: string;
+export type JsonSerializerOptions = {
+  serializerFileName?: string;
 };
 
 export function generateJsonSerializers(
   helper: CompileHelper,
   fileName: string,
-  options: CoderOptions = {},
-  struct?: string | string[],
-  logger: Logger = new NoopLogger()
+  options: JsonSerializerOptions = {},
+  struct?: string | string[]
 ): void {
-  const serializerFileName = options.decoderFileName ?? fileName.replace(".sol", "Serializers.sol");
-  const ctx: WrappedScope = WrappedSourceUnit.getWrapper(
-    helper,
-    serializerFileName,
-    options.outPath
-  );
+  const serializerFileName =
+    options.serializerFileName ?? fileName.replace(".sol", "Serializers.sol");
+  const ctx: WrappedScope = WrappedSourceUnit.getWrapper(helper, serializerFileName);
   const sourceUnit = helper.getSourceUnit(fileName);
-  const libJson = ctx.addSourceUnit("LibJson.sol", getLibJson());
   ctx.addImports(sourceUnit);
-  ctx.addImports(libJson);
+  ctx.addSolidityLibrary("JsonLib");
   let structDefinitions = sourceUnit
     .getChildrenByType(StructDefinition)
     .filter((struct) => struct.getChildrenByType(Mapping).length === 0);
@@ -68,138 +41,135 @@ export function generateJsonSerializers(
 
   const structs = structDefinitions.map(structDefinitionToTypeNode);
   for (const struct of structs) {
-    getForgeJsonSerializeFunction(ctx, struct);
+    getJsonSerializerFunction(ctx, struct);
   }
   ctx.applyPendingFunctions();
 }
 
-export function getForgeJsonSerializeFunction(ctx: WrappedScope, type: TypeNode): string {
-  const baseSignature = type.signatureInExternalFunction(true);
-  const builtinName = builtinSerializers[baseSignature];
-  if (builtinName) {
-    const body = [`return LibJson.${builtinName}(value);`];
-    return addSerializeFunction(ctx, type, body);
+const builtinSerializers = {
+  bool: "JsonLib.serializeBool",
+  uint256: "JsonLib.serializeUint",
+  int256: "JsonLib.serializeInt",
+  address: "JsonLib.serializeAddress",
+  bytes32: "JsonLib.serializeBytes32",
+  string: "JsonLib.serializeString",
+  bytes: "JsonLib.serializeBytes"
+} as Record<string, string>;
+
+export const VisitorByScope: WeakMap<WrappedScope, JsonSerializer> = new Map();
+
+export function getJsonSerializerFunction(ctx: WrappedScope, node: TypeNode): string {
+  const visitor = JsonSerializer.getVisitor(ctx);
+  return visitor.accept(node);
+}
+
+export class JsonSerializer extends DefaultVisitor {
+  existingTypeFunctions: Map<string, string> = new Map();
+
+  constructor(private ctx: WrappedScope) {
+    super();
+    VisitorByScope.set(ctx, this);
   }
-  if (type instanceof ArrayType) {
-    return getForgeSerializeArrayFunction(ctx, type);
+
+  static getVisitor(ctx: WrappedScope): JsonSerializer {
+    let visitor = VisitorByScope.get(ctx);
+    if (!visitor) {
+      visitor = new JsonSerializer(ctx);
+    }
+    return visitor;
   }
-  if (type instanceof StructType) {
-    return getForgeSerializeStructFunction(ctx, type);
+
+  protected _shouldSkipVisitWith(type: TypeNode): string | undefined {
+    return (
+      this.existingTypeFunctions.get(type.identifier) ||
+      builtinSerializers[type.signatureInExternalFunction(true)]
+    );
   }
-  if (type instanceof EnumType) {
-    return getForgeSerializeEnumFunction(ctx, type);
+
+  get defaultReturnValue(): any {
+    throw new Error("No default decoder.");
   }
-  if (type instanceof ValueType) {
+
+  protected _afterVisit<T extends UABIType>(_type: T, result: any): string {
+    this.existingTypeFunctions.set(_type.identifier, result);
+    return result;
+  }
+
+  addSerializeFunction(type: TypeNode, body: StructuredText, comment?: StructuredText): string {
+    const inputParam = type.writeParameter(DataLocation.Memory, "value");
+    return this.ctx.addInternalFunction(
+      NameGen.serialize(type),
+      inputParam,
+      `string memory output`,
+      body,
+      FunctionStateMutability.Pure,
+      comment
+    );
+  }
+
+  visitArray(type: ArrayType): string {
+    const baseFn = this.visit(type.baseType);
+    let body: StructuredText<string> = [];
+    if (type.isDynamicallySized) {
+      body = [
+        `output = '[';`,
+        `uint256 lastIndex = value.length - 1;`,
+        `for (uint256 i = 0; i < lastIndex; i++) {`,
+        [`output = string.concat(output, ${baseFn}(value[i]), ',');`],
+        `}`,
+        `output = string.concat(output, ${baseFn}(value[lastIndex]), ']');`
+      ];
+    } else {
+      body = [
+        `output = string.concat(`,
+        [
+          `"[", `,
+          ...new Array(type.length as number)
+            .fill(null)
+            .map((_, i) => `${baseFn}(value[${i}]), ",",`),
+          `"]"`
+        ],
+        ")"
+      ];
+    }
+    return this.addSerializeFunction(type, body);
+  }
+
+  visitValueType(type: ValueType): string {
+    const baseSignature = type.signatureInExternalFunction(true);
     if (baseSignature.startsWith("int") || baseSignature.startsWith("uint")) {
-      return getForgeJsonSerializeFunction(
-        ctx,
-        new IntegerType(256, baseSignature.startsWith("i"))
-      );
+      return this.visit(new IntegerType(256, baseSignature.startsWith("i")));
     }
     if (baseSignature.startsWith("bytes")) {
-      return getForgeJsonSerializeFunction(ctx, new FixedBytesType(32));
+      return this.visit(new FixedBytesType(32));
     }
+    throw Error(`Could not make serializer for type: ${type.pp()}`);
   }
-  throw Error(`Could not make serializer for type: ${type.pp()}`);
+
+  visitEnum(type: EnumType): string {
+    const body: StructuredText<string> = [
+      `string[${type.members.length}] memory members = [`,
+      addCommaSeparators(type.members.map((m) => `"${m}"`)),
+      "];",
+      `uint256 index = uint256(value);`,
+      `return JsonLib.serializeString(objectKey, valueKey, members[index]);`
+    ];
+    return this.addSerializeFunction(type, body);
+  }
+
+  visitStruct(type: StructType): string {
+    const segments = [
+      `"{"`,
+      ...type.children.map((m, i) => {
+        const fn = this.visit(m);
+        const label = m.labelFromParent;
+        const isLast = i === type.children.length - 1;
+        return `JsonLib.serializeKeyValuePair("${label}", ${fn}(value.${label}), ${isLast})`;
+      }),
+      `"}"`
+    ];
+
+    const body = [`output = string.concat(`, addCommaSeparators(segments), `);`];
+    return this.addSerializeFunction(type, body);
+  }
 }
-
-export function getForgeSerializeEnumFunction(ctx: WrappedScope, type: EnumType): string {
-  const body: StructuredText<string> = [
-    `string[${type.members.length}] memory members = [`,
-    addCommaSeparators(type.members.map((m) => `"${m}"`)),
-    "];",
-    `uint256 index = uint256(value);`,
-    `return members[index];`
-  ];
-  return addSerializeFunction(ctx, type, body);
-}
-
-function addSerializeFunction(ctx: WrappedScope, type: TypeNode, body: StructuredText<string>) {
-  const name = `serialize${type.pascalCaseName}`;
-  const inputs = `${type.writeParameter(DataLocation.Memory, "value")}`;
-  const outputs = "string memory";
-  const fn = ctx.addInternalFunction(name, inputs, outputs, body, FunctionStateMutability.Pure);
-  const prefix = type.isReferenceType ? `` : "LibJson.";
-  return `${prefix}${fn}`;
-}
-
-export function getForgeSerializeArrayFunction(ctx: WrappedScope, type: ArrayType): string {
-  const baseSerialize = getForgeJsonSerializeFunction(ctx, type.baseType);
-  const baseArg = type.baseType.writeParameter(DataLocation.Memory, "");
-  const body: StructuredText[] = [
-    `function(uint256[] memory, function(uint256) pure returns (string memory)) internal pure returns (string memory) _fn = LibJson.serializeArray;`,
-    `function(${type.writeParameter(
-      DataLocation.Memory,
-      ""
-    )}, function(${baseArg}) pure returns (string memory)) internal pure returns (string memory) fn;`,
-    `assembly { fn := _fn }`,
-    `return fn(value, ${baseSerialize});`
-  ];
-  return addSerializeFunction(ctx, type, body);
-}
-
-export function getForgeSerializeStructFunction(ctx: WrappedScope, struct: StructType): string {
-  const segments: StructuredText[] = [];
-  struct.children.forEach((child, i) => {
-    const fn = getForgeJsonSerializeFunction(ctx, child);
-    let ref = `value.${child.labelFromParent}`;
-    if (child instanceof ContractType) {
-      ref = `address(${ref})`;
-    }
-    const prefix = i === 0 ? "{" : ",";
-    segments.push(`'${prefix}"${child.labelFromParent}":'`);
-    segments.push(`${fn}(${ref})`);
-  });
-  segments.push("'}'");
-  return addSerializeFunction(ctx, struct, [`return string.concat(`, segments.join(","), `);`]);
-}
-
-// function getForgeDataBuildStatement(type: TypeNode, value: any): StructuredText {
-//   if (type instanceof ValueType) {
-//     assert(typeof value === "string", "IntegerType value must be a string");
-//     if (type instanceof EnumType) {
-//       value = `${type.name}.${type.members[+value]}`;
-//     }
-//     return `${type.writeParameter(DataLocation.Memory)} = ${value};`;
-//   }
-//   if (type instanceof ArrayType) {
-//     assert(Array.isArray(value), "ArrayType value must be an array");
-//     const values = value.map((v) => getForgeDataBuildStatement(type.baseType, v));
-//     if (type.isDynamicallySized) {
-//       return [`${type.writeParameter(DataLocation.Memory)} = [`, addCommaSeparators(values), "];"];
-//     }
-//     const body = [
-//       `${type.writeParameter(DataLocation.Memory)} = new ${type.canonicalName}(${values.length});`,
-//       ...values.map((v, i) => `${type.labelFromParent}[${i}] = ${v};`)
-//     ];
-//     // values.forEach((v, i) => {
-//     //   body.push(`${type.writeParameter(DataLocation.Memory, `[${i}]`)} = ${v};`)
-//     // });
-//     return body;
-//   }
-//   if (type instanceof StructType) {
-//     assert(typeof value === "object", "StructType value must be an object");
-//     const values = type.children.map((c) =>
-//       getForgeDataBuildStatement(c, value[c.labelFromParent as string])
-//     );
-//     const body = [
-//       `${type.writeParameter(DataLocation.Memory)};`,
-//       ...type.vMembers.map((member, i) => `${type.labelFromParent}.${member.labelFromParent} = ${}`)
-//     ]
-//   }
-//   return [];
-// }
-
-// const makeTestFor = (ctx: WrappedScope, type: TypeNode) => {
-//   const data = getDefaultForType(type, 3);
-//   const json = toJson(data);
-//   const jsonString = `"${json.replace(/"/g, '\\"')}"`;
-//   const serializeFn = `serialize${type.pascalCaseName}`;
-//   const name = `testSerialize${type.pascalCaseName}`;
-//   const body = [
-//     `string memory expected = ${jsonString};`,
-//     `string memory actual = ${serializeFn}(value);`,
-//     `assertEq(expected, actual);`
-//   ];
-//   ctx.addFunction;
-// };

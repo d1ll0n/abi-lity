@@ -74,6 +74,5 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         code.replace(`import "./Tmp_Assert.sol";`, newCode).replace(/assertEq\w+\(/g, "assertEq(")
       );
       writeFilesTo(output, files);
-      console.log(`done!`);
     }
   );
