@@ -133,6 +133,7 @@ export function createReturnFunction(ctx: WrappedScope, type: TupleType): string
   ) {
     console.log(`Entering bytes return`);
     const member = type.vMembers[0];
+    // If type is a `bytes`, optimal return value is trivial
     if (member instanceof BytesType) {
       body.push(
         `assembly {`,
