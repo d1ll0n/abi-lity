@@ -1,6 +1,14 @@
 import { assert } from "solc-typed-ast";
 
-import { add, alignValue, maskOmit, pickBestCodeForPreferences, shl, shr, toValue } from "./utils";
+import {
+  yulAdd,
+  alignValue,
+  maskOmit,
+  pickBestCodeForPreferences,
+  yulShl,
+  yulShr,
+  toValue
+} from "./utils";
 import { WriteParameterArgs } from "./types";
 
 export function getWriteToMemoryAccessor(args: WriteParameterArgs): string {
@@ -17,7 +25,7 @@ export function getWriteToMemoryAccessor(args: WriteParameterArgs): string {
 export const getOptionsReplaceValueInMemory = (args: WriteParameterArgs): string[] => {
   const { dataReference, offset, bytesLength, value } = args;
   if (bytesLength === 32) {
-    return [`mstore(${add(dataReference, offset)}, ${toValue(value)})`];
+    return [`mstore(${yulAdd(dataReference, offset)}, ${toValue(value)})`];
   }
   const endOfFieldOffset = offset + bytesLength;
 
@@ -41,7 +49,7 @@ export const getOptionsReplaceValueInMemory = (args: WriteParameterArgs): string
   // If field is one byte, can overwrite that single byte with the new value
   if (bytesLength === 1) {
     const rightAlignedValue = alignValue(value, 8, args.leftAligned, 248);
-    options.push(`mstore8(${add(dataReference, offset)}, ${rightAlignedValue})`);
+    options.push(`mstore8(${yulAdd(dataReference, offset)}, ${rightAlignedValue})`);
   }
 
   return options;
@@ -62,14 +70,14 @@ const getOptionsReplaceRightAlignedValueInMemory = ({
   const bitsLength = bytesLength * 8;
   const bitsBeforeOldValue = 256 - bitsLength;
   const rightAlignedValueExpr = leftAligned
-    ? shr(bitsBeforeOldValue, toValue(value))
+    ? yulShr(bitsBeforeOldValue, toValue(value))
     : toValue(value);
   const readExpr = `mload(rightAlignedPointer)`;
   const oldValueRemovedWithMask = maskOmit(readExpr, bitsLength, bitsBeforeOldValue);
 
   const options: string[] = [];
 
-  const pointerExpr = add(dataReference, endOfFieldOffset - 32);
+  const pointerExpr = yulAdd(dataReference, endOfFieldOffset - 32);
 
   // Option 1. Read old value right aligned, mask out the old value, and OR in the new value
   options.push(
@@ -80,7 +88,7 @@ const getOptionsReplaceRightAlignedValueInMemory = ({
   );
 
   // Option 2. Read old value right aligned, shift it twice to remove old value, and OR in the new value
-  const oldValueRemovedWithShift = shl(bitsLength, shr(bitsLength, readExpr));
+  const oldValueRemovedWithShift = yulShl(bitsLength, yulShr(bitsLength, readExpr));
   options.push(
     [
       `let rightAlignedPointer := ${pointerExpr}`,
@@ -132,7 +140,7 @@ const getOptionsReplaceLeftAlignedValueInMemory = ({
   value
 }: WriteParameterArgs) => {
   const bitsLength = bytesLength * 8;
-  const pointerExpr = add(dataReference, offset);
+  const pointerExpr = yulAdd(dataReference, offset);
 
   const options: string[] = [];
   const valueAlignedWithOldValue = alignValue(value, bitsLength, leftAligned, 0);
@@ -147,7 +155,7 @@ const getOptionsReplaceLeftAlignedValueInMemory = ({
   );
 
   // Option 2. Read old word left aligned, shift it twice to remove old value, and OR in the new value
-  const oldValueRemovedWithShift = shr(bitsLength, shl(bitsLength, `mload(startPointer)`));
+  const oldValueRemovedWithShift = yulShr(bitsLength, yulShl(bitsLength, `mload(startPointer)`));
   options.push(
     [
       `let startPointer := ${pointerExpr}`,

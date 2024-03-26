@@ -1,5 +1,5 @@
 import { assert } from "solc-typed-ast";
-import { extractByte, pickBestCodeForPreferences, shiftAndMask, shiftTwice, shl } from "./utils";
+import { extractByte, pickBestCodeForPreferences, shiftAndMask, shiftTwice, yulShl } from "./utils";
 import { ReadParameterArgs } from "./types";
 
 export function getOptionsReadFromStack(args: ReadParameterArgs): string[] {

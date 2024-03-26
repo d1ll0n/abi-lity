@@ -1,4 +1,12 @@
-import { add, alignValue, maskOmit, pickBestCodeForPreferences, shl, shr, toValue } from "./utils";
+import {
+  yulAdd,
+  alignValue,
+  maskOmit,
+  pickBestCodeForPreferences,
+  yulShl,
+  yulShr,
+  toValue
+} from "./utils";
 import { WriteParameterArgs } from "./types";
 import { getReadFromStackAccessor } from "./read_stack";
 
@@ -59,7 +67,7 @@ const getOptionsReplaceRightAlignedStackValue = (args: WriteParameterArgs) => {
   const bitsLength = bytesLength * 8;
   const bitsBeforeOldValue = 256 - bitsLength;
   const rightAlignedValueExpr = leftAligned
-    ? shr(bitsBeforeOldValue, toValue(value))
+    ? yulShr(bitsBeforeOldValue, toValue(value))
     : toValue(value);
   const oldValueRemovedWithMask = maskOmit(dataReference, bitsLength, bitsBeforeOldValue);
 
@@ -69,7 +77,7 @@ const getOptionsReplaceRightAlignedStackValue = (args: WriteParameterArgs) => {
   options.push(`or(${oldValueRemovedWithMask}, ${rightAlignedValueExpr})`);
 
   // Option 2. Read old value right aligned, shift it twice to remove old value, and OR in the new value
-  const oldValueRemovedWithShift = shl(bitsLength, shr(bitsLength, dataReference));
+  const oldValueRemovedWithShift = yulShl(bitsLength, yulShr(bitsLength, dataReference));
   options.push(`or(${oldValueRemovedWithShift}, ${rightAlignedValueExpr})`);
 
   const oldValueRemovedWithStackRead = getReadFromStackAccessor({
@@ -120,7 +128,7 @@ const getOptionsReplaceLeftAlignedStackValue = (args: WriteParameterArgs) => {
   options.push(`or(${oldValueRemovedWithMask}, ${valueAlignedWithOldValue})`);
 
   // Option 2. Read old word left aligned, shift it twice to remove old value, and OR in the new value
-  const oldValueRemovedWithShift = shr(bitsLength, shl(bitsLength, dataReference));
+  const oldValueRemovedWithShift = yulShr(bitsLength, yulShl(bitsLength, dataReference));
   options.push(`or(${oldValueRemovedWithShift}, ${valueAlignedWithOldValue})`);
 
   const oldValueRemovedWithStackRead = getReadFromStackAccessor({

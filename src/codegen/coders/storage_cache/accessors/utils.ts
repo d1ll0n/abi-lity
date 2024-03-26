@@ -32,20 +32,20 @@ export const shiftAndMask = ({
       endOfFieldBitsOffset === 256
         ? dataReference
         : maskInclude(dataReference, bitsLength, bitsOffset);
-    return shl(bitsOffset, rhs);
+    return yulShl(bitsOffset, rhs);
   }
   // For right aligned values, shift right then mask
   const bitsBeforeAfterShift = 256 - bitsLength;
   const bitsAfter = 256 - endOfFieldBitsOffset;
   if (bitsOffset === 0) {
-    return shr(bitsAfter, dataReference);
+    return yulShr(bitsAfter, dataReference);
   }
-  return maskInclude(shr(bitsAfter, dataReference), bitsLength, bitsBeforeAfterShift);
+  return maskInclude(yulShr(bitsAfter, dataReference), bitsLength, bitsBeforeAfterShift);
 };
 
 export const extractByte = ({ dataReference, offset, leftAligned }: ParameterLocation): string => {
   const byteExpr = `byte(${offset}, ${dataReference})`;
-  return leftAligned ? shl(248, byteExpr) : byteExpr;
+  return leftAligned ? yulShl(248, byteExpr) : byteExpr;
 };
 
 export const shiftTwice = ({
@@ -61,32 +61,32 @@ export const shiftTwice = ({
   if (leftAligned) {
     const bitsAfter = 256 - endOfFieldBitsOffset;
     const bitsBeforeAfterShift = 256 - bitsLength;
-    return shl(bitsBeforeAfterShift, shr(bitsAfter, dataReference));
+    return yulShl(bitsBeforeAfterShift, yulShr(bitsAfter, dataReference));
   }
   // For right aligned values, shift left then right
   const bitsAfterAfterShift = 256 - bitsLength;
-  return shr(bitsAfterAfterShift, shl(bitsOffset, dataReference));
+  return yulShr(bitsAfterAfterShift, yulShl(bitsOffset, dataReference));
 };
 
 export const isNotNumeric = (n: string | number): n is string => !isNumeric(n);
 export const isZero = (n: string | number): boolean => isNumeric(n) && BigInt(n) === 0n;
 export const toValue = (n: string | number): string => (isNotNumeric(n) ? n : toHex(BigInt(n)));
 
-export const shl = (bits: number, value: string | number): string => {
+export const yulShl = (bits: number, value: string | number): string => {
   if (isNotNumeric(value)) {
     return bits === 0 ? value : `shl(${toHex(bits)}, ${value})`;
   }
   return toHex(BigInt(value) << BigInt(bits));
 };
 
-export const shr = (bits: number, value: string | number): string => {
+export const yulShr = (bits: number, value: string | number): string => {
   if (isNotNumeric(value)) {
     return bits === 0 ? value : `shr(${toHex(bits)}, ${value})`;
   }
   return toHex(BigInt(value) >> BigInt(bits));
 };
 
-export const add = (a: string | number, b: string | number): string | number => {
+export const yulAdd = (a: string | number, b: string | number): string | number => {
   if (isNumeric(a) && isNumeric(b)) {
     return toHex(BigInt(a) + BigInt(b));
   }
@@ -101,7 +101,7 @@ export const alignStackValue = (
   targetOffset: number
 ): string => {
   const shift = targetOffset - valueOffset;
-  return (shift > 0 ? shr : shl)(Math.abs(shift), valueExpr);
+  return (shift > 0 ? yulShr : yulShl)(Math.abs(shift), valueExpr);
 };
 
 /* const extractValueFromWord = (
@@ -127,7 +127,7 @@ export const alignValue = (
   const currentOffset = leftAligned ? 0 : 256 - bitsLength;
   const shift = targetOffset - currentOffset;
   // if (shift === 0) return valueExpr;
-  return (shift > 0 ? shr : shl)(Math.abs(shift), valueExpr);
+  return (shift > 0 ? yulShr : yulShl)(Math.abs(shift), valueExpr);
 };
 
 // The gas to code preference ratio is the amount of gas that must be saved to add 1 byte of code.

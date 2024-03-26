@@ -16,7 +16,7 @@ import { WrappedContract, WrappedSourceUnit, wrapScope } from "../../ctx/contrac
 import { getOffsetYulExpression } from "../../offsets";
 import NameGen, { pascalCaseToCamelCase } from "../../names";
 import { getReadFromMemoryAccessor, getWriteToMemoryAccessor } from "./accessors";
-import { add } from "./accessors/utils";
+import { yulAdd } from "./accessors/utils";
 import { StoragePosition, StoragePositionTracker } from "../../../analysis/storage_positions";
 import { readTypeNodesFromSolcAST } from "../../../readers";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
@@ -208,8 +208,8 @@ export class PackedMemoryTypeGenerator {
   createWriteToStorageFunction(): string {
     const body = [];
     for (let i = 0; i < this.numSlots; i++) {
-      const slotMemoryPointer = add(`_cache`, i * 32);
-      const storagePointer = add(`stored.slot`, i);
+      const slotMemoryPointer = yulAdd(`_cache`, i * 32);
+      const storagePointer = yulAdd(`stored.slot`, i);
       body.push(`sstore(${storagePointer}, mload(${slotMemoryPointer}))`);
     }
     const inputParameters = [

@@ -1,4 +1,4 @@
-import { add, pickBestCodeForPreferences } from "./utils";
+import { yulAdd, pickBestCodeForPreferences } from "./utils";
 import { ParameterLocation, ReadParameterArgs } from "./types";
 import { getOptionsReadFromStack } from "./read_stack";
 
@@ -14,7 +14,7 @@ export function getReadFromMemoryAccessor(args: ReadParameterArgs): string {
 
 export function getOptionsReadFromMemory(args: ParameterLocation): string[] {
   if (args.bytesLength === 32) {
-    return [`mload(${add(args.dataReference, args.offset)})`];
+    return [`mload(${yulAdd(args.dataReference, args.offset)})`];
   }
   return [
     ...getOptionsReadFromMemoryInFirstWord(args),
@@ -29,7 +29,7 @@ function getOptionsReadFromMemoryAtStartOfWord({
   bytesLength,
   leftAligned
 }: ParameterLocation) {
-  const readExpr = `mload(${add(dataReference, offset)})`;
+  const readExpr = `mload(${yulAdd(dataReference, offset)})`;
   const args = {
     offset: 0,
     bytesLength,
@@ -55,7 +55,7 @@ export function getOptionsReadFromMemoryAtEndOfWord({
   if (endOfFieldOffset < 32) {
     return [];
   }
-  const readExpr = `mload(${add(dataReference, endOfFieldOffset - 32)})`;
+  const readExpr = `mload(${yulAdd(dataReference, endOfFieldOffset - 32)})`;
   const args = {
     offset: 32 - bytesLength,
     bytesLength,

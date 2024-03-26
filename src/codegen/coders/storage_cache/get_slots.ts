@@ -22,7 +22,7 @@ import {
 import { getOffsetYulExpression } from "../../offsets";
 import NameGen, { toPascalCase } from "../../names";
 import { getReadFromMemoryAccessor, getWriteToMemoryAccessor } from "./accessors";
-import { add } from "./accessors/utils";
+import { yulAdd } from "./accessors/utils";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import { StoragePosition, StoragePositionTracker } from "../../../analysis/storage_positions";
 
@@ -163,7 +163,7 @@ class StorageCacheLibraryGenerator {
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
     });
-    const slotPointer = add(`_cache`, position.slot);
+    const slotPointer = yulAdd(`_cache`, position.slot);
     const body = [
       `assembly {`,
       [
@@ -188,13 +188,13 @@ class StorageCacheLibraryGenerator {
     const numFlagWords = Math.ceil(this.numSlots / 32);
 
     for (let i = 0; i < numFlagWords; i++) {
-      body.push(`${i === 0 ? "let " : ""}flags := mload(${add("_cache", i)})`);
+      body.push(`${i === 0 ? "let " : ""}flags := mload(${yulAdd("_cache", i)})`);
       const firstSlot = i * 32;
       const lastByteToCheck = Math.min((i + 1) * 32, this.numSlots) - firstSlot;
       for (let j = 0; j < lastByteToCheck; j++) {
         const slot = firstSlot + j;
-        const slotMemoryPointer = add(`_cache`, this.numSlots + slot * 32);
-        const storagePointer = add(`stored.slot`, slot);
+        const slotMemoryPointer = yulAdd(`_cache`, this.numSlots + slot * 32);
+        const storagePointer = yulAdd(`stored.slot`, slot);
         body.push(
           `if byte(${j}, flags) { sstore(${storagePointer}, mload(${slotMemoryPointer})) }`
         );
