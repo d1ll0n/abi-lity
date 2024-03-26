@@ -4,6 +4,7 @@ import {
   ASTNodeFactory,
   ContractDefinition,
   ContractKind,
+  ElementaryTypeName,
   EnumDefinition,
   FunctionDefinition,
   FunctionStateMutability,
@@ -77,13 +78,17 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
 
   //@todo refactor the larger functions out of this class
 
-  addValueTypeDefinition(name: string, limitedToScope?: boolean): UserDefinedValueTypeDefinition {
+  addValueTypeDefinition(
+    name: string,
+    limitedToScope?: boolean,
+    baseTypeName?: ElementaryTypeName
+  ): UserDefinedValueTypeDefinition {
     const target = limitedToScope ? this.scope : this.sourceUnit;
     const existing = target.vUserDefinedValueTypes.find((v) => v.name === name);
     if (existing) return existing;
     const type = this.factory.makeUserDefinedValueTypeDefinition(
       name,
-      this.factory.makeTypeNameUint256()
+      baseTypeName ?? this.factory.makeTypeNameUint256()
     );
     target.appendChild(type);
 
@@ -275,15 +280,16 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
         : mutability
     ];
 
+    // Don't add internal text if function is added at file level
     if (this.scope instanceof ContractDefinition) {
       modifiers.unshift("internal");
     }
     if (outputParameters) {
       modifiers.push(`returns (${outputParameters})`);
     }
-    if (modifiers.length > 0) {
-      modifiers.push("");
-    }
+    // If there are any modifiers, add a space between the last one and
+    // the return parameters / opening bracket
+    if (modifiers.length > 0) modifiers.push("");
     const signature = `function ${name} (${inputParameters}) ${modifiers.join(" ")}`;
     if (this.pendingFunctionSignatures.has(signature)) {
       return name;
