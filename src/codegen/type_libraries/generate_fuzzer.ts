@@ -1,76 +1,182 @@
-// // import {} from "scuffed-abi"
-// import { defaultAbiCoder } from "@ethersproject/abi";
-// import { assert } from "solc-typed-ast";
-// import { TypeNode, ValueType } from "../../ast";
-// import { maxUint } from "../../utils";
-// defaultAbiCoder.encode();
-// // decodeBytes
-// // decodeOffer
-// // decodeConsideration
-// // decodeOrderParameters
-// // decodeOrder
-// // decodeAdvancedOrder
-// // decodeOrderAsAdvancedOrder
-// // decodeOrdersAsAdvancedOrders
-// // decodeCriteriaResolver
-// // decodeCriteriaResolvers
-// // decodeOrders
-// // decodeFulfillmentComponents
-// // decodeNestedFulfillmentComponents
-// // decodeAdvancedOrders
-// // decodeFulfillment
-// // decodeFulfillments
-// // decodeOrderComponentsAsOrderParameters
+// import {} from "scuffed-abi"
+import { DataLocation, FunctionStateMutability, assert } from "solc-typed-ast";
+import {
+  AddressType,
+  ArrayType,
+  BoolType,
+  BytesType,
+  ContractType,
+  DefaultVisitor,
+  EnumType,
+  FixedBytesType,
+  IntegerType,
+  StructType,
+  TypeNode,
+  UABIType,
+  ValueType
+} from "../../ast";
+import { StructuredText } from "../../utils";
+import { WrappedScope } from "../ctx/contract_wrapper";
+import { toPascalCase } from "../names";
+import { ConstantKind } from "../../utils/make_constant";
+import { UserDefinedValueType } from "../../ast/value/user_defined_value_type";
 
-// // Fuzzing strategy
-// // For each type, have a limiting factor
+export const VisitorByScope: WeakMap<WrappedScope, FuzzGenerator> = new WeakMap();
+class FuzzGenerator extends DefaultVisitor {
+  existingTypeFunctions: Map<string, string> = new Map();
 
-// type TypeLimitation = {
-//   maxValue: bigint;
-// };
+  constructor(private ctx: WrappedScope) {
+    super();
+    VisitorByScope.set(ctx, this);
+  }
 
-// class ArrayFuzzer {
-//   baseType: TypeNode;
-// }
+  static getVisitor(ctx: WrappedScope): FuzzGenerator {
+    let visitor = VisitorByScope.get(ctx);
+    if (!visitor) {
+      visitor = new FuzzGenerator(ctx);
+    }
+    return visitor;
+  }
 
-// /**
-//  * @dev Get a mask with dirty bits.
-//  * If item is left aligned, dirty bits will be to the right of the encoded value's buffer.
-//  * If item is right aligned, dirty bits will be to the left of the encoded value's buffer.
-//  */
-// function getDirtyBits(leftAligned: boolean, offset: number) {
-//   if (leftAligned) return 64n >> BigInt(offset);
-//   return 64n << BigInt(256 - offset);
-// }
+  protected _shouldSkipVisitWith(type: TypeNode): string | undefined {
+    return this.existingTypeFunctions.get(type.identifier);
+  }
 
-// type ValuePermutation = {
-//   min: bigint;
-//   max: bigint;
-//   overflow?: bigint;
-//   middle?: bigint;
-// };
+  protected _afterVisit<T extends UABIType>(_type: T, result: any): string {
+    this.existingTypeFunctions.set(_type.identifier, result);
+    return result;
+  }
 
-// const valuePermutationsMap: Map<string, ValuePermutation> = new Map();
+  get defaultReturnValue(): any {
+    throw new Error("No default fuzzer.");
+  }
 
-// function getValueTypePermutations(type: ValueType): ValuePermutation {
-//   let permutations = valuePermutationsMap.get(type.identifier);
-//   if (permutations) {
-//     return permutations;
-//   }
-//   const max = type.max();
-//   const min = type.min();
-//   assert(max !== undefined, `Undefined max value for ${type.pp()}`);
-//   assert(min !== undefined, `Undefined min value for ${type.pp()}`);
-//   assert(min < max, `min < max for ${type.pp()}`);
-//   permutations = { min, max };
-//   if (max > 1n) {
-//     permutations.middle = max / 2n;
-//   }
-//   if (type.exactBits && type.exactBits < 256) {
-//     permutations.overflow = max | getDirtyBits(type.leftAligned, type.exactBits);
-//   }
-//   valuePermutationsMap.set(type.identifier, permutations);
-//   return permutations;
-// }
+  addFuzzFunction(type: TypeNode, body: StructuredText, comment?: StructuredText): string {
+    const outputParam = type.writeParameter(DataLocation.Memory, "result");
+    return this.ctx.addInternalFunction(
+      `fuzz${type.pascalCaseName}`,
+      "PRNG rng",
+      outputParam,
+      body,
+      FunctionStateMutability.Pure,
+      comment
+    );
+  }
 
-// //function get
+  visitValueType(type: ValueType) {
+    if (type instanceof BoolType) {
+      return this.addFuzzFunction(
+        type,
+        `return rng.range(0, 1) == 1;`,
+        `Generates a random boolean from a seed`
+      );
+    }
+    if (type instanceof IntegerType) {
+      const min = type.signed ? `type(${type.identifier}).min()` : 0;
+      const max = `type(${type.identifier}).max()`;
+      const value = `rng.range(${min}, ${max})`;
+      const asType = type.identifier !== "uint256" ? `${type.identifier}(${value})` : value;
+      return this.addFuzzFunction(
+        type,
+        [`return ${asType};`],
+        `Generates a random ${type.identifier} from a seed`
+      );
+    }
+    // @todo Add support for selecting address from a configured set
+    if (type instanceof AddressType) {
+      const addr = `address(rng.range(0, type(uint160).max()))`;
+      const value = type instanceof ContractType ? `${type.name}(${addr})` : addr;
+      return this.addFuzzFunction(
+        type,
+        `return ${value};`,
+        `Generates a random ${type instanceof ContractType ? type.name : "address"} from a seed`
+      );
+    }
+    if (type instanceof FixedBytesType) {
+      const eqUint = `uint${type.exactBits}`;
+      const value = `rng.range(0, type(${eqUint}).max())`;
+      const asUint = type.exactBits !== 256 ? `${eqUint}(${value})` : value;
+      const bytes = `${type.identifier}(${asUint})`;
+      return this.addFuzzFunction(
+        type,
+        [`return ${bytes};`],
+        `Generates a random ${type.identifier} from a seed`
+      );
+    }
+    if (type instanceof EnumType) {
+      const value = `rng.range(0, ${type.members.length - 1})`;
+      return this.addFuzzFunction(
+        type,
+        `return ${type.name}(${value});`,
+        `Generates a random ${type.identifier} from a seed`
+      );
+    }
+
+    if (type instanceof UserDefinedValueType) {
+      const baseFuzzer = this.visit(type.underlyingType);
+      return this.addFuzzFunction(
+        type,
+        `return ${type.name}(${baseFuzzer}(rng));`,
+        `Generates a random ${type.identifier} from a seed`
+      );
+    }
+
+    throw new Error(`Could not make fuzzer for type: ${type.pp()}`);
+  }
+
+  visitStruct(type: StructType) {
+    const body: StructuredText = type.children.map((m) => {
+      const fn = this.visit(m);
+      const label = m.labelFromParent;
+      return `result.${label} = ${fn}(rng);`;
+    });
+    return this.addFuzzFunction(type, body, `Generates a random ${type.identifier} from a seed`);
+  }
+
+  visitBytes(type: BytesType) {
+    const maxSizeName = toPascalCase(`MaxBytesLength`);
+    this.ctx.addConstant(maxSizeName, 256, ConstantKind.Uint);
+    const size = `rng.range(0, ${maxSizeName})`;
+    const body: StructuredText = [
+      `uint256 length = ${size};`,
+      `result = new bytes(length);`,
+      `uint pointer;`,
+      `uint terminalPointer;`,
+      `assembly {`,
+      [
+        `pointer := add(result, 0x20)`,
+        `terminalPointer := and(add(pointer, add(length, 31)), 0xffffffe0)`
+      ],
+      `}`,
+      `for (; pointer < terminalPointer; pointer += 32) {`,
+      [`uint word = rng.rand();`, `assembly { mstore(pointer, word) }`],
+      `}`,
+      `assembly { mstore(add(add(result, 0x20), length), 0) }`
+    ];
+    return this.addFuzzFunction(type, body, `Generates a random bytes from a seed`);
+  }
+
+  visitArray(type: ArrayType) {
+    const baseType = type.baseType;
+    const baseFuzzer = this.visit(baseType);
+    // const suffix = type.parent ? `_Per_${type.parent?.canonicalName}` : ``;
+    const maxSizeName = toPascalCase(`Max_${type.labelFromParent}Length`);
+    this.ctx.addConstant(maxSizeName, 10, ConstantKind.Uint);
+    const body: StructuredText = [
+      `for (uint256 i = 0; i < ${type.length ?? "length"}; i++) {`,
+      `  result[i] = ${baseFuzzer}(rng);`,
+      `}`
+    ];
+    if (type.isDynamicallySized) {
+      body.unshift(
+        `uint256 length = rng.range(0, ${maxSizeName});`,
+        `result = new ${baseType.canonicalName}[](length);`
+      );
+    }
+    return this.addFuzzFunction(
+      type,
+      body,
+      `Generates a random array of ${baseType.canonicalName} from a seed`
+    );
+  }
+}
