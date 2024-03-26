@@ -1053,6 +1053,9 @@ function generateReferenceTypeLibrary(
   return result;
 }
 
+/**
+ * Build files for scuff directives
+ */
 export function buildPointerFiles(
   helper: CompileHelper,
   primaryFileName: string,
