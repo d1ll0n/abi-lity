@@ -351,6 +351,9 @@ export abstract class TypeNodeWithChildren<T extends TypeNode> extends TypeNode 
       // For fields that can be read as a single word, pad the end of the previous
       // field if it ends mid-byte and the additional bits would make it impossible
       // to read the current field in one word.
+      // Example: Size = 255, offset = 2
+      // Reading would require one byte with 2 extra bits, then 31 full bytes,
+      // then one byte with 7 extra bits.
       if (size <= 256 && size + (offset % 8) > 256) {
         offset += 8 - (offset % 8);
       }
