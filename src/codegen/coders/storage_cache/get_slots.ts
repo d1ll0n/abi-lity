@@ -24,7 +24,10 @@ import NameGen, { toPascalCase } from "../../names";
 import { getReadFromMemoryAccessor, getWriteToMemoryAccessor } from "./accessors";
 import { yulAdd } from "./accessors/utils";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
-import { StoragePosition, StoragePositionTracker } from "../../../analysis/storage_positions";
+import {
+  StoragePosition,
+  SolidityStoragePositionsTracker
+} from "../../../analysis/solidity_storage_positions";
 
 // type StoredValuePosition = {
 // slot: number;
@@ -50,7 +53,7 @@ class StorageCacheLibraryGenerator {
     public gasToCodePreferenceRatio = 3,
     public defaultSelectionForSameScore: "leastgas" | "leastcode" = "leastgas"
   ) {
-    this.storagePositions = StoragePositionTracker.getPositions(type);
+    this.storagePositions = SolidityStoragePositionsTracker.getPositions(type);
     this.cacheTypeName = NameGen.cacheType(type);
     this.cacheLibraryName = NameGen.cacheTypeLibrary(type);
     this.ctx = sourceUnit.addContract(this.cacheLibraryName, ContractKind.Library);
@@ -134,8 +137,10 @@ class StorageCacheLibraryGenerator {
     const accessor = getReadFromMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      offset: absoluteOffsetBytes,
+      bytesOffset: absoluteOffsetBytes,
+      bitsOffset: absoluteOffsetBytes * 8,
       bytesLength: position.bytesLength,
+      bitsLength: position.bytesLength * 8,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
     });
@@ -157,8 +162,10 @@ class StorageCacheLibraryGenerator {
     const accessor = getWriteToMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      offset: absoluteOffsetBytes,
+      bytesOffset: absoluteOffsetBytes,
+      bitsOffset: absoluteOffsetBytes * 8,
       bytesLength: position.bytesLength,
+      bitsLength: position.bytesLength * 8,
       value: label,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
@@ -221,7 +228,7 @@ class StorageCacheLibraryGenerator {
 }
 
 export function optimizeStruct(struct: StructType): StructType {
-  const positions = StoragePositionTracker.getPositions(struct);
+  const positions = SolidityStoragePositionsTracker.getPositions(struct);
   const optimizedSlots = optimizeStoragePositions([...positions.map((p) => ({ ...p }))]);
   const optimizedPositions = optimizedSlots.flat();
 
@@ -256,7 +263,7 @@ async function test() {
   }`);
   const MarketState = reader.structs[0];
   MarketState.labelFromParent = "state";
-  const positions = StoragePositionTracker.getPositions(MarketState);
+  const positions = SolidityStoragePositionsTracker.getPositions(MarketState);
   const printPositions = (positions: StoragePosition[]) => {
     for (const position of positions) {
       const end = position.slotOffsetBytes + position.bytesLength;

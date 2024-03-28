@@ -2,12 +2,14 @@ import { assert } from "solc-typed-ast";
 
 import {
   yulAdd,
-  alignValue,
+  yulAlignValue,
   maskOmit,
   pickBestCodeForPreferences,
   yulShl,
   yulShr,
-  toValue
+  toValue,
+  roundUpToNextByte,
+  roundDownToNextByte
 } from "./utils";
 import { WriteParameterArgs } from "./types";
 
@@ -23,61 +25,65 @@ export function getWriteToMemoryAccessor(args: WriteParameterArgs): string {
 // For a given field, returns a list of options for writing the field to memory.
 // @todo Test all cases
 export const getOptionsReplaceValueInMemory = (args: WriteParameterArgs): string[] => {
-  const { dataReference, offset, bytesLength, value } = args;
-  if (bytesLength === 32) {
-    return [`mstore(${yulAdd(dataReference, offset)}, ${toValue(value)})`];
+  const { dataReference, bytesOffset, bitsOffset, bitsLength, value } = args;
+  // @todo check if value can be read in one word (if 256, starts at byte boundary)
+  if (bitsLength === 256) {
+    return [`mstore(${yulAdd(dataReference, bytesOffset)}, ${toValue(value)})`];
   }
-  const endOfFieldOffset = offset + bytesLength;
+  const endOfFieldOffsetBits = bitsOffset + bitsLength;
 
   const options: string[] = [];
 
   // First set of options: read from 32 bytes before the end of the field (right aligned field)
   // Requires the end of the field be at least 32 bytes from the start of the data
-  if (endOfFieldOffset >= 32) {
-    options.push(...getOptionsReplaceRightAlignedValueInMemory(args));
+  if (endOfFieldOffsetBits >= 256) {
+    options.push(...getOptionsReplaceValueInMemoryAtEndOfWord(args));
   }
 
   // Second set of options: read from the start of the field (left aligned field)
-  options.push(...getOptionsReplaceLeftAlignedValueInMemory(args));
+  options.push(...getOptionsReplaceValueInMemoryAtStartOfWord(args));
 
   // Third set of options: read from the start of the data (mid-word field)
   // Requires the field be in the first word of the data but not at the start or end of the word
-  if (endOfFieldOffset <= 32 && offset !== 0) {
+  if (endOfFieldOffsetBits <= 256 && bitsOffset !== 0) {
     options.push(...getOptionsReplaceMidWordValueInMemory(args));
   }
 
-  // If field is one byte, can overwrite that single byte with the new value
-  if (bytesLength === 1) {
-    const rightAlignedValue = alignValue(value, 8, args.leftAligned, 248);
-    options.push(`mstore8(${yulAdd(dataReference, offset)}, ${rightAlignedValue})`);
+  // If field is one byte and begins at a byte boundary, can overwrite that
+  // single byte with the new value
+  if (bitsLength === 8 && bitsOffset % 8 === 0) {
+    const rightAlignedValue = yulAlignValue(value, 8, args.leftAligned, 248);
+    options.push(`mstore8(${yulAdd(dataReference, bytesOffset)}, ${rightAlignedValue})`);
   }
 
   return options;
 };
 
-const getOptionsReplaceRightAlignedValueInMemory = ({
+const getOptionsReplaceValueInMemoryAtEndOfWord = ({
   dataReference,
   leftAligned,
-  offset,
-  bytesLength,
+  bitsLength,
+  bitsOffset,
   value
 }: WriteParameterArgs) => {
-  const endOfFieldOffset = offset + bytesLength;
-  assert(
-    endOfFieldOffset >= 32,
-    `Right-aligned replacement requires value be readable at end of word without subtracting from data pointer. Received field ending at byte ${endOfFieldOffset}`
-  );
-  const bitsLength = bytesLength * 8;
-  const bitsBeforeOldValue = 256 - bitsLength;
-  const rightAlignedValueExpr = leftAligned
-    ? yulShr(bitsBeforeOldValue, toValue(value))
-    : toValue(value);
+  const endOfFieldOffsetBits = bitsOffset + bitsLength;
+  // Right-aligned replacement requires value be readable at end of word without subtracting from data pointer.
+  if (endOfFieldOffsetBits < 256) {
+    return [];
+  }
+  // e.g. field starts at bit 285 and ends at bit 290, next byte boundary is at 296, so we read
+  // from (296 - 256) = byte 5 within the read word, the field starts at bit (285 - 40) = 245
+  const nextByteBoundaryOffsetBits = roundUpToNextByte(endOfFieldOffsetBits);
+  const extraBits = nextByteBoundaryOffsetBits - endOfFieldOffsetBits;
+  assert(extraBits + bitsLength <= 256, `Value can not be read in a single word`);
+  const bitsBeforeOldValue = 256 - extraBits - bitsLength;
+  const rightAlignedValueExpr = leftAligned ? yulShr(bitsBeforeOldValue, value) : toValue(value);
   const readExpr = `mload(rightAlignedPointer)`;
   const oldValueRemovedWithMask = maskOmit(readExpr, bitsLength, bitsBeforeOldValue);
 
   const options: string[] = [];
 
-  const pointerExpr = yulAdd(dataReference, endOfFieldOffset - 32);
+  const pointerExpr = yulAdd(dataReference, nextByteBoundaryOffsetBits / 8 - 32);
 
   // Option 1. Read old value right aligned, mask out the old value, and OR in the new value
   options.push(
@@ -87,14 +93,16 @@ const getOptionsReplaceRightAlignedValueInMemory = ({
     ].join("\n")
   );
 
-  // Option 2. Read old value right aligned, shift it twice to remove old value, and OR in the new value
-  const oldValueRemovedWithShift = yulShl(bitsLength, yulShr(bitsLength, readExpr));
-  options.push(
-    [
-      `let rightAlignedPointer := ${pointerExpr}`,
-      `mstore(rightAlignedPointer, or(${oldValueRemovedWithShift}, ${rightAlignedValueExpr}))`
-    ].join("\n")
-  );
+  if (extraBits === 0) {
+    // Option 2. Read old value right aligned, shift it twice to remove old value, and OR in the new value
+    const oldValueRemovedWithShift = yulShl(bitsLength, yulShr(bitsLength, readExpr));
+    options.push(
+      [
+        `let rightAlignedPointer := ${pointerExpr}`,
+        `mstore(rightAlignedPointer, or(${oldValueRemovedWithShift}, ${rightAlignedValueExpr}))`
+      ].join("\n")
+    );
+  }
 
   return options;
 };
@@ -102,29 +110,26 @@ const getOptionsReplaceRightAlignedValueInMemory = ({
 const getOptionsReplaceMidWordValueInMemory = ({
   dataReference,
   leftAligned,
-  offset,
-  bytesLength,
+  bitsLength,
+  bitsOffset,
   value
 }: WriteParameterArgs) => {
-  const endOfFieldOffset = offset + bytesLength;
-  assert(
-    endOfFieldOffset <= 32 && offset !== 0,
-    `Mid-word replacement requires value in first word between byte 1 and 32. Received field between bytes ${offset} and ${endOfFieldOffset}`
-  );
-  const bitsLength = bytesLength * 8;
-
-  const bitsOffsetInWord = offset * 8;
-  const valueAlignedWithOldValue: string = alignValue(
+  // Mid-word replacement requires value in first word between bits 1 and 256.
+  const endOfFieldOffsetBits = bitsOffset + bitsLength;
+  if (endOfFieldOffsetBits > 256 || bitsOffset === 0) {
+    return [];
+  }
+  const valueAlignedWithOldValue: string = yulAlignValue(
     value,
     bitsLength,
     leftAligned,
-    bitsOffsetInWord
+    bitsOffset
   );
 
   const options: string[] = [];
 
   // Option 1. Read old value in place, mask out the old value, and OR in the new value
-  const oldValueRemovedWithMask = maskOmit(`mload(${dataReference})`, bitsLength, bitsOffsetInWord);
+  const oldValueRemovedWithMask = maskOmit(`mload(${dataReference})`, bitsLength, bitsOffset);
   options.push(
     `mstore(${dataReference}, or(${oldValueRemovedWithMask}, ${valueAlignedWithOldValue}))`
   );
@@ -132,21 +137,23 @@ const getOptionsReplaceMidWordValueInMemory = ({
   return options;
 };
 
-const getOptionsReplaceLeftAlignedValueInMemory = ({
+const getOptionsReplaceValueInMemoryAtStartOfWord = ({
   dataReference,
   leftAligned,
-  offset,
-  bytesLength,
+  bitsLength,
+  bitsOffset,
   value
 }: WriteParameterArgs) => {
-  const bitsLength = bytesLength * 8;
-  const pointerExpr = yulAdd(dataReference, offset);
+  const prevByteBoundaryOffsetBits = roundDownToNextByte(bitsOffset);
+  const extraBitsAtStart = bitsOffset - prevByteBoundaryOffsetBits;
+  assert(extraBitsAtStart + bitsLength <= 256, `Value can not be read in a single word`);
+  const pointerExpr = yulAdd(dataReference, prevByteBoundaryOffsetBits / 8);
 
   const options: string[] = [];
-  const valueAlignedWithOldValue = alignValue(value, bitsLength, leftAligned, 0);
+  const valueAlignedWithOldValue = yulAlignValue(value, bitsLength, leftAligned, extraBitsAtStart);
 
   // Option 1. Read old word left aligned, mask out the old value, and OR in the new value
-  const oldValueRemovedWithMask = maskOmit(`mload(startPointer)`, bitsLength, 0);
+  const oldValueRemovedWithMask = maskOmit(`mload(startPointer)`, bitsLength, extraBitsAtStart);
   options.push(
     [
       `let startPointer := ${pointerExpr}`,
@@ -154,14 +161,16 @@ const getOptionsReplaceLeftAlignedValueInMemory = ({
     ].join("\n")
   );
 
-  // Option 2. Read old word left aligned, shift it twice to remove old value, and OR in the new value
-  const oldValueRemovedWithShift = yulShr(bitsLength, yulShl(bitsLength, `mload(startPointer)`));
-  options.push(
-    [
-      `let startPointer := ${pointerExpr}`,
-      `mstore(startPointer, or(${oldValueRemovedWithShift}, ${valueAlignedWithOldValue}))`
-    ].join("\n")
-  );
+  if (extraBitsAtStart === 0) {
+    // Option 2. Read old word left aligned, shift it twice to remove old value, and OR in the new value
+    const oldValueRemovedWithShift = yulShr(bitsLength, yulShl(bitsLength, `mload(startPointer)`));
+    options.push(
+      [
+        `let startPointer := ${pointerExpr}`,
+        `mstore(startPointer, or(${oldValueRemovedWithShift}, ${valueAlignedWithOldValue}))`
+      ].join("\n")
+    );
+  }
 
   return options;
 };

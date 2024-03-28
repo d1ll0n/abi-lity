@@ -1,6 +1,11 @@
 import { yulBuiltins } from "solc-typed-ast";
 import { getInclusionMask, getOmissionMask, toHex } from "../../../../utils";
-import { ParameterLocation, ReadParameterArgs } from "./types";
+import { ParameterLocation } from "./types";
+
+export type YulValueLike = string | number | bigint;
+
+export const roundUpToNextByte = (bits: number): number => Math.ceil(bits / 8) * 8;
+export const roundDownToNextByte = (bits: number): number => Math.floor(bits / 8) * 8;
 
 // Returns a Yul expression that masks out the bits from `offset` to `offset + bitsLength`
 export const maskOmit = (value: string, bitsLength: number, offset: number): string =>
@@ -12,19 +17,20 @@ export const maskInclude = (value: string, bitsLength: number, offset: number): 
   return `and(${value}, ${getInclusionMask(bitsLength, offset)})`;
 };
 
-export function isNumeric(n: string | number): boolean {
-  if (typeof n === "number") return true;
+export function isNumeric(n: YulValueLike): boolean {
+  if (typeof n === "number" || typeof n === "bigint") return true;
   return /^-?\d+$/.test(n) || n.startsWith("0x");
 }
 
-export const shiftAndMask = ({
+export const yulShiftAndMask = ({
   dataReference,
-  offset,
   leftAligned,
-  bytesLength
-}: ParameterLocation): string => {
-  const bitsLength = bytesLength * 8;
-  const bitsOffset = offset * 8;
+  bitsLength,
+  bitsOffset
+}: Pick<
+  ParameterLocation,
+  "dataReference" | "leftAligned" | "bitsLength" | "bitsOffset"
+>): string => {
   const endOfFieldBitsOffset = bitsOffset + bitsLength;
   // For left aligned values, mask then shift left
   if (leftAligned) {
@@ -43,19 +49,41 @@ export const shiftAndMask = ({
   return maskInclude(yulShr(bitsAfter, dataReference), bitsLength, bitsBeforeAfterShift);
 };
 
-export const extractByte = ({ dataReference, offset, leftAligned }: ParameterLocation): string => {
-  const byteExpr = `byte(${offset}, ${dataReference})`;
-  return leftAligned ? yulShl(248, byteExpr) : byteExpr;
+export const yulExtractByte = ({
+  dataReference,
+  bitsOffset,
+  leftAligned
+}: Pick<ParameterLocation, "dataReference" | "bitsOffset" | "leftAligned">): string => {
+  // If value is rightmost byte in the word but should be left aligned
+  // when decoded, shl is the cheapest way to extract it.
+  if (leftAligned && bitsOffset === 248) {
+    return yulShl(248, dataReference);
+  }
+  // If value does not begin at a clean byte boundary, we need to extract the byte
+  // with shifts.
+  if (bitsOffset % 8 !== 0) {
+    if (!leftAligned) return `byte(0, ${yulShl(bitsOffset, dataReference)})`;
+    return yulShiftTwice({
+      dataReference,
+      bitsOffset,
+      leftAligned,
+      bitsLength: 8
+    });
+  }
+  // Otherwise, `byte` will always be the best option (or on par with other options)
+  const byteExpr = `byte(${bitsOffset}, ${dataReference})`;
+  return yulShiftTo(byteExpr, 248, leftAligned ? 0 : 248);
 };
 
-export const shiftTwice = ({
+export const yulShiftTwice = ({
   dataReference,
-  offset,
-  leftAligned,
-  bytesLength
-}: ParameterLocation): string => {
-  const bitsLength = bytesLength * 8;
-  const bitsOffset = offset * 8;
+  bitsLength,
+  bitsOffset,
+  leftAligned
+}: Pick<
+  ParameterLocation,
+  "bitsLength" | "dataReference" | "bitsOffset" | "leftAligned"
+>): string => {
   const endOfFieldBitsOffset = bitsOffset + bitsLength;
   // For left aligned values, shift right then left
   if (leftAligned) {
@@ -68,34 +96,60 @@ export const shiftTwice = ({
   return yulShr(bitsAfterAfterShift, yulShl(bitsOffset, dataReference));
 };
 
-export const isNotNumeric = (n: string | number): n is string => !isNumeric(n);
-export const isZero = (n: string | number): boolean => isNumeric(n) && BigInt(n) === 0n;
-export const toValue = (n: string | number): string => (isNotNumeric(n) ? n : toHex(BigInt(n)));
+export const isNotNumeric = (n: YulValueLike): n is string => !isNumeric(n);
+export const isZero = (n: YulValueLike): boolean => isNumeric(n) && BigInt(n) === 0n;
+export const toValue = (n: YulValueLike): string => (isNotNumeric(n) ? n : toHex(BigInt(n)));
 
-export const yulShl = (bits: number, value: string | number): string => {
+/**
+ * Generate a Yul expression that is equivalent to `value << bits`.
+ * If `bits` is zero, the value is returned as is.
+ * If the value is numeric, the shifted value is returned as a hex string.
+ * Otherwise, a Yul `shl` expression is returned.
+ */
+export const yulShl = (bits: number, value: YulValueLike): string => {
   if (isNotNumeric(value)) {
     return bits === 0 ? value : `shl(${toHex(bits)}, ${value})`;
   }
   return toHex(BigInt(value) << BigInt(bits));
 };
 
-export const yulShr = (bits: number, value: string | number): string => {
+/**
+ * Generate a Yul expression that is equivalent to `value >> bits`.
+ * If `bits` is zero, the value is returned as is.
+ * If the value is numeric, the shifted value is returned as a hex string.
+ * Otherwise, a Yul `shr` expression is returned.
+ */
+export const yulShr = (bits: number, value: YulValueLike): string => {
   if (isNotNumeric(value)) {
     return bits === 0 ? value : `shr(${toHex(bits)}, ${value})`;
   }
   return toHex(BigInt(value) >> BigInt(bits));
 };
 
-export const yulAdd = (a: string | number, b: string | number): string | number => {
+/**
+ * Generate a Yul expression that is equivalent to `a + b`.
+ * If both values are numeric, the sum is returned as a hex string.
+ * If one of the values is zero, the other value is returned.
+ * Otherwise, a Yul `add` expression is returned.
+ */
+export const yulAdd = (a: YulValueLike, b: YulValueLike): string | number => {
   if (isNumeric(a) && isNumeric(b)) {
     return toHex(BigInt(a) + BigInt(b));
   }
-  if (isZero(a)) return b;
-  if (isZero(b)) return a;
+  if (isZero(a)) return toValue(b);
+  if (isZero(b)) return toValue(a);
   return `add(${toValue(a)}, ${toValue(b)})`;
 };
 
-export const alignStackValue = (
+/**
+ * Generate a Yul expression that shifts a value to a target offset.
+ * If the value is already aligned, it is returned as is.
+ * If the target offset is greater than the value offset, returns expression
+ *    equivalent to `value >> (targetOffset - valueOffset)`.
+ * If the target offset is less than the value offset, returns expression
+ *    equivalent to `value << (valueOffset - targetOffset)`.
+ */
+export const yulShiftTo = (
   valueExpr: string | number,
   valueOffset: number,
   targetOffset: number
@@ -118,7 +172,7 @@ export const alignStackValue = (
 
 }; */
 
-export const alignValue = (
+export const yulAlignValue = (
   valueExpr: string | number,
   bitsLength: number,
   leftAligned: boolean,
@@ -160,7 +214,7 @@ export function pickBestCodeForPreferences(
   return optionCosts[0].code;
 }
 
-// Assumes all instructions are 3 gas
+// Assumes all instructions are 3 gas.
 export function measureGasAndSize(code: string): { gas: number; bytes: number } {
   const lines = code.split("\n");
   const startingPosition = { gas: 0, bytes: 0 };

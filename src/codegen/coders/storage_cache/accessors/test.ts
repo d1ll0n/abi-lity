@@ -4,7 +4,7 @@ import {
   getOptionsReadFromMemoryAtEndOfWord,
   getReadFromMemoryAccessor
 } from "./read_memory";
-import { pickBestCodeForPreferences, shiftAndMask, shiftTwice } from "./utils";
+import { pickBestCodeForPreferences, yulShiftAndMask, yulShiftTwice } from "./utils";
 import { CompileHelper } from "../../../../utils/compile_utils/compile_helper";
 import { writeNestedStructure } from "../../../../utils";
 import { CallResult, CallStatus, getTestDeployment } from "../../../../test_utils";
@@ -62,8 +62,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: true,
-    offset: 0,
-    bytesLength: 32
+    bytesOffset: 0,
+    bitsOffset: 0,
+    bytesLength: 32,
+    bitsLength: 32 * 8
   }),
   `mload(cache)`
 );
@@ -71,8 +73,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: true,
-    offset: 32,
-    bytesLength: 32
+    bytesOffset: 32,
+    bitsOffset: 32 * 8,
+    bytesLength: 32,
+    bitsLength: 32 * 8
   }),
   `mload(add(cache, 0x20))`
 );
@@ -88,8 +92,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: true,
-    offset: 0,
+    bytesOffset: 0,
+    bitsOffset: 0,
     bytesLength: 31,
+    bitsLength: 31 * 8,
     gasToCodePreferenceRatio: 6 / 28
   }),
   `and(mload(cache), 0x${"ff".repeat(31)}00)`
@@ -98,8 +104,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: true,
-    offset: 0,
+    bytesOffset: 0,
+    bitsOffset: 0,
     bytesLength: 31,
+    bitsLength: 31 * 8,
     gasToCodePreferenceRatio: 6 / 28 + 0.01
   }),
   `shl(0x08, shr(0x08, mload(cache)))`
@@ -110,8 +118,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: true,
-    offset: 1,
-    bytesLength: 31
+    bytesOffset: 1,
+    bitsOffset: 1 * 8,
+    bytesLength: 31,
+    bitsLength: 31 * 8
   }),
   `shl(0x08, mload(cache))`
 );
@@ -121,8 +131,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: true,
-    offset: 32,
-    bytesLength: 31
+    bytesOffset: 32,
+    bitsOffset: 32 * 8,
+    bytesLength: 31,
+    bitsLength: 31 * 8
   }),
   `shl(0x08, mload(add(cache, 0x1f)))`
 );
@@ -132,8 +144,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: false,
-    offset: 1,
-    bytesLength: 31
+    bytesOffset: 1,
+    bitsOffset: 1 * 8,
+    bytesLength: 31,
+    bitsLength: 31 * 8
   }),
   `shr(0x08, shl(0x08, mload(cache)))`
 );
@@ -141,8 +155,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: false,
-    offset: 25,
-    bytesLength: 7
+    bytesOffset: 25,
+    bitsOffset: 25 * 8,
+    bytesLength: 7,
+    bitsLength: 7 * 8
   }),
   `shr(0xc8, shl(0xc8, mload(cache)))`
 );
@@ -152,8 +168,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: false,
-    offset: 31,
-    bytesLength: 1
+    bytesOffset: 31,
+    bitsOffset: 31 * 8,
+    bytesLength: 1,
+    bitsLength: 1 * 8
   }),
   `byte(31, mload(cache))`
 );
@@ -161,8 +179,10 @@ checkValues(
   getReadFromMemoryAccessor({
     dataReference: "cache",
     leftAligned: false,
-    offset: 26,
-    bytesLength: 6
+    bytesOffset: 26,
+    bitsOffset: 26 * 8,
+    bytesLength: 6,
+    bitsLength: 6 * 8
   }),
   `and(mload(cache), 0xffffffffffff)`
 );
@@ -181,11 +201,11 @@ function shiftAndMaskOnlyUsesNecessaryOps() {
   ] as const;
   for (const [leftAligned, offset, bytesLength, expected] of testCases) {
     checkValues(
-      shiftAndMask({
+      yulShiftAndMask({
         dataReference: "cache",
         leftAligned,
-        offset,
-        bytesLength
+        bitsOffset: offset * 8,
+        bitsLength: bytesLength * 8
       }),
       expected
     );
@@ -238,8 +258,10 @@ function test_getOptionsReadFromMemoryAtEndOfWord() {
       getOptionsReadFromMemoryAtEndOfWord({
         dataReference: "cache",
         leftAligned,
-        offset,
-        bytesLength
+        bytesOffset: offset,
+        bitsOffset: offset * 8,
+        bytesLength,
+        bitsLength: bytesLength * 8
       }),
       expected
     );
@@ -366,7 +388,9 @@ async function test_getOptionsReplaceStackValue() {
       value: "valueToSet",
       dataReference: "oldWord",
       leftAligned,
-      offset
+      bytesOffset: offset,
+      bitsOffset: offset * 8,
+      bitsLength: bytesLength * 8
     }).map((code) => `newWord := ${code}`);
     await testWriteFunctionOptions(leftAligned, offset, bytesLength, "replaceStackValue", options);
   }
@@ -391,7 +415,9 @@ async function test_getOptionsReplaceValueInMemory() {
       value: "valueToSet",
       dataReference: "ptr",
       leftAligned,
-      offset
+      bytesOffset: offset,
+      bitsOffset: offset * 8,
+      bitsLength: bytesLength * 8
     }).map((code) =>
       [`let ptr := 0`, `mstore(0, oldWord)`, code, `newWord := mload(ptr)`].join("\n")
     );
@@ -455,7 +481,12 @@ async function test_shiftTwice() {
 
   for (const [leftAligned, offset, bytesLength] of testCases) {
     await testReadFunctionOptions(leftAligned, offset, bytesLength, "shiftTwice", [
-      shiftTwice({ dataReference: "word", leftAligned, offset, bytesLength })
+      yulShiftTwice({
+        dataReference: "word",
+        leftAligned,
+        bitsOffset: offset * 8,
+        bitsLength: bytesLength * 8
+      })
     ]);
   }
 }
@@ -476,7 +507,12 @@ async function test_shiftAndMask() {
 
   for (const [leftAligned, offset, bytesLength] of testCases) {
     await testReadFunctionOptions(leftAligned, offset, bytesLength, "shiftAndMask", [
-      shiftAndMask({ dataReference: "word", leftAligned, offset, bytesLength })
+      yulShiftAndMask({
+        dataReference: "word",
+        leftAligned,
+        bitsOffset: offset * 8,
+        bitsLength: bytesLength * 8
+      })
     ]);
   }
 }
@@ -500,8 +536,10 @@ async function test_getOptionsReadFromMemory() {
     const options = getOptionsReadFromMemory({
       dataReference: "ptr",
       leftAligned,
-      offset,
-      bytesLength
+      bytesOffset: offset,
+      bitsOffset: offset * 8,
+      bytesLength,
+      bitsLength: bytesLength * 8
     });
 
     await testReadFunctionOptions(

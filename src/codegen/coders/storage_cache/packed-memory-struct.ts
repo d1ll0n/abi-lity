@@ -17,7 +17,10 @@ import { getOffsetYulExpression } from "../../offsets";
 import NameGen, { pascalCaseToCamelCase } from "../../names";
 import { getReadFromMemoryAccessor, getWriteToMemoryAccessor } from "./accessors";
 import { yulAdd } from "./accessors/utils";
-import { StoragePosition, StoragePositionTracker } from "../../../analysis/storage_positions";
+import {
+  StoragePosition,
+  SolidityStoragePositionsTracker
+} from "../../../analysis/solidity_storage_positions";
 import { readTypeNodesFromSolcAST } from "../../../readers";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import assert from "assert";
@@ -37,7 +40,7 @@ export class PackedMemoryTypeGenerator {
     public gasToCodePreferenceRatio = 3,
     public defaultSelectionForSameScore: "leastgas" | "leastcode" = "leastgas"
   ) {
-    this.storagePositions = StoragePositionTracker.getPositions(type);
+    this.storagePositions = SolidityStoragePositionsTracker.getPositions(type);
     this.cacheTypeName = NameGen.packedMemoryType(type);
     this.cacheLibraryName = NameGen.cacheTypeLibrary(type);
     this.ctx = sourceUnit.addContract(this.cacheLibraryName, ContractKind.Library);
@@ -130,8 +133,10 @@ export class PackedMemoryTypeGenerator {
     const accessor = getReadFromMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      offset: absoluteOffsetBytes,
+      bytesOffset: absoluteOffsetBytes,
+      bitsOffset: absoluteOffsetBytes * 8,
       bytesLength: position.bytesLength,
+      bitsLength: position.bitsLength,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
     });
@@ -189,8 +194,10 @@ export class PackedMemoryTypeGenerator {
     const accessor = getWriteToMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      offset: absoluteOffsetBytes,
+      bytesOffset: absoluteOffsetBytes,
+      bitsOffset: position.parentOffsetBits,
       bytesLength: position.bytesLength,
+      bitsLength: position.bitsLength,
       value: label,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore

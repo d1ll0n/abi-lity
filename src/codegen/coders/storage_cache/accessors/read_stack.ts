@@ -1,32 +1,40 @@
 import { assert } from "solc-typed-ast";
-import { extractByte, pickBestCodeForPreferences, shiftAndMask, shiftTwice, yulShl } from "./utils";
+import {
+  yulExtractByte,
+  pickBestCodeForPreferences,
+  yulShiftAndMask,
+  yulShiftTwice,
+  yulShl
+} from "./utils";
 import { ReadParameterArgs } from "./types";
 
-export function getOptionsReadFromStack(args: ReadParameterArgs): string[] {
+export function getOptionsReadFromStack(
+  args: Omit<ReadParameterArgs, "bytesLength" | "bytesOffset">
+): string[] {
   const options: string[] = [];
 
   assert(
-    args.offset + args.bytesLength <= 32,
+    args.bitsOffset + args.bitsLength <= 256,
     [
       `Can not generate stack offset for parameter that overflows word:`,
-      `\n\t${args.offset} + ${args.bytesLength} > 32`
+      `\n\t${args.bitsOffset} + ${args.bitsLength} > 256`
     ].join("")
   );
 
-  if (args.bytesLength === 32) {
+  if (args.bitsLength === 256) {
     return [args.dataReference];
   }
 
   // Option 1. Single byte is extracted
-  if (args.bytesLength === 1) {
-    options.push(extractByte(args));
+  if (args.bitsLength === 8) {
+    options.push(yulExtractByte(args));
   }
 
   // Option 2. shift and mask - fn skips unnecessary ops
-  options.push(shiftAndMask(args));
+  options.push(yulShiftAndMask(args));
 
   // Option 3. shift twice - fn skips unnecessary ops
-  options.push(shiftTwice(args));
+  options.push(yulShiftTwice(args));
 
   return options;
 }

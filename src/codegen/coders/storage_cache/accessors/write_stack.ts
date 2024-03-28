@@ -1,6 +1,6 @@
 import {
   yulAdd,
-  alignValue,
+  yulAlignValue,
   maskOmit,
   pickBestCodeForPreferences,
   yulShl,
@@ -9,6 +9,7 @@ import {
 } from "./utils";
 import { WriteParameterArgs } from "./types";
 import { getReadFromStackAccessor } from "./read_stack";
+import { assert } from "console";
 
 export function getWriteToStackAccessor(args: WriteParameterArgs): string {
   const options = getOptionsReplaceStackValue(args);
@@ -22,17 +23,19 @@ export function getWriteToStackAccessor(args: WriteParameterArgs): string {
 // For a given field, returns a list of options for writing the field to memory.
 // @todo Test all cases
 export const getOptionsReplaceStackValue = (args: WriteParameterArgs): string[] => {
-  const { dataReference, offset, bytesLength, value } = args;
-  if (bytesLength === 32) {
-    return [toValue(value)];
-  }
-  const endOfFieldOffset = offset + bytesLength;
+  const { dataReference, bitsOffset, bitsLength, value } = args;
+  const endOfFieldOffsetBits = bitsOffset + bitsLength;
+  assert(
+    endOfFieldOffsetBits <= 256,
+    "Can not generate stack offset for parameter that is larger than word"
+  );
+  if (bitsLength === 256) return [toValue(value)];
 
   const options: string[] = [];
 
   // First set of options: read from 32 bytes before the end of the field (right aligned field)
   // Requires the end of the field be at least 32 bytes from the start of the data
-  if (endOfFieldOffset >= 32) {
+  if (endOfFieldOffsetBits >= 256) {
     options.push(...getOptionsReplaceRightAlignedStackValue(args));
   }
 
@@ -41,7 +44,7 @@ export const getOptionsReplaceStackValue = (args: WriteParameterArgs): string[] 
 
   // Third set of options: read from the start of the data (mid-word field)
   // Requires the field be in the first word of the data but not at the start or end of the word
-  if (endOfFieldOffset <= 32 && offset !== 0) {
+  if (endOfFieldOffsetBits <= 256 && bitsOffset !== 0) {
     options.push(...getOptionsReplaceMidWordStackValue(args));
   }
 
@@ -55,7 +58,7 @@ export const getOptionsReplaceStackValue = (args: WriteParameterArgs): string[] 
 };
 
 const getOptionsReplaceRightAlignedStackValue = (args: WriteParameterArgs) => {
-  const { dataReference, leftAligned, offset, bytesLength, value } = args;
+  const { dataReference, leftAligned, bytesOffset: offset, bytesLength, value } = args;
 
   const endOfFieldOffset = offset + bytesLength;
   if (endOfFieldOffset !== 32) return [];
@@ -84,7 +87,7 @@ const getOptionsReplaceRightAlignedStackValue = (args: WriteParameterArgs) => {
     ...args,
     leftAligned: true,
     bytesLength: 32 - bytesLength,
-    offset: 0
+    bytesOffset: 0
   });
   options.push(`or(${oldValueRemovedWithStackRead}, ${rightAlignedValueExpr})`);
 
@@ -94,7 +97,7 @@ const getOptionsReplaceRightAlignedStackValue = (args: WriteParameterArgs) => {
 const getOptionsReplaceMidWordStackValue = ({
   dataReference,
   leftAligned,
-  offset,
+  bytesOffset: offset,
   bytesLength,
   value
 }: WriteParameterArgs) => {
@@ -103,7 +106,7 @@ const getOptionsReplaceMidWordStackValue = ({
   if (endOfFieldOffset > 32 || offset === 0) return [];
   const bitsLength = bytesLength * 8;
   const bitsOffsetInWord = offset * 8;
-  const valueAlignedWithOldValue: string = alignValue(
+  const valueAlignedWithOldValue: string = yulAlignValue(
     value,
     bitsLength,
     leftAligned,
@@ -117,23 +120,25 @@ const getOptionsReplaceMidWordStackValue = ({
 
 const getOptionsReplaceLeftAlignedStackValue = (args: WriteParameterArgs) => {
   const { dataReference, leftAligned, bytesLength, value } = args;
-  if (args.offset !== 0) return [];
+  if (args.bytesOffset !== 0) return [];
   const bitsLength = bytesLength * 8;
 
   const options: string[] = [];
-  const valueAlignedWithOldValue = alignValue(value, bitsLength, leftAligned, 0);
+  const valueAlignedWithOldValue = yulAlignValue(value, bitsLength, leftAligned, 0);
 
   // Option 1. Read old word left aligned, mask out the old value, and OR in the new value
   const oldValueRemovedWithMask = maskOmit(dataReference, bitsLength, 0);
   options.push(`or(${oldValueRemovedWithMask}, ${valueAlignedWithOldValue})`);
 
-  // Option 2. Read old word left aligned, shift it twice to remove old value, and OR in the new value
+  // Option 2. Shift twice to remove old value and OR in the new value
   const oldValueRemovedWithShift = yulShr(bitsLength, yulShl(bitsLength, dataReference));
   options.push(`or(${oldValueRemovedWithShift}, ${valueAlignedWithOldValue})`);
 
   const oldValueRemovedWithStackRead = getReadFromStackAccessor({
-    offset: bytesLength,
+    bytesOffset: bytesLength,
+    bitsOffset: bytesLength * 8,
     bytesLength: 32 - bytesLength,
+    bitsLength: 256 - bitsLength,
     leftAligned: false,
     dataReference
   });

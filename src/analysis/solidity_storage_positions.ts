@@ -6,7 +6,9 @@ export type StoragePosition = {
   slot: number;
   slotOffsetBytes: number;
   parentOffsetBytes: number;
+  parentOffsetBits: number;
   bytesLength: number;
+  bitsLength: number;
   label: string;
   type: ValueType;
 } & (
@@ -20,7 +22,7 @@ export type StoragePosition = {
     }
 );
 
-export class StoragePositionTracker {
+export class SolidityStoragePositionsTracker {
   slot = 0;
   slotOffsetBytes = 0;
   positions: StoragePosition[] = [];
@@ -43,7 +45,9 @@ export class StoragePositionTracker {
       slot: this.slot,
       slotOffsetBytes: this.slotOffsetBytes,
       parentOffsetBytes: this.slot * 32 + this.slotOffsetBytes,
+      parentOffsetBits: this.slot * 32 + this.slotOffsetBytes,
       bytesLength,
+      bitsLength: bytesLength * 8,
       label: field.labelFromParent,
       type: field
     };
@@ -103,7 +107,7 @@ export class StoragePositionTracker {
   }
 
   static getPositions(struct: StructType | ArrayType): StoragePosition[] {
-    const tracker = new StoragePositionTracker();
+    const tracker = new SolidityStoragePositionsTracker();
     return tracker.visit(struct);
   }
 }

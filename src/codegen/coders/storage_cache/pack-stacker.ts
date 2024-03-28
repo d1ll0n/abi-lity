@@ -12,7 +12,10 @@ import {
 import { ArrayType, StructType } from "../../../ast";
 import { WrappedContract, WrappedSourceUnit } from "../../ctx/contract_wrapper";
 import NameGen, { pascalCaseToCamelCase } from "../../names";
-import { StoragePosition, StoragePositionTracker } from "../../../analysis/storage_positions";
+import {
+  StoragePosition,
+  SolidityStoragePositionsTracker
+} from "../../../analysis/solidity_storage_positions";
 import { readTypeNodesFromSolcAST } from "../../../readers";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import { getReadFromStackAccessor } from "./accessors/read_stack";
@@ -37,7 +40,7 @@ export class PackedStackTypeGenerator {
     public gasToCodePreferenceRatio = 3,
     public defaultSelectionForSameScore: "leastgas" | "leastcode" = "leastgas"
   ) {
-    this.storagePositions = StoragePositionTracker.getPositions(type);
+    this.storagePositions = SolidityStoragePositionsTracker.getPositions(type);
     this.cacheTypeName = NameGen.packedStackType(type);
     this.cacheLibraryName = `Lib${type.identifier}`;
     this.variableName = pascalCaseToCamelCase(type.identifier);
@@ -118,8 +121,10 @@ export class PackedStackTypeGenerator {
     const accessor = getReadFromStackAccessor({
       dataReference: `${this.variableName}`,
       leftAligned: position.type.leftAligned,
-      offset: position.parentOffsetBytes,
+      bytesOffset: position.parentOffsetBytes,
+      bitsOffset: position.parentOffsetBits,
       bytesLength: position.bytesLength,
+      bitsLength: position.bitsLength,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
     });
@@ -180,8 +185,10 @@ export class PackedStackTypeGenerator {
       const accessor = getReadFromStackAccessor({
         dataReference: `${this.variableName}`,
         leftAligned: position.type.leftAligned,
-        offset: position.parentOffsetBytes,
+        bytesOffset: position.parentOffsetBytes,
+        bitsOffset: position.parentOffsetBits,
         bytesLength: position.bytesLength,
+        bitsLength: position.bitsLength,
         gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
         defaultSelectionForSameScore: this.defaultSelectionForSameScore
       });
@@ -208,8 +215,10 @@ export class PackedStackTypeGenerator {
     const accessor = getWriteToStackAccessor({
       dataReference: `${this.variableName}`,
       leftAligned: position.type.leftAligned,
-      offset: absoluteOffsetBytes,
+      bytesOffset: absoluteOffsetBytes,
+      bitsOffset: position.parentOffsetBits,
       bytesLength: position.bytesLength,
+      bitsLength: position.bitsLength,
       value: varName,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
