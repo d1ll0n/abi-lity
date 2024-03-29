@@ -3,8 +3,7 @@ import {
   yulExtractByte,
   pickBestCodeForPreferences,
   yulShiftAndMask,
-  yulShiftTwice,
-  yulShl
+  yulShiftTwice
 } from "./utils";
 import { ReadParameterArgs } from "./types";
 
@@ -21,14 +20,10 @@ export function getOptionsReadFromStack(
     ].join("")
   );
 
-  if (args.bitsLength === 256) {
-    return [args.dataReference];
-  }
+  if (args.bitsLength === 256) return [args.dataReference];
 
   // Option 1. Single byte is extracted
-  if (args.bitsLength === 8) {
-    options.push(yulExtractByte(args));
-  }
+  if (args.bitsLength === 8) options.push(yulExtractByte(args));
 
   // Option 2. shift and mask - fn skips unnecessary ops
   options.push(yulShiftAndMask(args));
@@ -39,7 +34,9 @@ export function getOptionsReadFromStack(
   return options;
 }
 
-export function getReadFromStackAccessor(args: ReadParameterArgs): string {
+export function getReadFromStackAccessor(
+  args: Omit<ReadParameterArgs, "bytesLength" | "bytesOffset">
+): string {
   const options = getOptionsReadFromStack(args);
 
   return pickBestCodeForPreferences(

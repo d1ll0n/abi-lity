@@ -12,6 +12,7 @@ import { defaultAbiCoder } from "@ethersproject/abi";
 import { getOptionsReplaceStackValue } from "./write_stack";
 import { CompilationOutput, CompilerVersions08 } from "solc-typed-ast";
 import { getOptionsReplaceValueInMemory } from "./write_memory";
+import { expect } from "chai";
 
 const arrayToErrorMsg = (arr: string[]) => {
   return JSON.stringify(arr, null, 2)
@@ -34,158 +35,264 @@ function checkValues(actual: string | string[], expected: string | string[]): vo
   passes++;
 }
 
-// 7 bytes, 9 gas
-// 7 bytes, 15 gas
-checkValues(
-  pickBestCodeForPreferences([`and(abc, 0xffffffff)`, `shr(224, shl(224, abc))`]),
-  `and(abc, 0xffffffff)`
-);
-// 9 bytes, 9 gas -> 36
-// 7 bytes, 15 gas -> 36
-// leastgas -> 9 bytes, 9 gas
-// leastcode -> 7 bytes, 15 gas
-checkValues(
-  pickBestCodeForPreferences([`and(abc, 0xffffffffffff)`, `shr(208, shl(208, abc))`]),
-  `and(abc, 0xffffffffffff)`
-);
-checkValues(
-  pickBestCodeForPreferences(
-    [`and(abc, 0xffffffffffff)`, `shr(208, shl(208, abc))`],
-    3,
-    "leastcode"
-  ),
-  `shr(208, shl(208, abc))`
-);
+type PreferredCodeTestCase = [
+  string, // label
+  string[], // choices
+  string, // expected
+  number?, // gasToCodePreferenceRatio
+  ("leastgas" | "leastcode")? // defaultSelectionForSameScore
+];
+
+describe(`Field accessor generators`, function () {
+  describe("pickBestCodeForPreferences", function () {
+    const cases: PreferredCodeTestCase[] = [
+      [
+        "pick lowest gas if sizes match (7b/9g vs 7b/15g)",
+        [`and(abc, 0xffffffff)`, `shr(224, shl(224, abc))`],
+        `and(abc, 0xffffffff)`
+      ],
+      [
+        `leastgas: add 2 bytes to save 6 gas (9b/9g vs 7b/15g)`,
+        [`and(abc, 0xffffffffffff)`, `shr(208, shl(208, abc))`],
+        `and(abc, 0xffffffffffff)`
+      ],
+      [
+        `leastcode: add 6 gas to save 2 bytes`,
+        [`and(abc, 0xffffffffffff)`, `shr(208, shl(208, abc))`],
+        `shr(208, shl(208, abc))`,
+        3,
+        "leastcode"
+      ]
+    ];
+    cases.forEach(function ([
+      label,
+      choices,
+      expected,
+      gasToCodePreferenceRatio,
+      defaultSelectionForSameScore
+    ]) {
+      it(label, function () {
+        const actual = pickBestCodeForPreferences(
+          choices,
+          gasToCodePreferenceRatio,
+          defaultSelectionForSameScore
+        );
+        expect(actual).to.equal(expected);
+      });
+    });
+  });
+
+  describe("getReadFromMemoryAccessor: unit", function () {
+    it("Full word, left aligned", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: true,
+        bitsOffset: 0,
+        bitsLength: 256
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`mload(cache)`);
+      expect(getReadFromMemoryAccessor({ ...options, bitsOffset: 256 })).to.equal(
+        `mload(add(cache, 0x20))`
+      );
+    });
+
+    it("Full word, right aligned", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: false,
+        bitsOffset: 0,
+        bitsLength: 256
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`mload(cache)`);
+      expect(getReadFromMemoryAccessor({ ...options, bitsOffset: 256 })).to.equal(
+        `mload(add(cache, 0x20))`
+      );
+    });
+
+    it("Value is left aligned and can not be read right aligned without subtracting from the data pointer", function () {
+      // Two top options are:
+      // [12 gas, 36 bytes] : and(mload(cache), 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00)
+      // [18 gas, 8 bytes]  : shl(0x08, shr(0x08, mload(cache)))
+      // With gasToCodePreferenceRatio <= 6/28, should select mask
+      const options = {
+        dataReference: "cache",
+        leftAligned: true,
+        bitsOffset: 0,
+        bitsLength: 248
+      };
+      expect(
+        getReadFromMemoryAccessor({
+          ...options,
+          gasToCodePreferenceRatio: 6 / 28
+        })
+      ).to.equal(`and(mload(cache), 0x${"ff".repeat(31)}00)`);
+      expect(
+        getReadFromMemoryAccessor({
+          ...options,
+          gasToCodePreferenceRatio: 6 / 28 + 0.01
+        })
+      ).to.equal(`shl(0x08, shr(0x08, mload(cache)))`);
+    });
+
+    it("bytes31 after first byte: read first word, shift left", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: true,
+        bitsOffset: 8,
+        bitsLength: 248
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`shl(0x08, mload(cache))`);
+    });
+
+    it("bytes31 in second word: read second word, shift left", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: true,
+        bitsOffset: 256,
+        bitsLength: 248
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`shl(0x08, mload(add(cache, 0x1f)))`);
+    });
+
+    it("uint248 at the end of first word: shift twice with default config", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: false,
+        bitsOffset: 8,
+        bitsLength: 248
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`shr(0x08, shl(0x08, mload(cache)))`);
+    });
+
+    it("uint56 at end of first word: shift twice with default config", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: false,
+        bitsOffset: 200,
+        bitsLength: 56
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`shr(0xc8, shl(0xc8, mload(cache)))`);
+    });
+
+    it("uint8 at end of first word: use `byte` with default config", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: false,
+        bitsOffset: 248,
+        bitsLength: 8
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`byte(31, mload(cache))`);
+    });
+
+    it("uint48 at end of first word: use mask with default config", function () {
+      const options = {
+        dataReference: "cache",
+        leftAligned: false,
+        bitsOffset: 208,
+        bitsLength: 48
+      };
+      expect(getReadFromMemoryAccessor(options)).to.equal(`and(mload(cache), 0xffffffffffff)`);
+    });
+  });
+
+  describe("yulShiftAndMask skips redundant ops", function () {
+    const testCases = [
+      [`bytes32 - noop`, true, 0, 256, "cache"],
+      [
+        `bytes30 at start of word - only mask`,
+        true,
+        0,
+        240,
+        `and(cache, 0x${"ff".repeat(30).padEnd(64, "0")})`
+      ],
+      [`bytes30 at end of word - only shift`, true, 16, 240, `shl(0x10, cache)`],
+      [`bytes2 at end of word - only shift `, true, 240, 16, `shl(0xf0, cache)`],
+      [`bytes1 in middle of word - shift and mask`, true, 240, 8, `shl(0xf0, and(cache, 0xff00))`],
+      [`uint256 - noop`, false, 0, 256, `cache`],
+      [`uint240 at start of word - only shift`, false, 0, 240, `shr(0x10, cache)`],
+      [`uint240 at end of word - only mask`, false, 16, 240, `and(cache, 0x${"ff".repeat(30)})`],
+      [`uint8 in middle of word - shift and mask`, false, 240, 8, `and(shr(0x08, cache), 0xff)`]
+    ] as const;
+    testCases.forEach(function ([label, leftAligned, bitsOffset, bitsLength, expected]) {
+      it(label, function () {
+        expect(
+          yulShiftAndMask({
+            dataReference: "cache",
+            leftAligned,
+            bitsOffset,
+            bitsLength
+          })
+        ).to.equal(expected);
+      });
+    });
+  });
+
+  describe("getOptionsReadFromMemoryAtEndOfWord", function () {
+    type TestCases = [boolean, number, number, string[]];
+    const testCases: TestCases[] = [
+      [true, 0, 256, ["mload(cache)"]],
+      [true, 248, 256, ["mload(add(cache, 0x1f))"]],
+      [
+        true,
+        31,
+        8,
+        ["shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))"]
+      ],
+      [
+        true,
+        256,
+        8,
+        [
+          "shl(0xf8, mload(add(cache, 0x01)))",
+          "shl(0xf8, mload(add(cache, 0x01)))",
+          "shl(0xf8, mload(add(cache, 0x01)))"
+        ]
+      ],
+      [false, 0, 256, ["mload(cache)"]],
+      [false, 248, 256, ["mload(add(cache, 0x1f))"]],
+      [
+        false,
+        248,
+        8,
+        ["byte(31, mload(cache))", "and(mload(cache), 0xff)", "shr(0xf8, shl(0xf8, mload(cache)))"]
+      ],
+      [
+        false,
+        256,
+        8,
+        [
+          "byte(31, mload(add(cache, 0x01)))",
+          "and(mload(add(cache, 0x01)), 0xff)",
+          "shr(0xf8, shl(0xf8, mload(add(cache, 0x01))))"
+        ]
+      ]
+    ];
+
+    testCases.forEach(function ([leftAligned, bitsOffset, bitsLength, expected]) {
+      const typeName = leftAligned ? `bytes${bitsLength / 8}` : `uint${bitsLength}`;
+      const label = `${typeName} @ ${bitsOffset / 8}`;
+      it(label, function () {
+        expect(
+          getOptionsReadFromMemoryAtEndOfWord({
+            dataReference: "cache",
+            leftAligned,
+            bitsOffset,
+            bitsLength
+          })
+        ).to.deep.eq(expected);
+      });
+    });
+  });
+});
 
 // Value is full word
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: true,
-    bytesOffset: 0,
-    bitsOffset: 0,
-    bytesLength: 32,
-    bitsLength: 32 * 8
-  }),
-  `mload(cache)`
-);
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: true,
-    bytesOffset: 32,
-    bitsOffset: 32 * 8,
-    bytesLength: 32,
-    bitsLength: 32 * 8
-  }),
-  `mload(add(cache, 0x20))`
-);
 
-// Value is left aligned and can not be read right aligned without subtracting from the data pointer
-// Two top options are:
-// and(mload(cache), 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00)
-// 12 gas, 36 bytes
-// shl(0x08, shr(0x08, mload(cache)))
-// 18 gas, 8 bytes
-// With gasToCodePreferenceRatio <= 6/28, should select mask
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: true,
-    bytesOffset: 0,
-    bitsOffset: 0,
-    bytesLength: 31,
-    bitsLength: 31 * 8,
-    gasToCodePreferenceRatio: 6 / 28
-  }),
-  `and(mload(cache), 0x${"ff".repeat(31)}00)`
-);
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: true,
-    bytesOffset: 0,
-    bitsOffset: 0,
-    bytesLength: 31,
-    bitsLength: 31 * 8,
-    gasToCodePreferenceRatio: 6 / 28 + 0.01
-  }),
-  `shl(0x08, shr(0x08, mload(cache)))`
-);
-
-// Value is left aligned and can be read right aligned starting at the data pointer
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: true,
-    bytesOffset: 1,
-    bitsOffset: 1 * 8,
-    bytesLength: 31,
-    bitsLength: 31 * 8
-  }),
-  `shl(0x08, mload(cache))`
-);
-
-// Value is left aligned and can be read right aligned adding an offset to the data pointer
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: true,
-    bytesOffset: 32,
-    bitsOffset: 32 * 8,
-    bytesLength: 31,
-    bitsLength: 31 * 8
-  }),
-  `shl(0x08, mload(add(cache, 0x1f)))`
-);
-
-// Value is right aligned and ends at the end of the first word, but it is too large to use a mask.
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: false,
-    bytesOffset: 1,
-    bitsOffset: 1 * 8,
-    bytesLength: 31,
-    bitsLength: 31 * 8
-  }),
-  `shr(0x08, shl(0x08, mload(cache)))`
-);
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: false,
-    bytesOffset: 25,
-    bitsOffset: 25 * 8,
-    bytesLength: 7,
-    bitsLength: 7 * 8
-  }),
-  `shr(0xc8, shl(0xc8, mload(cache)))`
-);
-
-// Value is right aligned and ends at the end of the first word, and it is small enough to use a mask.
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: false,
-    bytesOffset: 31,
-    bitsOffset: 31 * 8,
-    bytesLength: 1,
-    bitsLength: 1 * 8
-  }),
-  `byte(31, mload(cache))`
-);
-checkValues(
-  getReadFromMemoryAccessor({
-    dataReference: "cache",
-    leftAligned: false,
-    bytesOffset: 26,
-    bitsOffset: 26 * 8,
-    bytesLength: 6,
-    bitsLength: 6 * 8
-  }),
-  `and(mload(cache), 0xffffffffffff)`
-);
+type C = [
+  string, // label
+  boolean, // leftAligned
+  number, // bit offset
+  number // bit length
+];
 
 function shiftAndMaskOnlyUsesNecessaryOps() {
   const testCases = [
@@ -211,7 +318,7 @@ function shiftAndMaskOnlyUsesNecessaryOps() {
     );
   }
 }
-shiftAndMaskOnlyUsesNecessaryOps();
+// shiftAndMaskOnlyUsesNecessaryOps();
 
 function test_getOptionsReadFromMemoryAtEndOfWord() {
   type TestCases = [boolean, number, number, string[]];
@@ -222,14 +329,14 @@ function test_getOptionsReadFromMemoryAtEndOfWord() {
       true,
       31,
       1,
-      ["shl(0xf8, byte(31, mload(cache)))", "shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))"]
+      ["shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))"]
     ],
     [
       true,
       32,
       1,
       [
-        "shl(0xf8, byte(31, mload(add(cache, 0x01))))",
+        "shl(0xf8, mload(add(cache, 0x01)))",
         "shl(0xf8, mload(add(cache, 0x01)))",
         "shl(0xf8, mload(add(cache, 0x01)))"
       ]
@@ -258,16 +365,14 @@ function test_getOptionsReadFromMemoryAtEndOfWord() {
       getOptionsReadFromMemoryAtEndOfWord({
         dataReference: "cache",
         leftAligned,
-        bytesOffset: offset,
         bitsOffset: offset * 8,
-        bytesLength,
         bitsLength: bytesLength * 8
       }),
       expected
     );
   }
 }
-test_getOptionsReadFromMemoryAtEndOfWord();
+// test_getOptionsReadFromMemoryAtEndOfWord();
 
 async function testSolidityFunctionVersions(
   fnNameToCode: Map<string, string>,
@@ -305,8 +410,8 @@ async function testSolidityFunctionVersions(
       : badOutput
       ? [
           "\n\tOutput mismatch!",
-          `\n\tExpected ${rawExpectedOutput}`,
-          `\n\tbut got ${result.rawReturnData}`
+          `\n\tExpected: ${rawExpectedOutput}`,
+          `\n\tbut got:  ${result.rawReturnData}`
         ]
       : undefined;
     assert(
@@ -314,7 +419,8 @@ async function testSolidityFunctionVersions(
       [
         `Error in function ${name}`,
         errorMessage,
-        `\n\n\tInputs: ${inputs.join(", ")}`,
+        "\n",
+        `\n\tInputs:    ${inputs.join(", ")}`,
         `\n\tRaw input: ${result.rawData}`,
         `\n\n\tCode: ${fnNameToCode.get(name)}`
       ].join("")
@@ -328,6 +434,47 @@ async function testSolidityFunctionVersions(
     await testDeployment(name);
   }
   return results;
+}
+
+async function testWriteFunctionOptionsWithBits(
+  leftAligned: boolean,
+  bitsOffset: number,
+  bitsLength: number,
+  label: string,
+  yulWriteBlocks: string[],
+  contractCodePrefix?: string
+) {
+  const bytesLength = bitsLength * 8;
+  const bytesOffset = bitsOffset * 8;
+  const solidityType = leftAligned ? `bytes${bytesLength}` : `uint${bytesLength * 8}`;
+  const fnNameToCode = new Map<string, string>();
+
+  for (const code of yulWriteBlocks) {
+    const name = `test_${label}_${fnNameToCode.size}`;
+    const fn = writeNestedStructure([
+      `function ${name}(uint256 oldWord, ${solidityType} valueToSet) external pure returns (uint256 newWord) {`,
+      [`assembly {`, [code], `}`],
+      `}`
+    ]);
+    fnNameToCode.set(name, fn);
+  }
+  const fnNames = [...fnNameToCode.keys()];
+  const oldWord = "0x" + "00112233445566778899aabbccddeeff".repeat(2);
+  const valueToSet = "0x" + "ab".repeat(bytesLength); //[leftAligned ? "padEnd" : "padStart"](64, "0");
+  const newWord = [
+    "0x",
+    oldWord.slice(2).slice(0, bytesOffset * 2),
+    "ab".repeat(bytesLength),
+    oldWord.slice(2).slice((bytesOffset + bytesLength) * 2)
+  ].join("");
+  await testSolidityFunctionVersions(
+    fnNameToCode,
+    [oldWord, valueToSet],
+    defaultAbiCoder.encode(["uint"], [newWord]),
+    false,
+    contractCodePrefix
+  );
+  console.log(`Tests passed for ${fnNames.length} options - ${label}`);
 }
 
 async function testWriteFunctionOptions(
@@ -384,11 +531,9 @@ async function test_getOptionsReplaceStackValue() {
   ] as const;
   for (const [leftAligned, offset, bytesLength] of testCases) {
     const options = getOptionsReplaceStackValue({
-      bytesLength,
       value: "valueToSet",
       dataReference: "oldWord",
       leftAligned,
-      bytesOffset: offset,
       bitsOffset: offset * 8,
       bitsLength: bytesLength * 8
     }).map((code) => `newWord := ${code}`);
@@ -411,11 +556,9 @@ async function test_getOptionsReplaceValueInMemory() {
   ] as const;
   for (const [leftAligned, offset, bytesLength] of testCases) {
     const options = getOptionsReplaceValueInMemory({
-      bytesLength,
       value: "valueToSet",
       dataReference: "ptr",
       leftAligned,
-      bytesOffset: offset,
       bitsOffset: offset * 8,
       bitsLength: bytesLength * 8
     }).map((code) =>
@@ -536,9 +679,7 @@ async function test_getOptionsReadFromMemory() {
     const options = getOptionsReadFromMemory({
       dataReference: "ptr",
       leftAligned,
-      bytesOffset: offset,
       bitsOffset: offset * 8,
-      bytesLength,
       bitsLength: bytesLength * 8
     });
 

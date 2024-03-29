@@ -59,6 +59,7 @@ export const yulExtractByte = ({
   if (leftAligned && bitsOffset === 248) {
     return yulShl(248, dataReference);
   }
+
   // If value does not begin at a clean byte boundary, we need to extract the byte
   // with shifts.
   if (bitsOffset % 8 !== 0) {
@@ -71,7 +72,7 @@ export const yulExtractByte = ({
     });
   }
   // Otherwise, `byte` will always be the best option (or on par with other options)
-  const byteExpr = `byte(${bitsOffset}, ${dataReference})`;
+  const byteExpr = `byte(${bitsOffset / 8}, ${dataReference})`;
   return yulShiftTo(byteExpr, 248, leftAligned ? 0 : 248);
 };
 

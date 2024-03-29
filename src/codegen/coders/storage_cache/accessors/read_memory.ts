@@ -4,7 +4,7 @@ import {
   roundUpToNextByte,
   roundDownToNextByte
 } from "./utils";
-import { ParameterLocation, ReadParameterArgs } from "./types";
+import { ReadParameterArgs } from "./types";
 import { getOptionsReadFromStack } from "./read_stack";
 import { assert } from "solc-typed-ast";
 
@@ -18,9 +18,9 @@ export function getReadFromMemoryAccessor(args: ReadParameterArgs): string {
   );
 }
 
-export function getOptionsReadFromMemory(args: ParameterLocation): string[] {
-  if (args.bitsLength === 256) {
-    return [`mload(${yulAdd(args.dataReference, args.bytesOffset)})`];
+export function getOptionsReadFromMemory(args: ReadParameterArgs): string[] {
+  if (args.bitsLength === 256 && args.bitsOffset % 8 === 0) {
+    return [`mload(${yulAdd(args.dataReference, args.bitsOffset / 8)})`];
   }
   return [
     ...getOptionsReadFromMemoryInFirstWord(args),
@@ -34,13 +34,10 @@ function getOptionsReadFromMemoryAtStartOfWord({
   bitsOffset,
   bitsLength,
   leftAligned
-}: ParameterLocation) {
+}: ReadParameterArgs) {
   const prevByteBoundaryOffsetBits = roundDownToNextByte(bitsOffset);
   const extraBitsAtStart = bitsOffset - prevByteBoundaryOffsetBits;
-  assert(
-    extraBitsAtStart + bitsLength <= 256,
-    `Value not divisible by 8 bits and can not be read in a single word`
-  );
+  assert(extraBitsAtStart + bitsLength <= 256, `Value can not be read in a single word`);
   const readExpr = `mload(${yulAdd(dataReference, prevByteBoundaryOffsetBits / 8)})`;
 
   return getOptionsReadFromStack({
@@ -70,27 +67,26 @@ export function getOptionsReadFromMemoryAtEndOfWord({
   // within the read word, the field starts at bit (285 - 40) = 245
   const endOfContainingWordOffsetBits = roundUpToNextByte(endOfFieldOffsetBits);
   const extraBits = endOfContainingWordOffsetBits - endOfFieldOffsetBits;
-  assert(
-    extraBits + bitsLength <= 256,
-    `Value not divisible by 8 bits and can not be read in a single word`
-  );
-  const bitsBeforeOldValue = 256 - extraBits - bitsLength;
+  // end = 32 (256)
+  // end containing word = 256
+  // extra bits = 0
+  // offset in word = 248
+  assert(extraBits + bitsLength <= 256, `Value can not be read in a single word`);
+  const bitsOffsetWithinWord = 256 - extraBits - bitsLength;
 
   const pointerExpr = yulAdd(dataReference, endOfContainingWordOffsetBits / 8 - 32);
   const readExpr = `mload(${pointerExpr})`;
   return getOptionsReadFromStack({
-    bitsOffset: bitsBeforeOldValue,
+    bitsOffset: bitsOffsetWithinWord,
     bitsLength,
     dataReference: readExpr,
     leftAligned
   });
 }
 
-function getOptionsReadFromMemoryInFirstWord(args: ParameterLocation) {
-  const endOfFieldOffset = args.bitsOffset + args.bitsLength;
-  if (endOfFieldOffset > 256) {
-    return [];
-  }
+function getOptionsReadFromMemoryInFirstWord(args: ReadParameterArgs) {
+  const endOfFieldOffsetBits = args.bitsOffset + args.bitsLength;
+  if (endOfFieldOffsetBits > 256) return [];
   const readExpr = `mload(${args.dataReference})`;
   return getOptionsReadFromStack({
     ...args,

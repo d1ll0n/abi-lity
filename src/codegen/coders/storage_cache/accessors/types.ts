@@ -19,13 +19,13 @@ export type ParameterLocation = {
   bitsLength: number;
 };
 
-export type WriteParameterArgs = ParameterLocation & {
+export type WriteParameterArgs = Omit<ParameterLocation, "bytesLength" | "bytesOffset"> & {
   value: string | number;
   gasToCodePreferenceRatio?: number;
   defaultSelectionForSameScore?: "leastgas" | "leastcode";
 };
 
-export type ReadParameterArgs = ParameterLocation & {
+export type ReadParameterArgs = Omit<ParameterLocation, "bytesLength" | "bytesOffset"> & {
   /** @param gasToCodePreferenceRatio the amount of gas that must be saved to add 1 byte of code. */
   gasToCodePreferenceRatio?: number;
   defaultSelectionForSameScore?: "leastgas" | "leastcode";

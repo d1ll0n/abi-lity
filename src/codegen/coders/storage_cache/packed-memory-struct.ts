@@ -133,9 +133,7 @@ export class PackedMemoryTypeGenerator {
     const accessor = getReadFromMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      bytesOffset: absoluteOffsetBytes,
       bitsOffset: absoluteOffsetBytes * 8,
-      bytesLength: position.bytesLength,
       bitsLength: position.bitsLength,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
@@ -194,9 +192,7 @@ export class PackedMemoryTypeGenerator {
     const accessor = getWriteToMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      bytesOffset: absoluteOffsetBytes,
       bitsOffset: position.parentOffsetBits,
-      bytesLength: position.bytesLength,
       bitsLength: position.bitsLength,
       value: label,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,

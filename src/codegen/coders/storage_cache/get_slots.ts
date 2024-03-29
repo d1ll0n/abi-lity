@@ -137,9 +137,7 @@ class StorageCacheLibraryGenerator {
     const accessor = getReadFromMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      bytesOffset: absoluteOffsetBytes,
       bitsOffset: absoluteOffsetBytes * 8,
-      bytesLength: position.bytesLength,
       bitsLength: position.bytesLength * 8,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
@@ -162,9 +160,7 @@ class StorageCacheLibraryGenerator {
     const accessor = getWriteToMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      bytesOffset: absoluteOffsetBytes,
       bitsOffset: absoluteOffsetBytes * 8,
-      bytesLength: position.bytesLength,
       bitsLength: position.bytesLength * 8,
       value: label,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
@@ -389,7 +385,7 @@ async function testGenerate() {
   console.log(codeOut);
 }
 
-testGenerate();
+// testGenerate();
 
 function optimizeStoragePositions(positions: StoragePosition[]): StoragePosition[][] {
   const MAX_SLOT_SIZE = 32;

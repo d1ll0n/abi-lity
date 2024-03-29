@@ -25,10 +25,10 @@ export function getWriteToMemoryAccessor(args: WriteParameterArgs): string {
 // For a given field, returns a list of options for writing the field to memory.
 // @todo Test all cases
 export const getOptionsReplaceValueInMemory = (args: WriteParameterArgs): string[] => {
-  const { dataReference, bytesOffset, bitsOffset, bitsLength, value } = args;
+  const { dataReference, bitsOffset, bitsLength, value } = args;
   // @todo check if value can be read in one word (if 256, starts at byte boundary)
-  if (bitsLength === 256) {
-    return [`mstore(${yulAdd(dataReference, bytesOffset)}, ${toValue(value)})`];
+  if (bitsLength === 256 && bitsOffset % 8 === 0) {
+    return [`mstore(${yulAdd(dataReference, bitsOffset / 8)}, ${toValue(value)})`];
   }
   const endOfFieldOffsetBits = bitsOffset + bitsLength;
 
@@ -53,7 +53,7 @@ export const getOptionsReplaceValueInMemory = (args: WriteParameterArgs): string
   // single byte with the new value
   if (bitsLength === 8 && bitsOffset % 8 === 0) {
     const rightAlignedValue = yulAlignValue(value, 8, args.leftAligned, 248);
-    options.push(`mstore8(${yulAdd(dataReference, bytesOffset)}, ${rightAlignedValue})`);
+    options.push(`mstore8(${yulAdd(dataReference, bitsOffset / 8)}, ${rightAlignedValue})`);
   }
 
   return options;
