@@ -4035,10 +4035,10 @@ slash@^3.0.0:
   resolved "https://registry.yarnpkg.com/slash/-/slash-3.0.0.tgz#6539be870c165adbd5240220dbe361f1bc4d4634"
   integrity sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==
 
-"solc-typed-ast@npm:@d1ll0n/solc-typed-ast@17.0.8":
-  version "17.0.8"
-  resolved "https://registry.yarnpkg.com/@d1ll0n/solc-typed-ast/-/solc-typed-ast-17.0.8.tgz#c51352fe670c956f2a3c01f57dae17446a457e97"
-  integrity sha512-gbN1k4o5MyqK0c+gx3s+Uy6OUOr95Jj1gEkWOw2S94ThPzxQcJrQ1M7y3fmjkQ5SOtx8LSAcvPuc6H8gkPNWkA==
+"solc-typed-ast@npm:@d1ll0n/solc-typed-ast@17.0.9":
+  version "17.0.9"
+  resolved "https://registry.yarnpkg.com/@d1ll0n/solc-typed-ast/-/solc-typed-ast-17.0.9.tgz#2d31e03bd83695b6f2a346d8b7978f275e728482"
+  integrity sha512-cOyc+83/MWNvwSzjTHVMpsHBE1OxTSq9mcwnsEl98DWtCsDyPP30DgHXDgS/BBW/bi6eLzAjjLsRvrwH7B2LFw==
   dependencies:
     axios "^1.6.1"
     commander "^11.1.0"
