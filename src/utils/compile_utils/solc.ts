@@ -47,7 +47,7 @@ export async function compileAsync(
   options: CompilerOpts;
 }> {
   const { settings, outputs, version } = getCompileOptions(options);
-  const compiler = await getCompilerForVersion(version!, CompilerKind.Native);
+  const compiler = await getCompilerForVersion(version!, CompilerKind.WASM);
   assert(compiler !== undefined, `Compiler not found for ${version}`);
 
   return {
