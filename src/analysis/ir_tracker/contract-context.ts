@@ -9,21 +9,30 @@ import {
   SourceLocation as BaseSourceLocation,
   CompilationOutput,
   DefaultASTWriterMapping,
+  ExternalReferenceType,
   FunctionDefinition,
   LatestCompilerVersion,
   PrettyFormatter,
   SourceUnit,
+  StructDefinition,
   YulASTNode,
   YulBlock,
+  YulFunctionCall,
+  YulFunctionDefinition,
   YulIdentifier,
   YulObject,
   YulTypedName,
   YulVariableDeclaration,
-  assert
+  assert,
+  isInstanceOf
 } from "solc-typed-ast";
 import { ModernConfiguration } from "solc-typed-ast/dist/ast/modern";
 import { CompileHelper } from "../../utils/compile_utils/compile_helper";
+import { SolidityStoragePositionsTracker, StoragePosition } from "../solidity_storage_positions";
 import { mkdirSync, writeFileSync } from "fs";
+import { structDefinitionToTypeNode } from "../../readers/read_solc_ast";
+import { packWord } from "../../codegen/coders/storage_cache/accessors/pack_word";
+import { writeNestedStructure } from "../../utils";
 
 const Writer = new ASTWriter(
   DefaultASTWriterMapping,
@@ -228,7 +237,8 @@ class ContractContext {
     ir: string,
     irAst: YulObject,
     irOptimized: string,
-    irOptimizedAst: YulObject
+    irOptimizedAst: YulObject,
+    public contractOutput: any
   ) {
     this.ir = new YulSource(this, irAst, ir, false);
     this.irOptimized = new YulSource(this, irOptimizedAst, irOptimized, true);
@@ -242,6 +252,7 @@ class ContractContext {
 
 function extractContractOutput(data: any, sources: Map<string, string>) {
   const reader = new ASTReader();
+
   const sourceUnits = reader.read(data, ASTKind.Modern, sources);
   const sourceIndexMap = new Map<number, string>();
   for (const sourceUnit of sourceUnits) {
@@ -250,6 +261,7 @@ function extractContractOutput(data: any, sources: Map<string, string>) {
   const contractContexts = new Map<string, ContractContext[]>();
   const outDir = path.join(__dirname, "compiler-output");
   mkdirSync(outDir, { recursive: true });
+
   for (const sourceUnit of sourceUnits) {
     // const contractOutputs = new Map<string, ContractOutput[]>();
     const contractOutputs: ContractContext[] = [];
@@ -273,11 +285,13 @@ function extractContractOutput(data: any, sources: Map<string, string>) {
           ir,
           new ASTReader().convert(irAst, ModernConfiguration) as YulObject,
           irOptimized,
-          new ASTReader().convert(irOptimizedAst, ModernConfiguration) as YulObject
+          new ASTReader().convert(irOptimizedAst, ModernConfiguration) as YulObject,
+          contractOutput
         )
       );
     }
     contractContexts.set(sourceUnit.sourceEntryKey, contractOutputs);
+    console.log(sourceUnit.sourceEntryKey);
   }
   return contractContexts;
 }
@@ -324,10 +338,11 @@ const PossibleLinkedYulVariableTypes = [
 //   }
 // }
 
-// function parseYulName(name: string) {
-// const [_, originalName, astId, suffix] =
-//   /(var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))?"/g;
-// }
+function parseYulName(name: string) {
+  const [_, __, originalName, astId, suffix] =
+    /(fun|var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))*/g.exec(name) ?? [];
+  return { originalName, astId, suffix };
+}
 
 const CompileOptions = {
   outputs: [
@@ -338,6 +353,8 @@ const CompileOptions = {
     CompilationOutput.IR_OPTIMIZED,
     CompilationOutput.IR_OPTIMIZED_AST,
     CompilationOutput.METADATA,
+    CompilationOutput.EVM_BYTECODE,
+    CompilationOutput.EVM_DEPLOYEDBYTECODE,
     CompilationOutput.EVM_BYTECODE_SOURCEMAP,
     CompilationOutput.EVM_BYTECODE_GENERATEDSOURCES
   ],
@@ -345,14 +362,14 @@ const CompileOptions = {
     viaIR: true,
     optimizer: {
       enabled: true,
-      runs: 200
+      runs: 4_294_967_295
     },
     debug: {
       revertStrings: "default",
       debugInfo: ["*"]
     }
   },
-  version: LatestCompilerVersion
+  version: "0.8.25"
 };
 
 // Notes:
@@ -397,4 +414,135 @@ async function testOutput() {
   );
 }
 
-testOutput();
+function getMarketStatePositions(struct: StructDefinition) {
+  const type = structDefinitionToTypeNode(struct);
+  const positions = SolidityStoragePositionsTracker.getPositions(type);
+  const bySlot: StoragePosition[][] = [];
+  positions.map((pos) => {
+    // console.log(`Position: ${pos.label} | ${pos.slot} | ${pos.slotOffsetBytes}`);
+    if (bySlot.length === 0) {
+      bySlot.push([pos]);
+    } else {
+      const lastSlot = bySlot[bySlot.length - 1];
+      const lastPos = lastSlot[lastSlot.length - 1];
+      if (lastPos.slot === pos.slot) {
+        lastSlot.push(pos);
+      } else {
+        bySlot.push([pos]);
+      }
+    }
+  });
+  for (const slotMembers of bySlot) {
+    const text = packWord(
+      slotMembers.map((mem) => {
+        return {
+          ...mem,
+          parentOffsetBits: mem.slotOffsetBytes * 8,
+          parentOffsetBytes: mem.slotOffsetBytes
+        };
+      })
+    );
+    const comment = [];
+    const { slot } = slotMembers[0];
+    // comment.push(`Slot ${slot}`);
+    for (const member of slotMembers) {
+      comment.push(
+        `// Slot ${slot} | [${member.slotOffsetBytes}:${
+          member.slotOffsetBytes + member.bytesLength
+        }] | ${member.label}`
+      );
+    }
+    console.log(writeNestedStructure([...comment, text]));
+  }
+}
+
+async function doTest() {
+  const sourcePath = `/root/wildcat/v2-protocol/src/market/WildcatMarket.sol`;
+  // const sourcePath = `/root/wildcat/v2-protocol/src/BigContract.sol`;
+
+  const basePath = path.dirname(sourcePath);
+  const fileName = path.parse(sourcePath).base;
+  const helper = await CompileHelper.fromFileSystem(fileName, basePath, CompileOptions);
+  const contexts = extractContractOutput(helper.compileResult, helper.compileResult.files);
+  const context = contexts.get(sourcePath)![0];
+
+  const definition = [...context.sourceUnit.context!.nodes].find(
+    (ast) => isInstanceOf(ast, StructDefinition) && ast.name === "MarketState"
+  );
+  console.log(`Did we find MarketState? ${!!definition}`);
+  const functions = context.irOptimized.yulObject.getChildrenByType(YulFunctionDefinition);
+  console.log(`functions: ${functions.length}`);
+  const userFunctions = functions.filter(
+    (fn) => fn.name.startsWith("fun_") || fn.name.startsWith("function_")
+  );
+  console.log(`user functions: ${userFunctions.length}`);
+  const duplicateFunctions = userFunctions.filter((fn) => {
+    const { astId, suffix, originalName } = parseYulName(fn.name);
+    return !!astId;
+  });
+  console.log(`Duplicate functions: ${duplicateFunctions.length}`);
+  duplicateFunctions.map((fn) => {
+    const { astId, suffix, originalName } = parseYulName(fn.name);
+    console.log(`${fn.name} | name ${originalName} | ast id ${astId} | suffix ${suffix}`);
+  });
+
+  const printKeys = (obj: any, prefix: string) => {
+    for (const key of Object.keys(obj)) {
+      if (key === "functionDebugData") continue;
+      const value = obj[key];
+      if (typeof value === "object") {
+        printKeys(value, `${prefix}.${key}`);
+      } else {
+        console.log(`${prefix}.${key}: ${typeof value}`);
+      }
+    }
+  };
+
+  // printKeys(context.contractOutput.evm, "evm");
+
+  if (definition) {
+    // getMarketStatePositions(definition as StructDefinition);
+  }
+
+  const callsByFunctionDefinition = new Map<YulFunctionDefinition, YulFunctionCall[]>();
+  context.irOptimized.yulObject.getChildrenByType(YulFunctionCall).map((fnCall) => {
+    const vFunctionName = fnCall.vFunctionName;
+    if (!vFunctionName.vReferencedDeclaration) {
+      const fnDefinition = functions.find((fn) => fn.name === vFunctionName.name);
+      if (fnDefinition) {
+        vFunctionName.referencedDeclaration = fnDefinition.id;
+      }
+    }
+    if (fnCall.vFunctionCallType === ExternalReferenceType.UserDefined) {
+      if (!fnCall.vReferencedDeclaration) {
+        console.log(`No referenced declaration found for ${fnCall.vFunctionName.name}`);
+      }
+      // const functionDefinition = functions.find((fn) => fn.name === fnCall.vFunctionName.name && fn.p );
+      mapArrInsert(callsByFunctionDefinition, fnCall.vReferencedDeclaration, fnCall);
+    }
+  });
+  const sorted = [...callsByFunctionDefinition.entries()].sort((a, b) => b[1].length - a[1].length);
+  const writer = new ASTWriter(
+    DefaultASTWriterMapping,
+    new PrettyFormatter(2),
+    LatestCompilerVersion
+  );
+  const functionDefinitionToLength: Array<[YulFunctionDefinition, number]> = [];
+  for (const [fn] of sorted) {
+    console.log;
+    const fnText = writer.write(fn);
+    const length = fnText.length;
+    functionDefinitionToLength.push([fn, length]);
+  }
+  functionDefinitionToLength.sort((a, b) => b[1] - a[1]);
+  for (const [fn, length] of functionDefinitionToLength.slice(0, 10)) {
+    const numberOfCalls = callsByFunctionDefinition.get(fn)!.length;
+    console.log(`Function: ${fn.name} | Length: ${length} | Calls: ${numberOfCalls}`);
+  }
+  // console.log(`Code size: ${context.irOptimized.}`)
+
+  console.log(`code size: ${context.contractOutput.evm.deployedBytecode.object.length / 2 - 1}`);
+  console.log(`initcode size: ${context.contractOutput.evm.bytecode.object.length / 2 - 1}`);
+}
+
+doTest();
