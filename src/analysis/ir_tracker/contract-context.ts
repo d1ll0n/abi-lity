@@ -10,7 +10,9 @@ import {
   CompilationOutput,
   DefaultASTWriterMapping,
   ExternalReferenceType,
+  FunctionCall,
   FunctionDefinition,
+  FunctionVisibility,
   LatestCompilerVersion,
   PrettyFormatter,
   SourceUnit,
@@ -33,6 +35,9 @@ import { mkdirSync, writeFileSync } from "fs";
 import { structDefinitionToTypeNode } from "../../readers/read_solc_ast";
 import { packWord } from "../../codegen/coders/storage_cache/accessors/pack_word";
 import { writeNestedStructure } from "../../utils";
+import { cleanIR } from "../../codegen/utils";
+import { getReferencesToFunctionOrVariable } from "../../utils/references";
+import { parseYulIdentifier } from "./yul-id-regex";
 
 const Writer = new ASTWriter(
   DefaultASTWriterMapping,
@@ -250,6 +255,8 @@ class ContractContext {
   }
 }
 
+const contractsToInclude = [`WildcatMarket`, "HooksFactory"];
+
 function extractContractOutput(data: any, sources: Map<string, string>) {
   const reader = new ASTReader();
 
@@ -267,6 +274,7 @@ function extractContractOutput(data: any, sources: Map<string, string>) {
     const contractOutputs: ContractContext[] = [];
     const contracts = data.contracts?.[sourceUnit.sourceEntryKey] ?? {};
     for (const [contractName, contractOutput] of Object.entries(contracts as Record<string, any>)) {
+      if (contractsToInclude.length && !contractsToInclude.includes(contractName)) continue;
       const { ir, irAst, irOptimized, irOptimizedAst } = contractOutput;
       if (!ir || !irAst || !irOptimized || !irOptimizedAst) continue;
       writeFileSync(path.join(outDir, `${contractName}.ir.json`), JSON.stringify(irAst, null, 2));
@@ -275,7 +283,17 @@ function extractContractOutput(data: any, sources: Map<string, string>) {
         path.join(outDir, `${contractName}.irOptimized.json`),
         JSON.stringify(irOptimizedAst, null, 2)
       );
-      writeFileSync(path.join(outDir, `${contractName}.irOptimized.yul`), irOptimized);
+      if (contractOutput.evm?.assembly) {
+        writeFileSync(
+          path.join(outDir, `${contractName}.evmAssembly`),
+          contractOutput.evm.assembly
+        );
+      }
+      writeFileSync(
+        path.join(outDir, `${contractName}.irOptimized.yul`),
+        irOptimized
+        // cleanIR(irOptimized, false)
+      );
 
       contractOutputs.push(
         new ContractContext(
@@ -323,26 +341,6 @@ const PossibleLinkedYulVariableTypes = [
   LinkedYulVariableType.Value,
   LinkedYulVariableType.Inner
 ];
-
-// function parseYulVariableName(node: YulTypedName | YulIdentifier) {
-//   const [_, originalName, astId, suffix] =
-//     /(var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))*"/g.exec(node.name) ?? [];
-//   if (astId) {
-//     return {
-//       originAstID: astId,
-//       suffix:
-//         suffix && PossibleLinkedYulVariableTypes.includes(suffix as any)
-//           ? (suffix as LinkedYulVariableType)
-//           : undefined
-//     };
-//   }
-// }
-
-function parseYulName(name: string) {
-  const [_, __, originalName, astId, suffix] =
-    /(fun|var|expr)_([a-zA-Z0-9$_]+)((?:_)[0-9]+)(?:_([a-zA-Z]+))*/g.exec(name) ?? [];
-  return { originalName, astId, suffix };
-}
 
 const CompileOptions = {
   outputs: [
@@ -457,7 +455,8 @@ function getMarketStatePositions(struct: StructDefinition) {
 }
 
 async function doTest() {
-  const sourcePath = `/root/wildcat/v2-protocol/src/market/WildcatMarket.sol`;
+  // const sourcePath = `/root/wildcat/v2-protocol/src/market/WildcatMarket.sol`;
+  const sourcePath = `/root/wildcat/v2-protocol/src/HooksFactory.sol`;
   // const sourcePath = `/root/wildcat/v2-protocol/src/BigContract.sol`;
 
   const basePath = path.dirname(sourcePath);
@@ -477,12 +476,12 @@ async function doTest() {
   );
   console.log(`user functions: ${userFunctions.length}`);
   const duplicateFunctions = userFunctions.filter((fn) => {
-    const { astId, suffix, originalName } = parseYulName(fn.name);
+    const { astId, suffix, originalName } = parseYulIdentifier(fn.name);
     return !!astId;
   });
   console.log(`Duplicate functions: ${duplicateFunctions.length}`);
   duplicateFunctions.map((fn) => {
-    const { astId, suffix, originalName } = parseYulName(fn.name);
+    const { astId, suffix, originalName } = parseYulIdentifier(fn.name);
     console.log(`${fn.name} | name ${originalName} | ast id ${astId} | suffix ${suffix}`);
   });
 
