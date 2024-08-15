@@ -44,7 +44,6 @@ export async function getCommandLineInputPaths(
     fileName = path.parse(input).base;
     basePath = path.dirname(input);
   }
-  // let fileName = path.parse(input).base;
   const helper = await CompileHelper.fromFileSystem(
     LatestCompilerVersion,
     fileName,

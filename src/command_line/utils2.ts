@@ -108,10 +108,18 @@ export async function getCommandLineInputPaths(
     fileName = path.parse(input).base;
     basePath = path.dirname(input);
   }
-  // let fileName = path.parse(input).base;
+  // If default output config or extra output selection is provided, merge them
+  // otherwise use undefined to go with default output selection
+  const outputs =
+    outputConfig || optionOverrides?.extraOutputSelection
+      ? [
+          ...(outputConfig ? CompilerOutputConfigs[outputConfig] : []),
+          ...(optionOverrides?.extraOutputSelection ?? [])
+        ]
+      : undefined;
   const helper = await CompileHelper.fromFileSystem(fileName, basePath, {
     settings: getCompilerOptionsWithDefaults(optionOverrides),
-    outputs: outputConfig ? CompilerOutputConfigs[outputConfig] : undefined
+    outputs
   });
 
   basePath = helper.basePath as string;
