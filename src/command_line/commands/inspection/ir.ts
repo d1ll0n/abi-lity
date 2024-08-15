@@ -1,6 +1,6 @@
 import { writeFileSync } from "fs";
 import path from "path";
-import { Argv } from "yargs";
+import yargs, { Argv } from "yargs";
 import { cleanIR, findExternalYulFunction, findYulFunction } from "../../../codegen/utils";
 import {
   CompileHelper,
@@ -10,18 +10,32 @@ import {
   mkdirIfNotExists,
   writeNestedStructure
 } from "../../../utils";
-import { getCommandLineInputPaths, printCodeSize } from "../../utils";
+import { getCommandLineInputPaths, printCodeSize } from "../../utils2";
 import {
+  ASTNode,
+  ASTReader,
   ASTSearch,
+  ASTWriter,
+  CompilationOutput,
   ContractDefinition,
+  DefaultASTWriterMapping,
   FunctionDefinition,
   LatestCompilerVersion,
-  SourceUnit
+  PrettyFormatter,
+  SourceUnit,
+  YulFunctionDefinition,
+  YulObject
 } from "solc-typed-ast";
-import { astDefinitionToTypeNode } from "../../../readers";
-import { info, success, warn } from "../../../test_utils/logs";
+import { err, info, success, warn } from "../../../test_utils/logs";
+import { ModernConfiguration } from "solc-typed-ast/dist/ast/modern";
+import { parseYulIdentifier } from "../../../analysis/ir_tracker/yul-id-regex";
+import { highlightYul } from "./hljs";
 
-const options = {
+type Opts<O> = O extends { [key: string]: yargs.Options } ? O : never;
+
+const toOptions = <O extends { [key: string]: yargs.Options }>(o: O): O => o;
+
+const options = toOptions({
   input: {
     alias: ["i"],
     describe: "Input Solidity file.",
@@ -34,15 +48,20 @@ const options = {
     demandOption: false,
     coerce: path.resolve
   },
-  unoptimized: {
-    alias: ["u"],
-    describe: "Only generate unoptimized IR.",
+  ir: {
+    describe: "Include the unoptimized ir output.",
     default: false,
     type: "boolean"
   },
-  verbose: {
-    alias: ["v"],
-    describe: "Output the entire generated IR, including the constructor and sourcemap comments.",
+  ["no-constructor"]: {
+    alias: ["nc"],
+    describe: "Exclude the constructor from the IR output.",
+    default: false,
+    type: "boolean"
+  },
+  ["no-sourcemap"]: {
+    alias: ["ns"],
+    describe: "Exclude the sourcemap comments from the IR output.",
     default: false,
     type: "boolean"
   },
@@ -53,8 +72,13 @@ const options = {
   },
   inspect: {
     alias: ["s"],
-    describe: "Find position of specific function(s) in generated yul file.",
+    describe: writeNestedStructure([
+      "Find the generated yul code for a function in the `irOptimized` output.",
+      "Setting `ir` will include both the optimized and unoptimized yul outputs.",
+      "Note that this can only find functions which still exist in the yul output, and some functions may be inlined or optimized away."
+    ]),
     type: "array",
+    string: true,
     demandOption: false
   },
   print: {
@@ -63,32 +87,15 @@ const options = {
     type: "boolean",
     default: false
   }
-} as const;
+} as const);
 
-class IrInspector {
-  public functions: FunctionDefinition[];
-  constructor(
-    public yulFilePath: string,
-    public link: boolean,
-    public functionsToInspect: string,
-    public sourceUnit: SourceUnit,
-    public helper: CompileHelper
-  ) {
-    this.functions = ASTSearch.from(sourceUnit).find("FunctionDefinition");
-  }
+const defaultWriter = new ASTWriter(
+  DefaultASTWriterMapping,
+  new PrettyFormatter(2),
+  LatestCompilerVersion
+);
 
-  /*   findFunction(name: string): FunctionDefinition | undefined {
-    const candidates = this.functions.filter((f) => f.name === name);
-    const external = candidates.find(isExternalFunction);
-    if (external) {
-      return external;
-    }
-    if (candidates.length > 0) {
-      const internal = candidates.find((f) => !isExternalFunction(f));
-      
-    }
-  } */
-}
+const writeNode = (node: ASTNode) => defaultWriter.write(node);
 
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs
@@ -99,24 +106,43 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         `By default, only writes irOptimized and strips out all sourcemap comments and the constructor.`
       ]),
       options,
-      async ({ unoptimized, verbose, inspect, print, runs: r, ...args }) => {
-        const runs = r as number | "max";
-        const link = !print;
-
-        const { basePath, output, fileName, helper } = await getCommandLineInputPaths(
-          args,
-          false,
-          true,
-          {
-            optimizer: true,
-            runs
-          }
+      async ({ ir: unoptimized, noSourcemap, inspect, print, noConstructor, runs: r, ...args }) => {
+        console.log(
+          `Include constructor: ${!noConstructor} | Include sourcemap: ${!noSourcemap} | Include ir: ${unoptimized}`
         );
+        const runs = r as number | "max";
+        // If we are inspecting, we need to include the yul AST in the output
+        // for either `irOptimized` or both `irOptimized` and `ir` depending on what the user wants.
+        const extraOutputSelection = inspect?.length
+          ? [...(unoptimized ? [CompilationOutput.IR_AST] : []), CompilationOutput.IR_OPTIMIZED_AST]
+          : [];
+        extraOutputSelection.push(
+          CompilationOutput.AST,
+          ...(unoptimized ? [CompilationOutput.IR] : []),
+          CompilationOutput.IR_OPTIMIZED,
+          CompilationOutput.EVM_BYTECODE_OBJECT,
+          CompilationOutput.EVM_DEPLOYEDBYTECODE_OBJECT
+        );
+        const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args, false, {
+          runs,
+          viaIR: true,
+          metadata: false,
+          optimizer: true,
+          debug: {
+            debugInfo: ["*"]
+          },
+          extraOutputSelection
+        });
 
-        mkdirIfNotExists(output);
+        if (args.output) mkdirIfNotExists(output);
         const contract = helper.getContractForFile(fileName);
-        const { ir, irOptimized, name /*  functionDebugData, generatedSources, sourceMap */ } =
-          contract;
+        const {
+          ir,
+          irOptimized,
+          irAst,
+          irOptimizedAst,
+          name /*  functionDebugData, generatedSources, sourceMap */
+        } = contract;
 
         if (!irOptimized) {
           throw Error(
@@ -127,58 +153,60 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         if (unoptimized) {
           files.push([`${name}.yul`, ir]);
         }
+        const inspectFunction = (astJSON: any, name: string, irLabel: string) => {
+          const irAst = new ASTReader().convert(astJSON, ModernConfiguration) as YulObject;
+          if (name.startsWith("_")) {
+            name = name.replace(/^_+/, "");
+          }
+          const parsedMatches: YulFunctionDefinition[] = [];
+          const unparsedMatches: YulFunctionDefinition[] = [];
+          irAst.getChildrenByType(YulFunctionDefinition).forEach((fn) => {
+            const { originalName } = parseYulIdentifier(fn.name);
+            if (originalName?.includes(name)) {
+              parsedMatches.push(fn);
+            } else if (fn.name.includes(name)) {
+              unparsedMatches.push(fn);
+            }
+          });
+          if (parsedMatches.length === 0 && unparsedMatches.length === 0) {
+            console.log(err("=".repeat(80)));
+            console.log(err(`Could not find yul function ${name} in ${irLabel}`));
+            console.log(err("=".repeat(80)));
+            return;
+          }
+          const matches = parsedMatches.length ? parsedMatches : unparsedMatches;
+
+          if (matches.length > 1) {
+            console.log(warn("=".repeat(80)));
+            console.log(warn(`Found multiple yul functions for ${name} in ${irLabel}`));
+            console.log(warn("=".repeat(80)));
+          } else {
+            console.log(info("=".repeat(80)));
+            console.log(info("Found yul function " + matches[0].name + ` in ${irLabel}`));
+            console.log(info("=".repeat(80)));
+          }
+          for (const fn of matches) {
+            console.log((success("-") + info("-")).repeat(40));
+
+            console.log(highlightYul(writeNode(fn)));
+          }
+        };
         if (inspect) {
-          let code = unoptimized ? ir : irOptimized;
-          if (!verbose) {
-            code = cleanIR(code);
-          }
-          const contractDefinition = helper
-            .getSourceUnit(fileName)
-            .getChildrenByType(ContractDefinition)[0];
-          const functions = ASTSearch.fromContract(contractDefinition)
-            .find("FunctionDefinition")
-            .filter((x) => isExternalFunction(x))
-            .map((s) => astDefinitionToTypeNode(s));
-          const functionsToInspect = coerceArray(inspect) as string[];
-          for (let nameOrSelector of functionsToInspect) {
-            if (typeof nameOrSelector === "number") {
-              nameOrSelector = "0x" + (nameOrSelector as number).toString(16).padStart(8, "0");
+          for (const fn of inspect) {
+            if (unoptimized) {
+              inspectFunction(irAst, fn, "ir");
             }
-            let result: string | undefined;
-            if (nameOrSelector.startsWith("0x")) {
-              result = findExternalYulFunction(code, nameOrSelector, link);
-            } else {
-              const fn = functions.find((f) => f.name === nameOrSelector);
-              if (fn) {
-                // console.log(
-                //   `Function ${nameOrSelector} is external, using selector ${fn.functionSelector}`
-                // );
-                result = findExternalYulFunction(code, fn.functionSelector, link);
-              } else {
-                result = findYulFunction(code, nameOrSelector, link);
-              }
-            }
-            if (result) {
-              if (link) {
-                result = info(
-                  `${getRelativePath(
-                    process.cwd(),
-                    path.join(output, unoptimized ? files[1][0] : files[0][0])
-                  )}:${result}`
-                );
-              }
-              console.log(success(`Found yul function ${nameOrSelector} in ${name}:\n`) + result);
-            } else {
-              console.log(warn(`Could not find yul function ${nameOrSelector} in ${name}`));
-            }
+            inspectFunction(irOptimizedAst, fn, "irOptimized");
           }
         }
-        for (const [irFileName, irOutput] of files) {
-          const data = verbose ? irOutput : cleanIR(irOutput);
-          const filePath = path.join(output, irFileName);
-          writeFileSync(filePath, data);
+        if (args.output) {
+          for (const [irFileName, irOutput] of files) {
+            const data = cleanIR(irOutput, noConstructor, noSourcemap);
+            const filePath = path.join(output, irFileName);
+            writeFileSync(filePath, data);
+          }
         }
-        printCodeSize(helper, fileName);
+        // printCodeSize(helper, fileName);
       }
     )
     .example(
