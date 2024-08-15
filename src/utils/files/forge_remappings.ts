@@ -124,7 +124,7 @@ export function resolveSolidityFiles(
   }
   console.log(`base path ${basePath}`);
   const remappings = getForgeRemappings(basePath as string);
-  console.log(remappings);
+  // console.log(remappings);
   const { files, remapping, resolvedFileNames } = getFilesAndRemappings(fileNames, {
     basePath,
     includePath,
