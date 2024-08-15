@@ -6,6 +6,7 @@ import {
   FunctionCall,
   FunctionDefinition,
   Identifier,
+  IdentifierPath,
   isInstanceOf,
   MemberAccess,
   ModifierDefinition,
@@ -99,7 +100,7 @@ function findVariableChanges(ref: VariableReference) {
 export function getReferencesToFunctionOrVariable(
   search: ASTSearch,
   fnOrVar: VariableDeclaration | FunctionDefinition
-): Array<Identifier | MemberAccess | YulIdentifier> {
+): Array<Identifier | MemberAccess | YulIdentifier | IdentifierPath> {
   const identifiers = search.find("Identifier", {
     referencedDeclaration: fnOrVar.id
   });
@@ -110,7 +111,18 @@ export function getReferencesToFunctionOrVariable(
     referencedDeclaration: fnOrVar.id
   });
 
-  return [...identifiers, ...memberAccess, ...yulIdentifiers];
+  const results: Array<Identifier | MemberAccess | YulIdentifier | IdentifierPath> = [
+    ...identifiers,
+    ...memberAccess,
+    ...yulIdentifiers
+  ];
+  if (fnOrVar instanceof FunctionDefinition) {
+    const identifierPaths = search.find("IdentifierPath", {
+      referencedDeclaration: fnOrVar.id
+    });
+    results.push(...identifierPaths);
+  }
+  return results;
 }
 
 export function trackVariableReferences(
@@ -180,7 +192,7 @@ export function trackVariableReferences(
     } else {
       const reference: VariableReference = {
         kind: "VariableReference",
-        ref
+        ref: ref as Identifier | MemberAccess | YulIdentifier
       };
       const type = (def.vType as UserDefinedTypeName).vReferencedDeclaration as StructDefinition;
       /* if (ref.parent instanceof MemberAccess) {
