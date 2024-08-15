@@ -117,7 +117,14 @@ export class CompileHelper {
     }
     let contracts = this.fileContractsMap.get(fileName);
     if (!contracts) {
-      const fileNames = [...this.fileContractsMap.keys()].filter((f) => f.includes(fileName));
+      // Split the input fileName into its path components, as it could be a partial path
+      const addSeparatorIfNotPath = (p: string) => (p.includes(path.sep) ? p : path.sep + p);
+      const searchFileName = addSeparatorIfNotPath(fileName);
+      const fileNames = [...this.fileContractsMap.keys()].filter((f) =>
+        addSeparatorIfNotPath(f).includes(searchFileName)
+      );
+
+      // const fileNames = [...this.fileContractsMap.keys()].filter((f) => f.includes(fileName));
       if (fileNames.length === 0) {
         throw Error(`Source unit ${fileName} does not exist or has no contracts`);
       }
