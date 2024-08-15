@@ -70,6 +70,7 @@ export type UserCompilerOptions = {
   debug?: {
     debugInfo?: ["*"];
   };
+  extraOutputSelection?: CompilationOutput[];
 };
 
 export type CompilerOptions = {
@@ -502,7 +503,10 @@ export class CompileHelper {
       this.compiler,
       files,
       this.remapping ?? [],
-      astOnly ? [CompilationOutput.AST] : compilerOutputs,
+      [
+        ...(astOnly ? [CompilationOutput.AST] : compilerOutputs),
+        ...(optionOverrides?.extraOutputSelection ?? [])
+      ],
       compilerOptions
     );
     this.compilerOptions = compilerOptions;

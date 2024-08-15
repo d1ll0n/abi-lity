@@ -31,7 +31,7 @@ export function compile(
   console.log(errors);
   const key = [...files.keys()].find((k) => k.includes("CopierWithSwitch"));
   if (key) {
-    console.log(files.get(key as string));
+    // console.log(files.get(key as string));
     writeFileSync(path.join(__dirname, "debug.sol"), files.get(key as string) as string);
   }
   throw new CompileFailedError([{ compilerVersion: compiler.version, errors }]);
@@ -128,6 +128,7 @@ export type UserCompilerOptions = {
   debug?: {
     debugInfo?: ["*"];
   };
+  extraOutputSelection?: CompilationOutput[];
 };
 
 // Compiler options that can be passed to solc
