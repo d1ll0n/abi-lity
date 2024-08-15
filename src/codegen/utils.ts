@@ -645,21 +645,29 @@ export function findExternalYulFunction(
   return undefined;
 }
 
-export function cleanIR(irOptimized: string): string {
-  irOptimized = irOptimized
-    .replace(/[^]+object ".+_\d+_deployed"\s\{\s+code\s+\{([^]+)\}\s*data ".metadata"[^]+/, "$1")
-    .replace(/\/\*\*(?:(?!\*\/).)+?\*\//g, "")
-    .replace(/(\n\s+)?\/\/\/.+/g, "")
-    .replace(/(\n\s+)?\/\/.+/g, "")
-    .replace(/\( /g, "(")
-    .replace(/ \)/g, ")")
-    .replace(/ {2}/g, " ");
-  const irOptimizedLines = irOptimized.split("\n").filter((ln) => ln.trim().length > 0);
-  const numTabs = (/^\s*/.exec(irOptimizedLines[0]) as string[])[0].length;
-  irOptimizedLines.forEach((ln, i) => {
-    irOptimizedLines[i] = ln.slice(numTabs);
+export function cleanIR(
+  yulSourceCode: string,
+  deleteConstructorCode = true,
+  deleteSourcemapComments = true
+): string {
+  yulSourceCode = yulSourceCode.replace(/\( /g, "(").replace(/ \)/g, ")").replace(/ {2}/g, " ");
+  if (deleteSourcemapComments) {
+    yulSourceCode = yulSourceCode
+      .replace(/\/\*\*(?:(?!\*\/).)+?\*\//g, "")
+      .replace(/(\n\s+)?\/\/\/.+/g, "")
+      .replace(/(\n\s+)?\/\/.+/g, "");
+  }
+  if (deleteConstructorCode)
+    yulSourceCode = yulSourceCode.replace(
+      /[^]+object ".+_\d+_deployed"\s\{\s+code\s+\{([^]+)\}\s*data ".metadata"[^]+/,
+      "$1"
+    );
+  const yulSourceLines = yulSourceCode.split("\n").filter((ln) => ln.trim().length > 0);
+  const numTabs = (/^\s*/.exec(yulSourceLines[0]) as string[])[0].length;
+  yulSourceLines.forEach((ln, i) => {
+    yulSourceLines[i] = ln.slice(numTabs);
   });
-  return irOptimizedLines.join("\n");
+  return yulSourceLines.join("\n");
 }
 
 export function getUniqueTypeNodes<T extends TypeNode>(typeNodes: T[]): T[] {
