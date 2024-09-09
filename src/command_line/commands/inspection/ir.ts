@@ -8,7 +8,8 @@ import {
   getRelativePath,
   isExternalFunction,
   mkdirIfNotExists,
-  writeNestedStructure
+  writeNestedStructure,
+  highlightYul
 } from "../../../utils";
 import { getCommandLineInputPaths, printCodeSize } from "../../utils2";
 import {
@@ -29,7 +30,6 @@ import {
 import { err, info, success, warn } from "../../../test_utils/logs";
 import { ModernConfiguration } from "solc-typed-ast/dist/ast/modern";
 import { parseYulIdentifier } from "../../../analysis/ir_tracker/yul-id-regex";
-import { highlightYul } from "./hljs";
 
 type Opts<O> = O extends { [key: string]: yargs.Options } ? O : never;
 
@@ -86,6 +86,12 @@ const options = toOptions({
     describe: "Print full text of inspected functions, rather than links to generated file.",
     type: "boolean",
     default: false
+  },
+  assembly: {
+    alias: ["a"],
+    describe: "Include the assembly output",
+    default: false,
+    type: "boolean"
   }
 } as const);
 
@@ -106,7 +112,16 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         `By default, only writes irOptimized and strips out all sourcemap comments and the constructor.`
       ]),
       options,
-      async ({ ir: unoptimized, noSourcemap, inspect, print, noConstructor, runs: r, ...args }) => {
+      async ({
+        ir: unoptimized,
+        assembly: assemblyFlag,
+        noSourcemap,
+        inspect,
+        print,
+        noConstructor,
+        runs: r,
+        ...args
+      }) => {
         console.log(
           `Include constructor: ${!noConstructor} | Include sourcemap: ${!noSourcemap} | Include ir: ${unoptimized}`
         );
@@ -121,7 +136,8 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
           ...(unoptimized ? [CompilationOutput.IR] : []),
           CompilationOutput.IR_OPTIMIZED,
           CompilationOutput.EVM_BYTECODE_OBJECT,
-          CompilationOutput.EVM_DEPLOYEDBYTECODE_OBJECT
+          CompilationOutput.EVM_DEPLOYEDBYTECODE_OBJECT,
+          ...(assemblyFlag ? [CompilationOutput.EVM_ASSEMBLY] : [])
         );
         const { basePath, output, fileName, helper } = await getCommandLineInputPaths(args, false, {
           runs,
@@ -141,6 +157,8 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
           irOptimized,
           irAst,
           irOptimizedAst,
+          assembly,
+          runtimeCode,
           name /*  functionDebugData, generatedSources, sourceMap */
         } = contract;
 
@@ -149,9 +167,14 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
             `Contract ${name} has no intermediate representation - it is likely an interface or abstract contract`
           );
         }
+        console.log(`runtime code size: ${runtimeCode.slice(2).length / 2}`);
         const files = [[`${name}.optimized.yul`, irOptimized]];
         if (unoptimized) {
           files.push([`${name}.yul`, ir]);
+        }
+        if (assembly) {
+          files.push([`${name}.asm`, assembly]);
+          files.push([`${name}.bin`, runtimeCode]);
         }
         const inspectFunction = (astJSON: any, name: string, irLabel: string) => {
           const irAst = new ASTReader().convert(astJSON, ModernConfiguration) as YulObject;
@@ -201,7 +224,9 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         }
         if (args.output) {
           for (const [irFileName, irOutput] of files) {
-            const data = cleanIR(irOutput, noConstructor, noSourcemap);
+            const data = irFileName.includes(".yul")
+              ? cleanIR(irOutput, noConstructor, noSourcemap)
+              : irOutput;
             const filePath = path.join(output, irFileName);
             writeFileSync(filePath, data);
           }
