@@ -219,7 +219,9 @@ export class CompileHelper {
           const generatedSources: any = contract.evm?.deployedBytecode?.generatedSources;
           const sourceMap: string | undefined = contract.evm?.deployedBytecode?.sourceMap;
           const functionDebugData: any = contract.evm?.deployedBytecode?.functionDebugData;
+          const assembly = contract.evm?.assembly;
           this.contractsMap.set(contractName, {
+            assembly,
             ir,
             irAst,
             irOptimized,

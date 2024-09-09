@@ -84,6 +84,7 @@ export type ContractOutput = {
   runtimeCode: string;
   irOptimized: string;
   irOptimizedAst?: any;
+  assembly?: string;
   ir: string;
   irAst?: any;
   generatedSources?: any;
