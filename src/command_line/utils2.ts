@@ -119,6 +119,7 @@ export async function getCommandLineInputPaths(
       : undefined;
   const helper = await CompileHelper.fromFileSystem(fileName, basePath, {
     settings: getCompilerOptionsWithDefaults(optionOverrides),
+    version: LatestCompilerVersion,
     outputs
   });
 
