@@ -9,3 +9,4 @@ export * from "./compile_helper";
 export * from "./files";
 export * from "./loggers";
 export * from "./type_extractor";
+export { highlightYul, highlightSolidity } from "./hljs";
