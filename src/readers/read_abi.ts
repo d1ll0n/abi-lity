@@ -208,6 +208,7 @@ export function readTypeNodesFromABI(_jsonFragments: JsonFragment[]): TypeNodeRe
     structs: parser.structs,
     events: parser.events,
     errors: parser.errors,
-    enums: parser.enums
+    enums: parser.enums,
+    userDefinedValueTypes: []
   };
 }

@@ -161,7 +161,7 @@ class ParserTypes implements AddMethods {
       else if (node instanceof ErrorType) errors.push(node);
       else if (node instanceof EnumType) enums.push(node);
     });
-    return { context, functions, structs, events, errors, enums };
+    return { context, functions, structs, events, errors, enums, userDefinedValueTypes: [] };
   }
 
   parsedNodes: RelevantDefinition[] = [];

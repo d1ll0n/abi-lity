@@ -405,24 +405,31 @@ export function readTypeNodesFromSolcAST(
 ): TypeNodeReaderResult {
   const search = ASTSearch.from(sourceUnits);
   const context = new ASTContext();
-  const structs = search.find("StructDefinition").map((s) => astDefinitionToTypeNode(s));
+  const structs = search
+    .find("StructDefinition")
+    .map((s) => structDefinitionToTypeNode(s, context));
   const functions = search
     .find("FunctionDefinition")
     .filter((x) => !disableInternalFunctions || isExternalFunction(x))
-    .map((s) => astDefinitionToTypeNode(s));
-  const events = search.find("EventDefinition").map((s) => astDefinitionToTypeNode(s));
-  const errors = search.find("ErrorDefinition").map((s) => astDefinitionToTypeNode(s));
-  const enums = search.find("EnumDefinition").map((s) => astDefinitionToTypeNode(s));
+    .map((s) => functionDefinitionToTypeNode(s, context));
+  const events = search.find("EventDefinition").map((s) => eventDefinitionToTypeNode(s, context));
+  const errors = search.find("ErrorDefinition").map((s) => errorDefinitionToTypeNode(s, context));
+  const enums = search.find("EnumDefinition").map((s) => enumDefinitionToTypeNode(s, context));
   [...functions, ...events, ...errors, ...enums].forEach((node) => {
     node.context = context;
   });
+  const userDefinedTypes = _.uniqBy(
+    context.getNodesBySelector<UserDefinedValueType>((s) => s instanceof UserDefinedValueType),
+    (x) => x.name
+  );
   return {
     context,
     functions,
     events,
     errors,
     structs,
-    enums
+    enums,
+    userDefinedValueTypes: userDefinedTypes
   };
 }
 
@@ -473,12 +480,17 @@ export function readTypeNodesFromContractInterface(search: ASTSearch): TypeNodeR
   [...functions, ...events, ...errors, ...enums, ...structs].forEach((node) => {
     node.context = context;
   });
+  const userDefinedValueTypes = _.uniqBy(
+    context.getNodesBySelector<UserDefinedValueType>((s) => s instanceof UserDefinedValueType),
+    (x) => x.name
+  );
   return {
     context,
     functions,
     events,
     errors,
     structs,
-    enums
+    enums,
+    userDefinedValueTypes: userDefinedValueTypes
   };
 }
