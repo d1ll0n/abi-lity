@@ -137,7 +137,7 @@ class StorageCacheLibraryGenerator {
 
   createReadParameterFromMemoryFunction(position: StoragePosition): string {
     const label = position.label.split(".").pop() as string;
-    const absoluteOffsetBits = position.parentOffsetBits + this.numSlots;
+    const absoluteOffsetBits = position.parentOffsetBits + this.numSlots * 8;
     const returnValue = position.type.writeParameter(DataLocation.Memory, label);
     const accessor = getReadFromMemoryAccessor({
       dataReference: `_cache`,
@@ -160,12 +160,13 @@ class StorageCacheLibraryGenerator {
 
   createWriteParameterToMemoryFunction(position: StoragePosition): string {
     const label = position.label.split(".").pop() as string;
-    const absoluteOffsetBytes = position.parentOffsetBytes + this.numSlots;
+    // const absoluteOffsetBytes = position.parentOffsetBytes + this.numSlots;
+    const absoluteOffsetBits = position.parentOffsetBits + this.numSlots * 8;
     const newValueParameter = position.type.writeParameter(DataLocation.Memory, label);
     const accessor = getWriteToMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      bitsOffset: absoluteOffsetBytes * 8,
+      bitsOffset: absoluteOffsetBits,
       bitsLength: position.bytesLength * 8,
       value: label,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
