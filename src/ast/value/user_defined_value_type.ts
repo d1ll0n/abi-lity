@@ -46,4 +46,8 @@ export class UserDefinedValueType extends ValueType {
       ? this.name
       : this.underlyingType.signatureInExternalFunction(structsByName);
   }
+
+  writeDefinition(): string {
+    return `type ${this.name} is ${this.underlyingType.identifier};`;
+  }
 }
