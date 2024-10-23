@@ -23,6 +23,7 @@ import { getWriteToStackAccessor } from "./accessors/write_stack";
 import { packWord } from "./accessors/pack_word";
 import { writeFileSync } from "fs";
 import path from "path";
+import { StructuredText } from "../../../utils";
 
 export class PackedStackTypeGenerator {
   storagePositions: StoragePosition[] = [];
@@ -121,9 +122,7 @@ export class PackedStackTypeGenerator {
     const accessor = getReadFromStackAccessor({
       dataReference: `${this.variableName}`,
       leftAligned: position.type.leftAligned,
-      bytesOffset: position.parentOffsetBytes,
       bitsOffset: position.parentOffsetBits,
-      bytesLength: position.bytesLength,
       bitsLength: position.bitsLength,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
@@ -179,15 +178,13 @@ export class PackedStackTypeGenerator {
   }
 
   createUnpackFunction(): string {
-    const asmBody = [];
-    const outputs = [];
+    const asmBody: StructuredText[] = [];
+    const outputs: StructuredText[] = [];
     for (const position of this.storagePositions) {
       const accessor = getReadFromStackAccessor({
         dataReference: `${this.variableName}`,
         leftAligned: position.type.leftAligned,
-        bytesOffset: position.parentOffsetBytes,
         bitsOffset: position.parentOffsetBits,
-        bytesLength: position.bytesLength,
         bitsLength: position.bitsLength,
         gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
         defaultSelectionForSameScore: this.defaultSelectionForSameScore
@@ -210,14 +207,11 @@ export class PackedStackTypeGenerator {
   createWriteParameterFunction(position: StoragePosition): string {
     const label = position.label.split(".").pop() as string;
     const varName = `_${label}`;
-    const absoluteOffsetBytes = position.parentOffsetBytes;
     const newValueParameter = position.type.writeParameter(DataLocation.Memory, varName);
     const accessor = getWriteToStackAccessor({
       dataReference: `${this.variableName}`,
       leftAligned: position.type.leftAligned,
-      bytesOffset: absoluteOffsetBytes,
       bitsOffset: position.parentOffsetBits,
-      bytesLength: position.bytesLength,
       bitsLength: position.bitsLength,
       value: varName,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,

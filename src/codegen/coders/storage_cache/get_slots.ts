@@ -10,24 +10,29 @@ import {
   StructDefinition,
   assert
 } from "solc-typed-ast";
-import { ArrayType, StructType, TypeNode, UValueType, ValueType, isUValueType } from "../../../ast";
-import { addDefinitionImports, coerceArray, getInclusionMask, toHex } from "../../../utils";
+import { ArrayType, StructType, TypeNode } from "../../../ast";
+import {
+  StructuredText,
+  addCommaSeparators,
+  addDefinitionImports,
+  toHex,
+  writeNestedStructure
+} from "../../../utils";
 import { readTypeNodesFromSolcAST, readTypeNodesFromSolidity } from "../../../readers";
 import {
-  WrappedContract,
-  WrappedScope,
-  WrappedSourceUnit,
+  WrappedContract, WrappedSourceUnit,
   wrapScope
 } from "../../ctx/contract_wrapper";
 import { getOffsetYulExpression } from "../../offsets";
 import NameGen, { toPascalCase } from "../../names";
 import { getReadFromMemoryAccessor, getWriteToMemoryAccessor } from "./accessors";
-import { yulAdd } from "./accessors/utils";
+import { yulAdd, yulAlignValue } from "./accessors/utils";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import {
   StoragePosition,
   SolidityStoragePositionsTracker
 } from "../../../analysis/solidity_storage_positions";
+import _ from "lodash";
 
 // type StoredValuePosition = {
 // slot: number;
@@ -132,12 +137,12 @@ class StorageCacheLibraryGenerator {
 
   createReadParameterFromMemoryFunction(position: StoragePosition): string {
     const label = position.label.split(".").pop() as string;
-    const absoluteOffsetBytes = position.parentOffsetBytes + this.numSlots;
+    const absoluteOffsetBits = position.parentOffsetBits + this.numSlots;
     const returnValue = position.type.writeParameter(DataLocation.Memory, label);
     const accessor = getReadFromMemoryAccessor({
       dataReference: `_cache`,
       leftAligned: position.type.leftAligned,
-      bitsOffset: absoluteOffsetBytes * 8,
+      bitsOffset: absoluteOffsetBits,
       bitsLength: position.bytesLength * 8,
       gasToCodePreferenceRatio: this.gasToCodePreferenceRatio,
       defaultSelectionForSameScore: this.defaultSelectionForSameScore
@@ -187,7 +192,7 @@ class StorageCacheLibraryGenerator {
   }
 
   createWriteToStorageFunction(): string {
-    const body = [];
+    const body: string[] = [];
     const numFlagWords = Math.ceil(this.numSlots / 32);
 
     for (let i = 0; i < numFlagWords; i++) {
@@ -260,18 +265,39 @@ async function test() {
   const MarketState = reader.structs[0];
   MarketState.labelFromParent = "state";
   const positions = SolidityStoragePositionsTracker.getPositions(MarketState);
-  const printPositions = (positions: StoragePosition[]) => {
-    for (const position of positions) {
-      const end = position.slotOffsetBytes + position.bytesLength;
-      console.log(
-        `Slot ${position.slot} | [${position.slotOffsetBytes}:${end}] | ${position.label}`
-      );
+  const printPositions = (allPositions: StoragePosition[]) => {
+    const alignments: StructuredText[] = [];
+    const positionsBySlot = _(allPositions)
+      .groupBy((p) => p.slot)
+      .toArray()
+      .value();
+    for (const slot of positionsBySlot) {
+      const positions = [...slot];
+      positions.reverse();
+      const arr: StructuredText[] = [];
+      for (const position of positions) {
+        const end = position.slotOffsetBytes + position.bytesLength;
+        const realStart = 32 - end;
+        const realEnd = realStart + position.bytesLength;
+        console.log(`Slot ${position.slot} | [${realStart}:${realEnd}] | ${position.label}`);
+        const x = yulAlignValue(position.label, position.bitsLength, false, realStart * 8);
+        arr.push(x);
+      }
+      const slotNumber = positions[0].slot;
+      while (arr.length > 1) {
+        const next = arr.splice(0, 2);
+        arr.unshift([`or(`, addCommaSeparators(next), `)`]);
+      }
+      alignments.push(`sstore(`, [`add(_state.slot, ${slotNumber}),`, ...arr], `)`);
     }
+    console.log(writeNestedStructure(alignments));
   };
   // console.log(positions);
   printPositions(positions);
   console.log(`Slots used: ${Math.max(...positions.map((p) => p.slot)) + 1}`);
   console.log("Optimal ordering:");
+  // Temporary: skip optimization
+  if (positions.length) return;
   const optimizedSlots = optimizeStoragePositions([...positions.map((p) => ({ ...p }))]);
   // console.log(positions);
   for (const slot of optimizedSlots) {
@@ -543,3 +569,4 @@ function rebuildStruct(struct: StructType, positions: StoragePosition[]): Struct
   console.log(newStruct.writeDefinition());
   return newStruct;
 }
+test();
