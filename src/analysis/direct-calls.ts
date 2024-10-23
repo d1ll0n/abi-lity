@@ -7,11 +7,9 @@ import {
   ExternalReferenceType,
   InferType,
   LatestCompilerVersion,
-  MemberAccess,
   PrettyFormatter
 } from "solc-typed-ast";
 import { CompileHelper } from "../utils/compile_utils/compile_helper";
-import path from "path";
 import { getParentSourceUnit, getRelativePath } from "../utils";
 const infer = new InferType(LatestCompilerVersion);
 
