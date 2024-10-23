@@ -85,7 +85,7 @@ export const usesMemory = (node: Expression | SolcTypeNode): boolean => {
     return usesMemory(Infer.typeOf(node));
   }
   if (node instanceof SolcTupleType) {
-    return node.elements.some(usesMemory);
+    return node.elements.some(node => node && usesMemory(node));
   }
   return node instanceof PointerType && node.location === DataLocation.Memory;
 };
