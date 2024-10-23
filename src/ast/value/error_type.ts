@@ -4,7 +4,7 @@ import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
 import { ValueType } from "./value_type";
-import { StructuredDocumentation } from "solc-typed-ast";
+import { DataLocation, StructuredDocumentation } from "solc-typed-ast";
 
 export class ErrorType extends ValueType {
   readonly kind = ABITypeKind.Error;
@@ -57,7 +57,7 @@ export class ErrorType extends ValueType {
   }
 
   writeDefinition(): string {
-    const memberTypeStrings = this.children.map((c) => c.signatureInExternalFunction(true));
-    return [`error ${this.name} (`, memberTypeStrings, ")"].join("");
+    const memberTypeStrings = this.parameters?.writeParameter(DataLocation.Default) ?? "()";
+    return [`error ${this.name}`, memberTypeStrings].join("");
   }
 }

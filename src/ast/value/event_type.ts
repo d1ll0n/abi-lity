@@ -5,7 +5,7 @@ import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
 import { ValueType } from "./value_type";
 import _ from "lodash";
-import { StructuredDocumentation } from "solc-typed-ast";
+import { DataLocation, StructuredDocumentation } from "solc-typed-ast";
 
 export class EventType extends ValueType {
   readonly kind = ABITypeKind.Event;
@@ -81,7 +81,7 @@ export class EventType extends ValueType {
   }
 
   writeDefinition(): string {
-    const memberTypeStrings = this.parameters?.signatureInExternalFunction(true) ?? "()";
+    const memberTypeStrings = this.parameters?.writeParameter(DataLocation.Default) ?? "()";
     /* this.children.map((c) => {
         const typeString = c.signatureInExternalFunction(true);
         return [typeString, c.isIndexed ? " indexed" : ""].join("");
