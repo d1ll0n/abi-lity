@@ -114,7 +114,7 @@ const usesMemory = (node: Expression | TypeNode): boolean => {
     return usesMemory(Infer.typeOf(node));
   }
   if (node instanceof TupleType) {
-    return node.elements.some(usesMemory);
+    return node.elements.some(n => n && usesMemory(n));
   }
   return node instanceof PointerType && node.location === DataLocation.Memory;
 };
