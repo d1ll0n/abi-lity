@@ -1,3 +1,4 @@
+import { StructuredDocumentation } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TypeNode } from "../type_node";
 import { TupleLikeType } from "./tuple_type";
@@ -7,7 +8,12 @@ export class StructType extends TupleLikeType {
   name: string;
   canonicalNameOverride?: string;
 
-  constructor(members: TypeNode[], name: string, canonicalNameOverride?: string) {
+  constructor(
+    members: TypeNode[],
+    name: string,
+    canonicalNameOverride?: string,
+    public documentation?: string | StructuredDocumentation
+  ) {
     super(members);
     this.name = name;
     this.canonicalNameOverride = canonicalNameOverride;

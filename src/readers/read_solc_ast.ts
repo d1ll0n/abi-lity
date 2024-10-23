@@ -19,7 +19,8 @@ import {
   FunctionCall,
   InferType,
   LatestCompilerVersion,
-  UserDefinedValueTypeDefinition
+  UserDefinedValueTypeDefinition,
+  FunctionVisibility
 } from "solc-typed-ast";
 import {
   ArrayType,
@@ -72,6 +73,8 @@ import { TypeNameType as SolcTypeNameType } from "solc-typed-ast/dist/types/ast/
 import { UserDefinedType as SolcUserDefinedType } from "solc-typed-ast/dist/types/ast/user_defined_type";
 import { U256Type as SolcU256Type } from "solc-typed-ast/dist/types/ast/u256_type";
 import { UserDefinedValueType } from "../ast/value/user_defined_value_type";
+import _ from "lodash";
+import { getEmitsByEvent, getRevertsByError } from "../codegen/coders/generate";
 // import { InternalType as SolcInternalType } from "solc-typed-ast/dist/types/ast/internal";
 // import { RationalLiteralType as SolcRationalLiteralType } from "solc-typed-ast/dist/types/ast/rational_literal";
 // import { TypeNode as SolcTypeNode } from "solc-typed-ast/dist/types/ast/type";
@@ -130,51 +133,44 @@ export function typeOfFunctionCallArguments(expr: FunctionCall): TupleType {
   return new TupleType(expr.vArguments.map((arg) => typeOfExpression(arg)));
 }
 
-export function solcTypeNodeToTypeNode(type: SolcTypeNode): TypeNode {
-  if (type instanceof SolcUserDefinedType) return UserDefinedTypeToTypeNode(type);
-  if (type instanceof SolcTypeNameType) return solcTypeNodeToTypeNode(type.type);
-  if (type instanceof SolcAddressType) return new AddressType(type.payable);
-  if (type instanceof SolcBoolType) return new BoolType();
-  if (type instanceof SolcIntType) return new IntegerType(type.nBits, type.signed);
-  if (type instanceof SolcFixedBytesType) return new FixedBytesType(type.size);
-  if (type instanceof SolcIntLiteralType) {
-    return solcTypeNodeToTypeNode(type.smallestFittingType()!);
-  }
-  if (type instanceof SolcNumericLiteralType) {
-    return new IntegerType(256, false);
-  }
-
-  if (type instanceof SolcU256Type) return new IntegerType(256, false);
-  if (type instanceof SolcStringType) return new StringType();
-  if (type instanceof SolcStringLiteralType) return new StringType();
-  if (type instanceof SolcBytesType) return new BytesType();
-  if (type instanceof SolcArrayType) {
-    return new ArrayType(
+export function solcTypeNodeToTypeNode(type: SolcTypeNode, context?: ASTContext): TypeNode {
+  let node: TypeNode;
+  if (type instanceof SolcUserDefinedType) node = UserDefinedTypeToTypeNode(type);
+  else if (type instanceof SolcTypeNameType) node = solcTypeNodeToTypeNode(type.type);
+  else if (type instanceof SolcAddressType) node = new AddressType(type.payable);
+  else if (type instanceof SolcBoolType) node = new BoolType();
+  else if (type instanceof SolcIntType) node = new IntegerType(type.nBits, type.signed);
+  else if (type instanceof SolcFixedBytesType) node = new FixedBytesType(type.size);
+  else if (type instanceof SolcIntLiteralType) {
+    node = solcTypeNodeToTypeNode(type.smallestFittingType()!);
+  } else if (type instanceof SolcNumericLiteralType) {
+    node = new IntegerType(256, false);
+  } else if (type instanceof SolcU256Type) node = new IntegerType(256, false);
+  else if (type instanceof SolcStringType) node = new StringType();
+  else if (type instanceof SolcStringLiteralType) node = new StringType();
+  else if (type instanceof SolcBytesType) node = new BytesType();
+  else if (type instanceof SolcArrayType) {
+    node = new ArrayType(
       solcTypeNodeToTypeNode(type.elementT),
       type.size !== undefined ? Number(type.size) : undefined
     );
-  }
-  if (type instanceof SolcPointerType) {
-    return solcTypeNodeToTypeNode(type.to);
-  }
-  if (type instanceof SolcErrorType) {
+  } else if (type instanceof SolcPointerType) {
+    node = solcTypeNodeToTypeNode(type.to);
+  } else if (type instanceof SolcErrorType) {
     const parameters =
       type.parameters.length > 0
         ? new TupleType(type.parameters.map((p) => solcTypeNodeToTypeNode(p)))
         : undefined;
-    return new ErrorType(type.name!, parameters);
-  }
-  if (type instanceof SolcEventType) {
+    node = new ErrorType(type.name!, parameters);
+  } else if (type instanceof SolcEventType) {
     const parameters =
       type.parameters.length > 0
         ? new TupleType(type.parameters.map((p) => solcTypeNodeToTypeNode(p)))
         : undefined;
-    return new EventType(type.name!, parameters);
-  }
-  if (type instanceof SolcTupleType) {
-    return new TupleType(type.elements.map((c) => solcTypeNodeToTypeNode(c as SolcTypeNode)));
-  }
-  if (type instanceof SolcFunctionType) {
+    node = new EventType(type.name!, parameters);
+  } else if (type instanceof SolcTupleType) {
+    node = new TupleType(type.elements.map((c) => solcTypeNodeToTypeNode(c as SolcTypeNode)));
+  } else if (type instanceof SolcFunctionType) {
     const parameters =
       type.parameters.length > 0
         ? new TupleType(type.parameters.map((p) => solcTypeNodeToTypeNode(p)))
@@ -183,9 +179,18 @@ export function solcTypeNodeToTypeNode(type: SolcTypeNode): TypeNode {
       type.returns.length > 0
         ? new TupleType(type.returns.map((p) => solcTypeNodeToTypeNode(p)))
         : undefined;
-    new FunctionType(type.name!, parameters, returnParameters, type.visibility, type.mutability);
+    node = new FunctionType(
+      type.name!,
+      parameters,
+      returnParameters,
+      type.visibility,
+      type.mutability
+    );
+  } else {
+    throw Error(`Not supported: resolving TypeNode for ${type.constructor.name}`);
   }
-  throw Error(`Not supported: resolving TypeNode for ${type.constructor.name}`);
+  if (context) node.context = context;
+  return node;
 }
 
 /**
@@ -293,43 +298,66 @@ function convertVariableDeclarations(variables: VariableDeclaration[]): TypeNode
   return members as TypeNode[];
 }
 
-export function functionDefinitionToTypeNode(ast: FunctionDefinition): FunctionType {
+export function functionDefinitionToTypeNode(
+  ast: FunctionDefinition,
+  context?: ASTContext
+): FunctionType {
   const parameters = convertVariableDeclarations(ast.vParameters.vParameters);
   const returnParameters = convertVariableDeclarations(ast.vReturnParameters.vParameters);
 
-  return new FunctionType(
+  const type = new FunctionType(
     ast.name,
     parameters.length ? new TupleType(parameters) : undefined,
     returnParameters.length ? new TupleType(returnParameters) : undefined,
     ast.visibility,
-    ast.stateMutability
+    ast.stateMutability,
+    ast.documentation
   );
+  if (context) type.context = context;
+  return type;
 }
 
-export function enumDefinitionToTypeNode(ast: EnumDefinition): EnumType {
-  return new EnumType(
+export function enumDefinitionToTypeNode(ast: EnumDefinition, context?: ASTContext): EnumType {
+  const type = new EnumType(
     ast.name,
-    ast.vMembers.map((member) => member.name)
+    ast.vMembers.map((member) => member.name),
+    ast.documentation
   );
+  if (context) type.context = context;
+  return type;
 }
 
-export function structDefinitionToTypeNode(ast: StructDefinition): StructType {
+export function structDefinitionToTypeNode(
+  ast: StructDefinition,
+  context?: ASTContext
+): StructType {
   const members = convertVariableDeclarations([...ast.vMembers]);
-  return new StructType(members, ast.name, ast.canonicalName);
+  const type = new StructType(members, ast.name, ast.canonicalName, ast.documentation);
+  if (context) type.context = context;
+  return type;
 }
 
-export function eventDefinitionToTypeNode(ast: EventDefinition): EventType {
+export function eventDefinitionToTypeNode(ast: EventDefinition, context?: ASTContext): EventType {
   const members = convertVariableDeclarations(ast.vParameters.vParameters);
-  return new EventType(
+  const type = new EventType(
     ast.name,
     members.length ? new TupleType(members) : undefined,
-    ast.anonymous
+    ast.anonymous,
+    ast.documentation
   );
+  if (context) type.context = context;
+  return type;
 }
 
-export function errorDefinitionToTypeNode(ast: ErrorDefinition): ErrorType {
+export function errorDefinitionToTypeNode(ast: ErrorDefinition, context?: ASTContext): ErrorType {
   const members = convertVariableDeclarations(ast.vParameters.vParameters);
-  return new ErrorType(ast.name, members.length ? new TupleType(members) : undefined);
+  const type = new ErrorType(
+    ast.name,
+    members.length ? new TupleType(members) : undefined,
+    ast.documentation
+  );
+  if (context) type.context = context;
+  return type;
 }
 
 type ASTDefinition =
@@ -386,6 +414,63 @@ export function readTypeNodesFromSolcAST(
   const errors = search.find("ErrorDefinition").map((s) => astDefinitionToTypeNode(s));
   const enums = search.find("EnumDefinition").map((s) => astDefinitionToTypeNode(s));
   [...functions, ...events, ...errors, ...enums].forEach((node) => {
+    node.context = context;
+  });
+  return {
+    context,
+    functions,
+    events,
+    errors,
+    structs,
+    enums
+  };
+}
+
+export function readTypeNodesFromContractInterface(search: ASTSearch): TypeNodeReaderResult {
+  // const search = ASTSearch.from(sourceUnits);
+  const context = new ASTContext();
+  const functions = [
+    ...search.findFunctionsByVisibility(FunctionVisibility.External),
+    ...search.findFunctionsByVisibility(FunctionVisibility.Public)
+  ].map((s) => functionDefinitionToTypeNode(s, context));
+  const events = _.uniqBy(
+    [
+      ...search.find("EventDefinition").map((e) => eventDefinitionToTypeNode(e, context)),
+      ...getEmitsByEvent(search).map(([type]) => type)
+    ],
+    (x) => x.signatureInExternalFunction(false)
+  );
+  const errors = _.uniqBy(
+    [
+      ...search.find("ErrorDefinition").map((e) => errorDefinitionToTypeNode(e, context)),
+      ...getRevertsByError(search).map(([type]) => type)
+    ],
+    (x) => x.signatureInExternalFunction(false)
+  );
+  const enums = _.uniqBy(
+    [
+      ...search.find("EnumDefinition").map((s) => enumDefinitionToTypeNode(s, context)),
+      ...context.getNodesBySelector<EnumType>((s) => s instanceof EnumType)
+    ],
+    (x) => x.name
+  );
+  const structs = _.uniqBy(
+    [
+      ...search.find("StructDefinition").map((s) => structDefinitionToTypeNode(s, context)),
+      ...context.getNodesBySelector<StructType>((s) => s instanceof StructType)
+    ],
+    (x) => x.signatureInExternalFunction(false)
+  );
+  // const events =
+  // const structs = search.find("StructDefinition").map((s) => astDefinitionToTypeNode(s));
+  // const functions = search
+  // .find("FunctionDefinition")
+  // .filter((x) => isExternalFunction(x))
+  // .map((s) => astDefinitionToTypeNode(s));
+  // const events = search.find("EventDefinition").map((s) => astDefinitionToTypeNode(s));
+  // const errors = search.find("ErrorDefinition").map((s) => astDefinitionToTypeNode(s));
+  // const enums = search.find("EnumDefinition").map((s) => astDefinitionToTypeNode(s));
+  [...functions, ...events, ...errors, ...enums, ...structs].forEach((node) => {
     node.context = context;
   });
   return {

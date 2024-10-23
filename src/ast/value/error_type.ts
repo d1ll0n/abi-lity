@@ -4,6 +4,7 @@ import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
 import { ValueType } from "./value_type";
+import { StructuredDocumentation } from "solc-typed-ast";
 
 export class ErrorType extends ValueType {
   readonly kind = ABITypeKind.Error;
@@ -15,7 +16,11 @@ export class ErrorType extends ValueType {
   encodingType = undefined;
   exactBits = 192;
 
-  constructor(name: string, parameters?: TupleType) {
+  constructor(
+    name: string,
+    parameters?: TupleType,
+    public documentation?: string | StructuredDocumentation
+  ) {
     super();
     this.name = name;
     this.parameters = parameters;

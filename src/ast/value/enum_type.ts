@@ -1,3 +1,4 @@
+import { StructuredDocumentation } from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TypeProvider } from "../type_provider";
 import { IntegerType } from "./integer_type";
@@ -9,7 +10,11 @@ export class EnumType extends ValueType {
   members: string[];
   leftAligned = false;
 
-  constructor(name: string, members: string[]) {
+  constructor(
+    name: string,
+    members: string[],
+    public documentation?: string | StructuredDocumentation
+  ) {
     super();
     this.name = name;
     this.members = members;

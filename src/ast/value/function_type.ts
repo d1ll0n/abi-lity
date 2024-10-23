@@ -1,6 +1,11 @@
 import { keccak256 } from "@ethersproject/keccak256";
 import { toUtf8Bytes } from "@ethersproject/strings";
-import { DataLocation, FunctionStateMutability, FunctionVisibility } from "solc-typed-ast";
+import {
+  DataLocation,
+  FunctionStateMutability,
+  FunctionVisibility,
+  StructuredDocumentation
+} from "solc-typed-ast";
 import { ABITypeKind } from "../../constants";
 import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
@@ -24,7 +29,8 @@ export class FunctionType extends ValueType {
     parameters?: TupleType,
     returnParameters?: TupleType,
     visibility?: FunctionVisibility,
-    stateMutability?: FunctionStateMutability
+    stateMutability?: FunctionStateMutability,
+    public documentation?: string | StructuredDocumentation
   ) {
     super();
     this.name = name;
