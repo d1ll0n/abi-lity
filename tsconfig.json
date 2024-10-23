@@ -25,13 +25,5 @@
     "skipLibCheck": true
   },
 
-  "include": [
-    "src/**/*",
-    "src/**/*.json",
-    "test_garbage/**/*",
-    "scripts/**/*",
-    "maybe-dont-use/generic",
-    "maybe-dont-use/pack",
-    "maybe-dont-use/immutables"
-  ]
+  "include": ["src/**/*", "src/**/*.json", "scripts/**/*"]
 }
