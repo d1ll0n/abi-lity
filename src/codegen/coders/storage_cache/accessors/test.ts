@@ -234,7 +234,7 @@ describe(`Field accessor generators`, function () {
       [true, 248, 256, ["mload(add(cache, 0x1f))"]],
       [
         true,
-        31,
+        248,
         8,
         ["shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))", "shl(0xf8, mload(cache))"]
       ],
