@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { StructDefinition } from "solc-typed-ast";
+import {
+  ASTWriter,
+  DefaultASTWriterMapping,
+  LatestCompilerVersion,
+  PrettyFormatter,
+  StructDefinition
+} from "solc-typed-ast";
 import { WrappedSourceUnit } from "../../ctx/contract_wrapper";
 import NameGen from "../../names";
 import { PackedStackTypeGenerator } from "./pack-stacker";
@@ -7,6 +13,8 @@ import { PackedMemoryTypeGenerator } from "./packed-memory-struct";
 import { ArrayType, StructType } from "../../../ast";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import { readTypeNodesFromSolcAST } from "../../../readers";
+import { writeFileSync } from "fs";
+import path from "path";
 
 export type PackedTypeLibraryOptions = {
   gasToCodePreferenceRatio?: number;
@@ -100,14 +108,12 @@ async function test() {
   console.log(memorySourceUnit?.outputPath);
   console.log(stackSourceUnit?.outputPath);
 
-  //   await generator.ctx.applyPendingFunctions();
-  //   const codeOut = new ASTWriter(
-  //     DefaultASTWriterMapping,
-  //     new PrettyFormatter(2),
-  //     LatestCompilerVersion
-  //   ).write(generator.ctx.sourceUnit);
-  //   console.log(codeOut);
-  //   writeFileSync(path.join(__dirname, memorySourceUnit?.sourceUnit.absolutePath), codeOut);
+  const codeOut = new ASTWriter(
+    DefaultASTWriterMapping,
+    new PrettyFormatter(2),
+    LatestCompilerVersion
+  ).write(stackSourceUnit!.sourceUnit);
+  writeFileSync(path.join(__dirname, "NewMarketState.sol"), codeOut);
 }
 
 test();
