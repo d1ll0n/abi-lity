@@ -34,6 +34,7 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
           `// SPDX-License-Identifier: MIT`,
           `pragma solidity ^${LatestCompilerVersion};`,
           "",
+          ...type.userDefinedValueTypes.map((e) => [e.writeDefinition(), ""]).flat(),
           ...type.enums.map((e) => [e.writeDefinition(), ""]).flat(),
           ...type.structs.map((e) => [...e.writeDefinition().split("\n"), ""]).flat(),
           `interface I${name} {`,
