@@ -38,7 +38,6 @@ export class StructType extends TupleLikeType {
   }
 
   signatureInExternalFunction(_structsByName: boolean): string {
-    console.log(`extfn signature ${this.name} :: ${_structsByName}`);
     if (_structsByName) return this.name;
     const memberTypeStrings = this.children.map((c) => c.signatureInExternalFunction(false));
     return "(" + memberTypeStrings.join(",") + ")";
