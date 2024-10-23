@@ -1,29 +1,17 @@
 import { writeFileSync } from "fs";
 import path from "path";
-import yargs, { Argv } from "yargs";
-import { cleanIR, findExternalYulFunction, findYulFunction } from "../../../codegen/utils";
-import {
-  CompileHelper,
-  coerceArray,
-  getRelativePath,
-  isExternalFunction,
-  mkdirIfNotExists,
-  writeNestedStructure,
-  highlightYul
-} from "../../../utils";
-import { getCommandLineInputPaths, printCodeSize } from "../../utils2";
+import { Argv, Options as YargsOptions } from "yargs";
+import { cleanIR } from "../../../codegen/utils";
+import { mkdirIfNotExists, writeNestedStructure, highlightYul } from "../../../utils";
+import { getCommandLineInputPaths } from "../../utils2";
 import {
   ASTNode,
   ASTReader,
-  ASTSearch,
   ASTWriter,
   CompilationOutput,
-  ContractDefinition,
   DefaultASTWriterMapping,
-  FunctionDefinition,
   LatestCompilerVersion,
   PrettyFormatter,
-  SourceUnit,
   YulFunctionDefinition,
   YulObject
 } from "solc-typed-ast";
@@ -31,9 +19,7 @@ import { err, info, success, warn } from "../../../test_utils/logs";
 import { ModernConfiguration } from "solc-typed-ast/dist/ast/modern";
 import { parseYulIdentifier } from "../../../analysis/ir_tracker/yul-id-regex";
 
-type Opts<O> = O extends { [key: string]: yargs.Options } ? O : never;
-
-const toOptions = <O extends { [key: string]: yargs.Options }>(o: O): O => o;
+const toOptions = <O extends { [key: string]: YargsOptions }>(o: O): O => o;
 
 const options = toOptions({
   input: {
