@@ -49,7 +49,7 @@ export function generateForgeJsonSerializers(
     structDefinitions = structDefinitions.filter((s) => coerceArray(struct).includes(s.name));
   }
 
-  const structs = structDefinitions.map(structDefinitionToTypeNode);
+  const structs = structDefinitions.map(s => structDefinitionToTypeNode(s));
   for (const struct of structs) {
     getForgeJsonSerializeFunction(ctx, struct);
   }

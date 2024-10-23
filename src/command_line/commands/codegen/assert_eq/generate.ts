@@ -70,7 +70,7 @@ export function generateAssertions(
     structDefinitions = structDefinitions.filter((s) => coerceArray(struct).includes(s.name));
   }
 
-  const structs = structDefinitions.map(structDefinitionToTypeNode);
+  const structs = structDefinitions.map(s => structDefinitionToTypeNode(s));
   for (const struct of structs) {
     getForgeAssertEqualityFunction(lib, struct);
   }
