@@ -32,7 +32,8 @@ export abstract class TypeNode extends Node<TypeNode> {
   writeParameter(location: DataLocation, name = this.labelFromParent): string {
     const locationString =
       location === DataLocation.Default || this.isValueType ? "" : location.toString();
-    return [this.canonicalName, locationString, name].filter(Boolean).join(" ");
+    const indexedString = this.isIndexed ? "indexed" : "";
+    return [this.canonicalName, locationString, indexedString, name].filter(Boolean).join(" ");
   }
 
   get exactBitsOffset(): number {
