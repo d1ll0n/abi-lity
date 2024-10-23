@@ -75,7 +75,7 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
         const functions = contract
           .getChildrenByType(FunctionDefinition)
           .filter(isExternalFunctionDefinitionOrType)
-          .map(functionDefinitionToTypeNode);
+          .map(fn => functionDefinitionToTypeNode(fn));
         const tuples = functions.map((fn) => fn.parameters).filter(Boolean) as TupleType[];
         types.push(...tuples);
       } else {

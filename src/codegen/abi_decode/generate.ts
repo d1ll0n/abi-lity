@@ -36,7 +36,7 @@ export function buildDecoderFile(
     sourceUnit.getChildrenByType(FunctionDefinition)
   );
   addDependencyImports(ctx.decoderSourceUnit, functions);
-  const functionTypes = functions.map(functionDefinitionToTypeNode);
+  const functionTypes = functions.map(fn => functionDefinitionToTypeNode(fn));
   addTypeDecoders(ctx, [...functionTypes]);
   if (withReturnFunctions) {
     for (const fn of functionTypes) {

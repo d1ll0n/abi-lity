@@ -8,7 +8,6 @@ import {
   FunctionDefinition,
   SolSearchAttributes,
   SourceUnit,
-  StringOrNumberAttributes,
   assert
 } from "solc-typed-ast";
 import {
@@ -222,8 +221,7 @@ export function upgradeSourceCoders(
     decoderSourceUnit = ctx.sourceUnit;
     console.log(`decoder source unit = ${decoderSourceUnit.absolutePath}`);
     const functions = sourceUnit.getChildrenBySelector(isExternalFunction) as FunctionDefinition[];
-
-    const functionTypes = functions.map(functionDefinitionToTypeNode);
+    const functionTypes = functions.map(fn => functionDefinitionToTypeNode(fn));
 
     if (options.replaceReturnStatements) {
       for (const fn of functionTypes) {

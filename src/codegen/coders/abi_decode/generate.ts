@@ -44,7 +44,7 @@ export function buildDecoderFile(
   const functions = sourceUnit.getChildrenBySelector(isExternalFunction) as FunctionDefinition[];
 
   ctx.addDependencyImports(functions);
-  const functionTypes = functions.map(functionDefinitionToTypeNode);
+  const functionTypes = functions.map(fn => functionDefinitionToTypeNode(fn));
   if (generateTypeDecoders) addTypeDecoders(ctx, [...functionTypes]);
   return ctx;
 }
