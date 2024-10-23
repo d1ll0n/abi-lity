@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from "fs";
 import path from "path";
-import { CompilationOutput, LatestCompilerVersion } from "solc-typed-ast";
+import {
+  ASTSearch,
+  CompilationOutput,
+  LatestCompilerVersion
+} from "solc-typed-ast";
 import {
   getAllFilesInDirectory,
   getCommonBasePath,
@@ -17,7 +21,12 @@ import {
   CompilerOutputConfigs,
   CompilerOpts
 } from "../utils/compile_utils/solc";
-import { TypeNodeReaderResult, readTypeNodesFromABI } from "../readers";
+import {
+  TypeNodeReaderResult,
+  readTypeNodesFromABI,
+  readTypeNodesFromContractInterface
+} from "../readers";
+import _ from "lodash";
 
 export type CommandLineInputPaths = {
   basePath: string;
@@ -49,6 +58,8 @@ export async function getTypesFromCommandLineInputs({
   const fileName = path.parse(input).base;
   const basePath = path.dirname(input);
   const abiByContract: Record<string, any> = {};
+  const types: Record<string, TypeNodeReaderResult> = {};
+
   if (ext === ".json") {
     const data = JSON.parse(readFileSync(input).toString());
     if (Array.isArray(data)) {
@@ -57,6 +68,9 @@ export async function getTypesFromCommandLineInputs({
       abiByContract[fileName] = data.abi;
     } else {
       throw Error(`ABI not found in JSON file ${input}`);
+    }
+    for (const [name, abi] of Object.entries(abiByContract)) {
+      types[name] = readTypeNodesFromABI(abi);
     }
   } else {
     const helper = await CompileHelper.fromFileSystem(fileName, path.dirname(input), {
@@ -67,11 +81,13 @@ export async function getTypesFromCommandLineInputs({
     for (const { name, abi } of contracts) {
       console.log(JSON.stringify(abi, null, 2));
       abiByContract[name] = abi;
+      const sourceUnit = helper.getSourceUnit(fileName);
+      const contract = sourceUnit.vContracts.find((c) => c.name === name);
+      if (contract) {
+        const search = ASTSearch.fromContract(contract, true);
+        types[name] = readTypeNodesFromContractInterface(search);
+      }
     }
-  }
-  const types: Record<string, TypeNodeReaderResult> = {};
-  for (const [name, abi] of Object.entries(abiByContract)) {
-    types[name] = readTypeNodesFromABI(abi);
   }
   if (!output) {
     output = basePath;
