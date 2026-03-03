@@ -12,6 +12,10 @@ import { WriteParameterArgs } from "./types";
 import { getReadFromStackAccessor } from "./read_stack";
 import { assert } from "solc-typed-ast";
 
+/**
+ * Generates optimal Yul code for writing a value to a specific field within a packed stack word.
+ * Evaluates multiple strategies and selects the best based on gas/code-size preference ratio.
+ */
 export function getWriteToStackAccessor(args: WriteParameterArgs): string {
   const options = getOptionsReplaceStackValue(args);
   return pickBestCodeForPreferences(

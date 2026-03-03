@@ -1,3 +1,10 @@
+/**
+ * Default value generators for TypeNode types.
+ *
+ * Used by test harness and fuzzing tooling to produce deterministic sample
+ * values for any Solidity type. The index parameter `i` seeds variation
+ * so that multiple calls produce distinct values.
+ */
 import { bigIntToHex, bufferToBigInt, padToEven, toChecksumAddress } from "@ethereumjs/util";
 import {
   AddressType,
@@ -16,6 +23,7 @@ import {
 } from "../ast";
 import { FixedBytesType } from "../ast/value/fixed_bytes_type";
 
+/** JSON-compatible representation of a Solidity default value (scalars, arrays, or struct objects). */
 export type DefaultValue = string | boolean | DefaultValue[] | { [key: string]: DefaultValue };
 
 function getDefaultForValueType(type: ValueType, i: number): DefaultValue {
@@ -49,6 +57,7 @@ function getDefaultForValueType(type: ValueType, i: number): DefaultValue {
   throw Error(`Unrecognized type ${type.kind}`);
 }
 
+/** Generates a default value for a reference type (bytes, string, array, struct, tuple). */
 export function getDefaultForReferenceType(type: ReferenceType, i?: number): DefaultValue {
   if (type instanceof BytesType) return `0x${padToEven("a".repeat(i ?? 0))}`;
   if (type instanceof StringType) return `0x${padToEven("a".repeat(i ?? 0))}`;
@@ -75,6 +84,7 @@ export function getDefaultForReferenceType(type: ReferenceType, i?: number): Def
   throw Error(`Unrecognized type ${type.kind}`);
 }
 
+/** Generates a default value for any TypeNode, dispatching to value or reference type handlers. */
 export function getDefaultForType(type: TypeNode, i?: number): DefaultValue {
   if (type instanceof ValueType) {
     if (type instanceof FunctionType) {

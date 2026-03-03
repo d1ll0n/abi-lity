@@ -1,7 +1,13 @@
+/**
+ * Build tool that converts .sol files into JSON arrays for bundling.
+ * Used to produce the JSON files consumed by `solidity_libraries/index.ts`.
+ * This file is a build-time script, not a runtime import.
+ */
 import path from "path";
 import { StructuredText, writeNestedStructure } from "../../utils";
 import { readFileSync, writeFileSync } from "fs";
 
+/** Parses Solidity source code into a StructuredText tree based on indentation. */
 function extractStructure(code: string) {
   const lines = code.split("\n");
   const takeAtIndentation = (indent: number) => {

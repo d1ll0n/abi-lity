@@ -4,6 +4,11 @@ import { writeNestedStructure } from "../../utils";
 import NameGen from "../names";
 import { CodegenContext } from "../utils";
 
+/**
+ * Generates a function that casts a generic decoding function pointer (returning
+ * raw MemoryPointer) to one returning the concrete Solidity type(s). Uses an
+ * assembly block to reinterpret the function pointer without runtime cost.
+ */
 export function typeCastAbiDecodingFunction(ctx: CodegenContext, type: TypeNode): string {
   const name = NameGen.castReturnType(type);
   if (ctx.hasFunction(name)) {

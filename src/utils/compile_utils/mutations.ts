@@ -1,3 +1,14 @@
+/**
+ * AST mutation pipeline.
+ *
+ * {@link MutationApplier} implements a text-based mutation strategy: it edits
+ * the serialized source text using {@link SourceEditor}, recompiles, and copies
+ * the resulting AST nodes back into the original tree. This enables adding
+ * functions, contracts, or entire source units without manually constructing
+ * every AST node.
+ *
+ * Mutation types: `addSourceUnit`, `insertBefore`, `insertAfter`, `append`.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   assert,
@@ -28,6 +39,7 @@ import { CompileHelper } from "./compile_helper";
 import { compile } from "./solc";
 import { getParentSourceUnit } from "../solc_ast_utils";
 
+/** A queued code mutation: either a new source unit or a node insertion/append. */
 export type CodeMutation = (SourceUnitAddition | NodeMutation) & {
   id?: string;
   cb?: (node: ASTNode) => void;
@@ -60,6 +72,10 @@ type NodeMutation =
 
 type NonSourceUnitMutation = Exclude<CodeMutation, { kind: "addSourceUnit" }>;
 
+/**
+ * Applies a batch of mutations by editing source text, recompiling, and
+ * copying resulting nodes back into the original AST context.
+ */
 class MutationApplier {
   editors = new Map<string, SourceEditor>();
   sourceUnitsByMutation: Map<Exclude<CodeMutation, { kind: "addSourceUnit" }>, SourceUnit> =
@@ -207,6 +223,7 @@ class MutationApplier {
   }
 }
 
+/** Applies a list of code mutations to the AST managed by `helper`, returning the new nodes. */
 export function applyMutations(helper: CompileHelper, mutations: CodeMutation[]): ASTNode[] {
   const applier = new MutationApplier(helper, mutations);
   return applier.resultingNodes;
@@ -222,6 +239,7 @@ type UserDefinition =
 
 type DefinitionNodeKind = UserDefinition["type"];
 
+/** Options for inserting a named definition (function, contract, struct, etc.) into a scope. */
 export type InsertDefinitionOptions = {
   name: string;
   code: string;
@@ -258,6 +276,10 @@ const notHeaderNode = (node: ASTNode) => !isInstanceOf(node, PragmaDirective, Im
 //   }
 // };
 
+/**
+ * Creates a node insertion mutation if no definition with the same name already
+ * exists in the scope. Returns `undefined` if a duplicate is found.
+ */
 export function getInsertionMutation({
   name,
   code,

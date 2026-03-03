@@ -1,15 +1,29 @@
 import { ASTContext } from "./ast_context";
 
+/** Callback function invoked during tree traversal. */
 export type NodeCallback<NodeType extends Node = Node> = (node: NodeType) => void;
+
+/** Predicate function for filtering nodes during search/traversal. */
 export type NodeSelector<NodeType extends Node = Node> = (node: NodeType) => boolean;
 
+/** Constructor type for Node subclasses — used in type-safe `getChildrenByType()`. */
 export type NodeConstructor<T extends Node> = new (...args: any[]) => T;
 
 let nNodes = 0;
 
 /**
- * Modified from base AST class in solc-typed-ast
- * @author Joran Honig
+ * Base tree node for all AST types in abi-lity.
+ *
+ * Provides a general-purpose tree structure with:
+ * - Unique node IDs (auto-incrementing)
+ * - Parent/child relationships
+ * - Depth-first traversal (`walk`, `walkChildren`, `walkParents`)
+ * - Type-safe search (`getChildrenByType`, `getClosestParentByType`)
+ * - Context registration for cross-referencing nodes by ID
+ *
+ * Adapted from the base `ASTNode` class in solc-typed-ast.
+ *
+ * @author Joran Honig (original)
  * @see https://github.com/consensys/solc-typed-ast/commit/af781125e6f083ef5e0b0f458325aa7b8271de35
  */
 export class Node<NodeType extends Node = any> {
@@ -147,12 +161,14 @@ export class Node<NodeType extends Node = any> {
     return node;
   }
 
+  /** Depth-first walk of this node and all descendants. */
   walk(callback: NodeCallback<NodeType>): void {
     const walker = this.createWalker(callback);
 
     walker(this as any);
   }
 
+  /** Depth-first walk of all descendants (excludes this node). */
   walkChildren(callback: NodeCallback<NodeType>): void {
     const walker = this.createWalker(callback);
 
@@ -161,6 +177,7 @@ export class Node<NodeType extends Node = any> {
     }
   }
 
+  /** Walk up the parent chain from this node to the root. */
   walkParents(callback: NodeCallback<NodeType>): void {
     let node: NodeType | undefined = this.parent;
 
@@ -171,6 +188,10 @@ export class Node<NodeType extends Node = any> {
     }
   }
 
+  /**
+   * Collects all descendant nodes into an array via depth-first traversal.
+   * @param inclusive If `true`, includes this node as well.
+   */
   getChildren(inclusive = false): NodeType[] {
     const nodes: NodeType[] = [];
     const callback: NodeCallback<NodeType> = (node) => {

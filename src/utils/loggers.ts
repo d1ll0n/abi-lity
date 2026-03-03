@@ -1,13 +1,16 @@
+/** Minimal logging interface used by compilation and codegen subsystems. */
 export interface Logger {
   log(...message: any[]): void;
 }
 
+/** Logger that silently discards all output. */
 export class NoopLogger {
   log(...message: any[]): void {
     return;
   }
 }
 
+/** Logger that writes to stdout, with an in-place status line via {@link updateLog}. */
 export class DebugLogger {
   log(...message: any[]): void {
     stopUpdatingLog();
@@ -19,6 +22,7 @@ export class DebugLogger {
   }
 }
 
+/** Clears `n` lines above the cursor in the terminal. */
 export function clearLines(n: number): void {
   for (let i = 0; i < n; i++) {
     process.stdout.clearLine(0);
@@ -37,12 +41,14 @@ export function clearLastMessage(): void {
   lastMessage = undefined;
 }
 
+/** Overwrites the last status message in-place on stdout. */
 export function updateLog(str: string): void {
   clearLastMessage();
   process.stdout.write(str);
   lastMessage = str;
 }
 
+/** Finalizes the current status line by writing a newline, preventing further overwrites. */
 export function stopUpdatingLog(): void {
   if (lastMessage) {
     process.stdout.write("\n");

@@ -19,6 +19,11 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `wrappers` CLI command that generates external wrapper
+ * functions for free and library functions in a Solidity file. This enables
+ * testing internal/library functions by creating public-facing entry points.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "wrappers <input> [output]",

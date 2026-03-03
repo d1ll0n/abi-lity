@@ -56,6 +56,16 @@ import { ConstantKind } from "../utils/make_constant";
 import { getPointerLibraries } from "./solidity_libraries";
 import { WrappedScope } from "./ctx/contract_wrapper";
 
+/**
+ * Manages file-level context for text-based code generation.
+ *
+ * Tracks pending function additions, manages the decoder source unit (the main output file),
+ * handles pointer library imports, and provides helpers for adding constants, functions,
+ * and contracts to the generated code. Functions are batched as pending additions, then
+ * compiled via `CompileHelper.addFunctionCode()` when `applyPendingFunctions()` is called.
+ *
+ * This is the text-based counterpart to `WrappedScope` (used by the AST-based approach).
+ */
 export class CodegenContext {
   pendingFunctions: FunctionAddition[] = [];
   contracts: ContractCodegenContext[] = [];
@@ -86,12 +96,14 @@ export class CodegenContext {
     }
   }
 
+  /** Returns only the files that were created or modified since this context was initialized. */
   getNewFiles(): Map<string, string> {
     const files = this.helper.getFiles();
     if (!this.cache) return files;
     return getNewFiles(this.helper.getFiles(), this.cache);
   }
 
+  /** Resolves a filename relative to the configured output path. */
   getFilePath(fileName: string): string {
     if (this.outputPath && !path.isAbsolute(fileName)) {
       fileName = path.join(this.outputPath, fileName);
@@ -99,10 +111,15 @@ export class CodegenContext {
     return fileName;
   }
 
+  /** Adds a new source unit (Solidity file) to the compilation context. */
   addSourceUnit(fileName: string, code?: string): SourceUnit {
     return this.helper.addSourceUnit(this.getFilePath(fileName), code);
   }
 
+  /**
+   * Gets or creates the PointerLibraries.sol source unit, which provides typed
+   * pointer helpers (CalldataPointer, MemoryPointer, etc.) used throughout generated code.
+   */
   getPointerLibraries(): SourceUnit {
     let pointerLibraries = this.helper.sourceUnits.find(
       (s) =>
@@ -119,10 +136,12 @@ export class CodegenContext {
     return pointerLibraries;
   }
 
+  /** Imports the pointer libraries into the decoder source unit. */
   addPointerLibraries(): void {
     this.addImports(this.getPointerLibraries());
   }
 
+  /** Adds import directives from the given source unit into the decoder source unit. */
   addImports(importSource: SourceUnit, symbolAliases: SymbolAlias[] = []): void {
     addImports(this.decoderSourceUnit, importSource, symbolAliases);
   }
@@ -135,6 +154,7 @@ export class CodegenContext {
     return this.decoderSourceUnit;
   }
 
+  /** Adds a `type <name> is uint256` user-defined value type to the source unit. */
   addValueTypeDefinition(name: string): UserDefinedValueTypeDefinition {
     const existing = this.sourceUnit.vUserDefinedValueTypes.find((v) => v.name === name);
     if (existing) return existing;
@@ -148,6 +168,7 @@ export class CodegenContext {
     return type;
   }
 
+  /** Adds a `using ... for <type>` directive to attach library functions to a custom type. */
   addCustomTypeUsingForDirective(
     name: string,
     libraryName?: IdentifierPath,
@@ -190,6 +211,7 @@ export class CodegenContext {
     }
   }
 
+  /** Gets or creates a file-level constant and returns its Identifier AST node. */
   getConstant(
     name: string,
     value: number | string,
@@ -200,6 +222,7 @@ export class CodegenContext {
     return getConstant(this.decoderSourceUnit, name, value, kind, size);
   }
 
+  /** Gets or creates a file-level constant and returns its name string. */
   addConstant(
     name: string,
     value: number | string,
@@ -210,14 +233,21 @@ export class CodegenContext {
     return this.getConstant(name, value, kind, size).name;
   }
 
+  /** Gets or creates a Yul-level constant for use in inline assembly blocks. */
   getYulConstant(name: string, value: number | string): YulIdentifier {
     return getYulConstant(this.decoderSourceUnit, name, value);
   }
 
+  /** Checks if a function with the given name already exists in the decoder source unit. */
   hasFunction(name: string): boolean {
     return Boolean(findFunctionDefinition(this.decoderSourceUnit, name));
   }
 
+  /**
+   * Compiles all pending function additions into the decoder source unit.
+   * Parses the accumulated StructuredText code strings, creates AST nodes, and
+   * appends them to the source unit. Clears the pending list after application.
+   */
   applyPendingFunctions(): void {
     const fns = this.pendingFunctions;
     if (fns.length === 0) return;
@@ -225,6 +255,7 @@ export class CodegenContext {
     this.pendingFunctions = [];
   }
 
+  /** Queues a function for addition to the decoder source unit. Optionally applies immediately. */
   addFunction(name: string, code: StructuredText, applyImmediately?: boolean): string {
     if (!this.pendingFunctions.find((fn) => fn.name === name)) {
       this.pendingFunctions.push({ code: writeNestedStructure(code), name });
@@ -239,6 +270,7 @@ export class CodegenContext {
     return Boolean(findContractDefinition(this.sourceUnit, name));
   }
 
+  /** Creates or retrieves a contract within the decoder source unit. */
   addContract(
     name: string,
     kind: ContractKind,
@@ -252,6 +284,7 @@ export class CodegenContext {
     return contract;
   }
 
+  /** Compiles all pending functions for all child contracts into the source unit. */
   applyPendingContracts(): void {
     const contractFunctions: Array<{
       contractName: string;
@@ -271,6 +304,13 @@ export class CodegenContext {
   }
 }
 
+/**
+ * Extends CodegenContext for contract-scoped code generation.
+ *
+ * Manages a specific contract definition within the decoder source unit. Functions are
+ * added to the contract rather than the file level. Used for generating wrapper contracts,
+ * external function dispatchers, and contract-level helpers.
+ */
 export class ContractCodegenContext {
   pendingFunctions: FunctionAddition[] = [];
   contract: ContractDefinition;
@@ -398,6 +438,11 @@ export class ContractCodegenContext {
 
 const PointerRoundUp32Mask = `0xffffffe0`;
 
+/**
+ * Generates an expression that rounds up a value to the next 32-byte boundary and adds 32.
+ * Used for computing allocation sizes for ABI-encoded data (head + padded tail).
+ * Works with both text-based (CodegenContext/WrappedScope) and AST-based (SourceUnit) approaches.
+ */
 export function roundUpAdd32(ctx: CodegenContext, value: string, asm?: boolean): string;
 export function roundUpAdd32(ctx: WrappedScope, value: string, asm?: boolean): string;
 export function roundUpAdd32(ctx: SourceUnit, value: YulExpression, asm?: boolean): YulExpression;
@@ -419,6 +464,7 @@ export function roundUpAdd32(
   throw Error(`Unsupported input types`);
 }
 
+/** Creates a constant for the maximum value of a value type (e.g. `MaxUint8 = 0xff`). */
 export function getMaxValueConstant(ctx: CodegenContext, type: ValueType): string {
   const max = type.max();
   assert(
@@ -428,6 +474,7 @@ export function getMaxValueConstant(ctx: CodegenContext, type: ValueType): strin
   return ctx.addConstant(`Max${type.pascalCaseName}`, toHex(max));
 }
 
+/** Wraps a decoding function body in a standard CalldataPointer→MemoryPointer signature. */
 export function getCalldataDecodingFunction(
   fnName: string,
   inPtr: string,
@@ -441,6 +488,7 @@ export function getCalldataDecodingFunction(
   ];
 }
 
+/** Wraps an encoding function body in a standard MemoryPointer src/dst→size signature. */
 export function getEncodingFunction(
   fnName: string,
   srcPtr: string,
@@ -454,10 +502,15 @@ export function getEncodingFunction(
   ];
 }
 
+/** Returns true if the encoded size of the type can be computed in a single expression. */
 export function canDeriveSizeInOneStep(type: TypeNode): boolean {
   return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
 }
 
+/**
+ * Returns true if tail data can be copied in a single operation (no nested pointer resolution).
+ * True for structs with no embedded reference types, value-type arrays, bytes/string, value types.
+ */
 export function canCombineTailCopies(type: TypeNode): boolean {
   // Has to be one of:
   // Struct with no embedded reference types
@@ -467,10 +520,16 @@ export function canCombineTailCopies(type: TypeNode): boolean {
   return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
 }
 
+/** Returns true if the type's ABI encoding is identical to its Solidity memory layout. */
 export function abiEncodingMatchesMemoryLayout(type: TypeNode): boolean {
   return type.totalNestedDynamicTypes < 2 && type.totalNestedReferenceTypes < 2;
 }
 
+/**
+ * Identifies contiguous segments of struct members whose ABI head encoding matches their
+ * memory layout, allowing them to be copied with a single `calldatacopy` or `mcopy`.
+ * Returns an array of segments, where each segment is a group of sequential members.
+ */
 export function getSequentiallyCopyableSegments(struct: TupleLikeType): TypeNode[][] {
   const types = struct.vMembers;
   const firstValueIndex = findIndex(types, (t) => t.isValueType);
@@ -536,6 +595,10 @@ function convertToTuple(node: ArrayType) {
   }
 }
 
+/**
+ * Recursively converts fixed-length arrays to tuples so that each element can be
+ * addressed individually with precomputed offsets during codegen.
+ */
 export function convertFixedLengthArraysToTuples<T extends ArrayType | StructType | TupleType>(
   type: T
 ): TypeNode {
@@ -550,6 +613,7 @@ export function convertFixedLengthArraysToTuples<T extends ArrayType | StructTyp
   return type;
 }
 
+/** Builds an AST expression for accessing a struct member via typed pointer offset or pptr. */
 export function getPointerOffsetExpression(
   factory: ASTNodeFactory,
   ptr: Expression,
@@ -583,6 +647,10 @@ function reduceIndent(code: string, tabs: string): string {
     .join("\n");
 }
 
+/**
+ * Extracts a Yul function definition from IR source code by name.
+ * If `srcPosition` is true, returns the line:column position instead of the function body.
+ */
 export function findYulFunction(
   code: string,
   name: string,
@@ -609,6 +677,7 @@ export function findYulFunction(
   return undefined;
 }
 
+/** Finds a Yul external function handler by its 4-byte selector in compiled IR output. */
 export function findExternalYulFunction(
   code: string,
   selector: string,
@@ -645,6 +714,10 @@ export function findExternalYulFunction(
   return undefined;
 }
 
+/**
+ * Cleans Yul IR source code by stripping whitespace, sourcemap comments, and constructor
+ * boilerplate. Returns the deployed runtime code with normalized indentation.
+ */
 export function cleanIR(
   yulSourceCode: string,
   deleteConstructorCode = true,
@@ -670,6 +743,7 @@ export function cleanIR(
   return yulSourceLines.join("\n");
 }
 
+/** Deduplicates an array of TypeNodes by their identifier string. */
 export function getUniqueTypeNodes<T extends TypeNode>(typeNodes: T[]): T[] {
   const typeMap = new Map<string, T>();
   typeNodes.forEach((type) => {
@@ -703,7 +777,10 @@ export function extractCoderTypes(inputType: TypeNode): TypeNode[] {
   return [inputType];
 }
 
-// Determines whether any of the function's internal calls require calldata input
+/**
+ * Determines whether any of the function's internal calls pass its own parameters
+ * to functions that require calldata location, which prevents parameter relocation.
+ */
 export function dependsOnCalldataLocation(fn: FunctionDefinition): boolean {
   const internalCalls = fn.getChildrenByType(FunctionCall);
   for (const call of internalCalls) {

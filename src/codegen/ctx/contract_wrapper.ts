@@ -43,11 +43,21 @@ import path from "path";
 import { getPointerLibraries, SolidityLibraries } from "../solidity_libraries";
 import NameGen, { NameGenKey, NameGenParameters, NameGenTypeParams } from "../names";
 
+/** AST node types that can serve as a code generation scope. */
 export type WrappableScope = ContractDefinition | SourceUnit;
 
+/**
+ * WeakMap cache ensuring a single WrappedSourceUnit per SourceUnit AST node.
+ * Prevents duplicate wrappers and allows global lookup without traversal.
+ */
 export const SOURCE_UNIT_WRAPPERS = new WeakMap<ASTNode, WrappedSourceUnit>();
+
+/**
+ * WeakMap cache ensuring a single WrappedContract per ContractDefinition AST node.
+ */
 export const CONTRACT_WRAPPERS = new WeakMap<ASTNode, WrappedContract>();
 
+/** Factory function that wraps a ContractDefinition or SourceUnit in the appropriate wrapper. */
 export function wrapScope(
   helper: CompileHelper,
   scope: ContractDefinition | SourceUnit,
@@ -59,6 +69,16 @@ export function wrapScope(
   return WrappedSourceUnit.getWrapper(helper, scope);
 }
 
+/**
+ * Abstract base for AST-based scope management in code generation.
+ *
+ * Wraps a `SourceUnit` or `ContractDefinition` AST node, providing methods for adding
+ * functions, constants, imports, libraries, and custom types. Unlike `CodegenContext` (which
+ * builds StructuredText strings), `WrappedScope` directly manipulates the solc-typed-ast AST
+ * tree using `CompileHelper` mutations.
+ *
+ * Subclasses: `WrappedSourceUnit` (file-level scope), `WrappedContract` (contract-level scope).
+ */
 export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = WrappableScope> {
   public scope: C;
   protected pendingFunctionSignatures: Map<string, boolean> = new Map();
@@ -78,6 +98,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
 
   //@todo refactor the larger functions out of this class
 
+  /** Adds a `type <name> is uint256` user-defined value type to the scope or its source unit. */
   addValueTypeDefinition(
     name: string,
     limitedToScope?: boolean,
@@ -95,6 +116,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return type;
   }
 
+  /** Adds a `using ... for <type>` directive to attach library functions to a custom type. */
   addCustomTypeUsingForDirective(
     name: string,
     libraryName?: IdentifierPath,
@@ -132,21 +154,25 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     }
   }
 
+  /** Flushes all pending AST mutations (function additions) through CompileHelper. */
   applyPendingFunctions(): void {
     this.helper.applyMutations();
     this.pendingFunctionSignatures.clear();
   }
 
+  /** Adds import directives from the given source unit into this scope's source unit. */
   addImports(importSource: SourceUnit, symbolAliases: SymbolAlias[] = []): void {
     addImports(this.sourceUnit, importSource, symbolAliases);
   }
 
+  /** Adds import directives for all dependencies (struct types, etc.) of the given declarations. */
   addDependencyImports(
     functions: FunctionDefinition | StructDefinition | Array<FunctionDefinition | StructDefinition>
   ): void {
     addDependencyImports(this.sourceUnit, functions);
   }
 
+  /** Adds import directives for the given functions, with optional aliases. */
   addFunctionImports(
     functions: FunctionDefinition | FunctionDefinition[],
     aliases?: string | string[]
@@ -154,6 +180,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     addFunctionImports(this.sourceUnit, functions, aliases);
   }
 
+  /** Resolves a filename relative to the configured output path. */
   getFilePath(fileName: string): string {
     if (this.outputPath && !path.isAbsolute(fileName)) {
       fileName = path.join(this.outputPath, fileName);
@@ -161,10 +188,12 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return fileName;
   }
 
+  /** Adds a new source unit (Solidity file) to the compilation context. */
   addSourceUnit(fileName: string, code?: string): SourceUnit {
     return this.helper.addSourceUnit(this.getFilePath(fileName), code);
   }
 
+  /** Gets or creates a bundled Solidity library source unit (e.g. ForgeTestShim, JsonLib). */
   getSolidityLibrary(name: keyof typeof SolidityLibraries & string): SourceUnit {
     const fileName = `${name}.sol`;
     let solidityLibrary = this.helper.sourceUnits.find(
@@ -181,6 +210,10 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return solidityLibrary;
   }
 
+  /**
+   * Gets or creates the PointerLibraries.sol source unit, which provides typed
+   * pointer helpers (CalldataPointer, MemoryPointer, etc.) used throughout generated code.
+   */
   getPointerLibraries(): SourceUnit {
     // @todo replace with getSolidityLibrary("PointerLibraries")
     let pointerLibraries = this.helper.sourceUnits.find(
@@ -198,14 +231,17 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return pointerLibraries;
   }
 
+  /** Imports the pointer libraries into this scope's source unit. */
   addPointerLibraries(): void {
     this.addImports(this.getPointerLibraries());
   }
 
+  /** Imports a bundled Solidity library into this scope's source unit. */
   addSolidityLibrary(name: keyof typeof SolidityLibraries & string): void {
     this.addImports(this.getSolidityLibrary(name));
   }
 
+  /** Adds an enum definition to this scope. */
   addEnum(
     name: string,
     members: string[],
@@ -214,6 +250,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return addEnumDefinition(this.scope, name, members, documentation).name;
   }
 
+  /** Gets or creates a constant and returns its Identifier AST node. */
   getConstant(
     name: string,
     value: number | string,
@@ -223,6 +260,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return getConstant(this.scope, name, value, kind, size);
   }
 
+  /** Creates a constant using a NameGen key for consistent naming. */
   getNameGenConstant<K extends NameGenKey>(
     key: K,
     value: string | number,
@@ -231,6 +269,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return this.addConstant((NameGen as NameGenTypeParams)[key](...args), value);
   }
 
+  /** Gets or creates a constant and returns its name string. */
   addConstant(
     name: string,
     value: number | string,
@@ -240,6 +279,10 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return this.getConstant(name, value, kind, size).name;
   }
 
+  /**
+   * Adds a function to this scope via CompileHelper mutation.
+   * The code is parsed and the resulting AST node is appended to the scope.
+   */
   addFunction(
     name: string,
     code: StructuredText,
@@ -262,6 +305,10 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return name;
   }
 
+  /**
+   * Adds an internal function with explicit parameter/return signatures and mutability.
+   * Deduplicates by signature to prevent adding the same function twice.
+   */
   addInternalFunction(
     name: string,
     inputParameters: string,
@@ -302,6 +349,7 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return this.addFunction(name, code, applyImmediately, cb);
   }
 
+  /** Like addFunction, but inserts before the first non-declaration child (before other functions). */
   prependFunction(name: string, code: StructuredText, applyImmediately?: boolean): string {
     const firstChild =
       this.scope instanceof SourceUnit
@@ -327,21 +375,31 @@ export abstract class WrappedScope<C extends ContractDefinition | SourceUnit = W
     return name;
   }
 
+  /** Gets or creates a Yul-level constant for use in inline assembly blocks. */
   getYulConstant(name: string, value: number | string): YulIdentifier {
     return getYulConstant(this.scope, name, value);
   }
 
+  /** Checks if a function with the given name already exists in this scope. */
   hasFunction(name: string): boolean {
     return Boolean(findFunctionDefinition(this.scope, name));
   }
 }
 
+/**
+ * Source-file-level scope wrapper.
+ *
+ * Wraps a `SourceUnit` AST node for adding file-level free functions, constants,
+ * and imports. Also serves as a factory for `WrappedContract` instances.
+ * Cached via `SOURCE_UNIT_WRAPPERS` WeakMap for singleton access.
+ */
 export class WrappedSourceUnit extends WrappedScope<SourceUnit> {
   constructor(helper: CompileHelper, scope: SourceUnit, outputPath?: string) {
     super(helper, scope, outputPath);
     SOURCE_UNIT_WRAPPERS.set(scope, this);
   }
 
+  /** Gets or creates a WrappedSourceUnit from a SourceUnit AST node or filename. */
   static getWrapper(
     helper: CompileHelper,
     sourceUnitOrName: SourceUnit | string,
@@ -364,6 +422,7 @@ export class WrappedSourceUnit extends WrappedScope<SourceUnit> {
     return wrapper;
   }
 
+  /** Creates or retrieves a WrappedContract within this source unit. */
   addContract(
     name: string,
     kind: ContractKind,
@@ -380,6 +439,12 @@ export class WrappedSourceUnit extends WrappedScope<SourceUnit> {
   }
 }
 
+/**
+ * Contract-level scope wrapper.
+ *
+ * Wraps a `ContractDefinition` AST node for adding contract-level functions,
+ * constants, and inheritance. Cached via `CONTRACT_WRAPPERS` WeakMap.
+ */
 export class WrappedContract extends WrappedScope<ContractDefinition> {
   constructor(
     helper: CompileHelper,
@@ -397,6 +462,7 @@ export class WrappedContract extends WrappedScope<ContractDefinition> {
     return WrappedSourceUnit.getWrapper(this.helper, this.sourceUnit);
   }
 
+  /** Gets or creates a WrappedContract from an existing ContractDefinition AST node. */
   static getWrapperFromContract(
     helper: CompileHelper,
     contract: ContractDefinition,
@@ -415,6 +481,7 @@ export class WrappedContract extends WrappedScope<ContractDefinition> {
     );
   }
 
+  /** Gets or creates a WrappedContract by name, creating the ContractDefinition if needed. */
   static getWrapper(
     helper: CompileHelper,
     sourceUnit: SourceUnit,

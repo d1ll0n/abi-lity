@@ -18,6 +18,9 @@ import { addTypeImport, makeFunctionCallFor } from "../../utils";
 import NameGen from "../names";
 import { dependsOnCalldataLocation, getPointerOffsetExpression } from "../utils";
 
+/**
+ * Returns true if the function definition or type has external or public visibility.
+ */
 export const isExternalFunctionDefinitionOrType = (
   fn: FunctionDefinition | FunctionType
 ): boolean =>
@@ -107,9 +110,11 @@ function makeParameterAssignmentFromDecodeFunctionCall(
 }
 
 /**
- * Removes the names of all reference-type parameters in external functions
- * inside of `sourceUnit`, moves their declarations to the function body and
- * assigns them using their associated decoding functions in `decoderSourceUnit`.
+ * Inlines custom ABI decoding for external functions in `sourceUnit`. For each
+ * reference-type parameter, removes the parameter name, re-declares it inside
+ * the function body, and assigns it via the corresponding decoding function
+ * from `decoderSourceUnit`. This replaces the default Solidity ABI decoding
+ * with the optimized generated decoders.
  */
 export function replaceExternalFunctionReferenceTypeParameters(
   sourceUnit: SourceUnit,

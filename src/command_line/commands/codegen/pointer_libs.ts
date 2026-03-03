@@ -24,6 +24,14 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `ptr-libs` CLI command that generates pointer libraries
+ * for struct types. These libraries provide typed memory/calldata pointer
+ * accessors for struct fields.
+ *
+ * Note: The `--struct` / `-s` option is accepted but not forwarded to
+ * `buildPointerFiles` — it is effectively unused.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "ptr-libs <input> [output]",

@@ -23,6 +23,11 @@ import { getExternalFunctionsWithReferenceTypeParameters } from "./function_edit
 import { typeCastAbiDecodingFunction } from "./type_cast";
 import { createReturnFunction } from "../abi_encode";
 
+/**
+ * Creates a complete decoder source unit with pointer libraries, generating
+ * ABI decoding functions for all external/public functions in the primary file
+ * that have reference-type parameters. Optionally generates return functions.
+ */
 export function buildDecoderFile(
   helper: CompileHelper,
   primaryFileName: string,
@@ -49,6 +54,10 @@ export function buildDecoderFile(
   return ctx;
 }
 
+/**
+ * Generates ABI decoding functions for all types extracted from `inputTypes`,
+ * including type-cast wrappers for function-level parameter tuples.
+ */
 export function addTypeDecoders(ctx: CodegenContext, inputTypes: TypeNode[]): void {
   const { types, functionParameters } = TypeExtractor.extractCoderTypes(inputTypes);
 
@@ -60,6 +69,11 @@ export function addTypeDecoders(ctx: CodegenContext, inputTypes: TypeNode[]): vo
   }
 }
 
+/**
+ * Creates a wrapper contract with external functions that delegate to the
+ * original internal/library functions, enabling external-facing access for
+ * free functions and library functions in the primary source unit.
+ */
 export function buildExternalWrapper(
   helper: CompileHelper,
   primaryFileName: string,

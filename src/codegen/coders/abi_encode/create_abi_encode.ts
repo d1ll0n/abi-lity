@@ -19,8 +19,11 @@ import {
   isAbiEncodeCall
 } from "../../../utils";
 
-/// Create a function that encodes the given type and returns the encoded data
-/// as a `bytes` with allocated memory.
+/**
+ * Creates a function that ABI-encodes the given type and returns the result as allocated
+ * `bytes memory`. Replaces `abi.encode()` calls in the AST with calls to this optimized function.
+ * Allocates memory for the output, writes the encoded data, and updates the free memory pointer.
+ */
 export function createAbiEncodingFunctionWithAllocation(
   ctx: WrappedScope,
   type: TupleType,
@@ -73,6 +76,7 @@ export function createAbiEncodingFunctionWithAllocation(
   );
 }
 
+/** Replaces an `abi.encode(...)` FunctionCall AST node with a call to the optimized encoder. */
 export function replaceAbiEncodeCall(
   call: FunctionCall,
   encodeFn: Expression,

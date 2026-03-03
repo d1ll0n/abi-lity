@@ -1,3 +1,10 @@
+/**
+ * Variable reference tracking and mutation detection.
+ *
+ * Provides utilities to trace how a variable declaration is used across
+ * function calls, assignments, and Yul `mstore` operations. Used by
+ * analysis passes to determine whether variables are mutated.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   Assignment,
@@ -18,7 +25,11 @@ import {
   YulIdentifier
 } from "solc-typed-ast";
 
-// Information about how and where a variable is used in a function.
+/**
+ * Describes how and where a variable is used: either directly referenced
+ * (with optional mutation info) or passed as a function parameter (with
+ * recursive sub-references inside the callee).
+ */
 export type VariableReference =
   | {
       kind: "FunctionParameter";
@@ -33,6 +44,7 @@ export type VariableReference =
       update?: PotentialVariableUpdate;
     };
 
+/** Describes a potential mutation to a variable: a Solidity/Yul assignment or an `mstore` call. */
 export type PotentialVariableUpdate =
   | {
       kind: "assignment";
@@ -97,6 +109,7 @@ function findVariableChanges(ref: VariableReference) {
   }
 }
 
+/** Finds all Identifier, MemberAccess, YulIdentifier, and IdentifierPath nodes referencing `fnOrVar`. */
 export function getReferencesToFunctionOrVariable(
   search: ASTSearch,
   fnOrVar: VariableDeclaration | FunctionDefinition
@@ -125,6 +138,10 @@ export function getReferencesToFunctionOrVariable(
   return results;
 }
 
+/**
+ * Recursively tracks all references to `def` within `scope`, following
+ * the variable through function call parameters and detecting mutations.
+ */
 export function trackVariableReferences(
   def: VariableDeclaration,
   scope: FunctionDefinition | ModifierDefinition

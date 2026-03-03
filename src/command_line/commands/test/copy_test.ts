@@ -47,6 +47,18 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `copy-test` CLI command that generates calldata-to-memory copy
+ * functions for struct/tuple types found in a contract's external functions,
+ * creates optimized versions using abi-lity encoders and function switches,
+ * then tests all three contract variants and compares gas usage and code size.
+ *
+ * Options:
+ * - `--ir` / `-y`: Also output irOptimized Yul for each contract
+ * - `--runs` / `-r`: Optimizer runs (number or "max", default 200000)
+ * - `--optimize`: Enable/disable compiler optimizations (default true)
+ * - `--noIR` / `--no-ir`: Disable viaIR during testing
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "copy-test <input> [output]",

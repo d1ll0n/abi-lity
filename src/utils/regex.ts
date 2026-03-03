@@ -1,3 +1,13 @@
+/**
+ * Regex-based Solidity function and type signature parsers.
+ *
+ * Builds complex regular expressions for matching function definitions,
+ * function-type variables, and parameter lists from raw Solidity source text.
+ * Used by the readers module when working with unparsed source code.
+ *
+ * NOTE: This file contains debug/test code at the bottom (lines ~239–282)
+ * that executes at module load time. See `notes/dead-code-and-cleanup.md`.
+ */
 import {
   FunctionStateMutability,
   FunctionVisibility,
@@ -212,12 +222,14 @@ function unwrapCall(call: string) {
     return {
       type: "call",
       identifier,
-      params: unwrappedParams
+      params: unwrappedParams,
+      rawParams: params
     };
   }
   return {
     type: "tuple",
-    params: unwrappedParams
+    params: unwrappedParams,
+    rawParams: params
   };
 }
 

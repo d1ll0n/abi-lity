@@ -29,6 +29,12 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `assert_eq` CLI command that generates Forge-compatible
+ * equality assertion functions for Solidity struct types. Compiles the input
+ * file, generates assertion helpers that extend `StdAssertions`, and rewrites
+ * the output to replace the temporary import shim with real forge-std imports.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "assert_eq <input> [output]",

@@ -96,6 +96,8 @@ const defaultOptions = {
   replaceStateVariables: true
 };
 
+// Module-level self-test: verifies that `getOptions` produces the expected
+// default configuration. These assertions run at import time.
 if (
   !_.isEqual(getOptions(false), defaultOptions) ||
   !_.isEqual(getOptions(false, []), defaultOptions) ||
@@ -104,6 +106,18 @@ if (
   throw Error("getOptions is broken");
 }
 
+/**
+ * Registers the default (`$0`) CLI command that generates an ABI decoding library
+ * for all external function input/output types in a smart contract and optionally
+ * modifies the contract to use a function switch.
+ *
+ * Options:
+ * - `--decoderOnly` / `-d`: Only generate the decoding library without the function switch
+ * - `--ir` / `-y`: Also output irOptimized Yul
+ * - `--irUnoptimized` / `-u`: Also output unoptimized IR
+ * - `--verbose` / `-v`: Keep constructor and sourcemap comments in IR output
+ * - `--only`: Restrict to specific coder types (return, revert, hash, emit, encode, state)
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "$0 <input> [output]",

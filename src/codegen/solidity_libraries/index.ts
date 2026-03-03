@@ -1,5 +1,17 @@
+/**
+ * Bundled Solidity library code.
+ *
+ * Stores pre-written Solidity libraries as JSON arrays of lines. Each getter
+ * function loads and joins the lines to produce source code strings. Libraries include:
+ * - `PointerLibraries` — CalldataPointer/MemoryPointer types and methods
+ * - `ScuffDirectives` — Fuzzing/testing helpers for corrupting ABI data
+ * - `ForgeTestShim` — forge-std Test contract shim for standalone test generation
+ * - `VmShim` — forge-std Vm interface shim
+ * - `JsonLib` / `LibJson` — JSON serialization helpers
+ */
 import { writeNestedStructure } from "../../utils";
 
+/** Returns the ScuffDirectives Solidity source code for ABI data fuzzing. */
 export const getScuffDirectives = (): string => require("./ScuffDirectives.json").join("\n");
 
 export const getPointerLibraries = (): string => require("./PointerLibraries.json").join("\n");
@@ -14,6 +26,7 @@ export const getLibJson = (): string => require("./LibJson.json").join("\n");
 
 export const getForgeTestShim = (): string => require("./ForgeTestShim.json").join("\n");
 
+/** Lazy-loaded map of all bundled Solidity library source code, keyed by library name. */
 export const SolidityLibraries = {
   get ScuffDirectives(): string {
     return getScuffDirectives();
@@ -35,6 +48,7 @@ export const SolidityLibraries = {
   }
 };
 
+/** Replaces the VmShim import with a direct forge-std import for production builds. */
 export function removeVmShim(files: Map<string, string>, primaryFilePath: string): void {
   const newCode = writeNestedStructure([
     `import { Vm } from "forge-std/Vm.sol";`,
@@ -49,6 +63,7 @@ export function removeVmShim(files: Map<string, string>, primaryFilePath: string
   files.set(primaryFilePath, code.replace(`import "./Temp___Vm.sol";`, newCode));
 }
 
+/** Replaces the ForgeTestShim import with a direct forge-std import for production builds. */
 export function removeForgeTestShim(files: Map<string, string>, primaryFilePath: string): void {
   const newCode = writeNestedStructure([`import { Test } from "forge-std/Test.sol";`]);
   const code = files.get(primaryFilePath) as string;

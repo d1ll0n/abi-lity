@@ -45,6 +45,15 @@ import _ from "lodash";
 // type: ValueType;
 // };
 
+/**
+ * Generates a Solidity library for caching storage slot values.
+ *
+ * Analyzes a struct's storage layout positions and generates:
+ * - A cache type that packs frequently-accessed storage values into memory/stack
+ * - `cache()` functions that batch-read storage slots via SLOAD
+ * - `update()` functions that write back modified values via SSTORE
+ * - Per-field accessor functions for reading/writing individual members
+ */
 class StorageCacheLibraryGenerator {
   storagePositions: StoragePosition[] = [];
   cacheTypeName: string;

@@ -28,6 +28,17 @@ export type CoderOptions = {
   outPath?: string;
 };
 
+/**
+ * Generates JSON serializer functions for all struct types in the given Solidity file.
+ * Creates functions that use Forge's `Vm` cheatcode for JSON serialization, with
+ * support for nested structs, arrays, enums, and all value types.
+ *
+ * @param helper - Compiler helper with the loaded source
+ * @param fileName - Source file containing struct definitions
+ * @param options - Output path and filename configuration
+ * @param struct - Optional filter: only generate for these struct names
+ * @param logger - Logger instance for debug output
+ */
 export function generateForgeJsonSerializers(
   helper: CompileHelper,
   fileName: string,
@@ -72,6 +83,12 @@ const builtinSerializers = {
   "string[]": "serializeString"
 } as Record<string, string>;
 
+/**
+ * Recursively generates or retrieves a Forge JSON serialize function for the given type.
+ * Returns the function name. For builtin types (uint256, address, etc.), delegates
+ * directly to the corresponding `vm.serialize*` method. For composite types,
+ * generates custom serialization logic.
+ */
 export function getForgeJsonSerializeFunction(ctx: CodegenContext, type: TypeNode): string {
   const baseSignature = type.signatureInExternalFunction(true);
   const builtinName = builtinSerializers[baseSignature];
@@ -102,6 +119,10 @@ export function getForgeJsonSerializeFunction(ctx: CodegenContext, type: TypeNod
   throw Error(`Could not make serializer for type: ${type.pp()}`);
 }
 
+/**
+ * Generates a JSON serializer for an enum type that maps enum values to their
+ * string member names using a memory array lookup.
+ */
 export function getForgeSerializeEnumFunction(ctx: CodegenContext, type: EnumType): string {
   // const baseSerialize = getForgeJsonSerializeFunction(ctx, type);
   const body: StructuredText<string> = [
@@ -128,6 +149,11 @@ function addSerializeFunction(ctx: CodegenContext, type: TypeNode, body: Structu
   return ctx.addFunction(name, code);
 }
 
+/**
+ * Generates a JSON serializer for an array type. Iterates elements, serializes
+ * each with its base type serializer, and wraps the result in a JSON object
+ * keyed by index.
+ */
 export function getForgeSerializeArrayFunction(ctx: CodegenContext, type: ArrayType): string {
   const baseSerialize = getForgeJsonSerializeFunction(ctx, type.baseType);
   let ref = `value[i]`;
@@ -146,6 +172,11 @@ export function getForgeSerializeArrayFunction(ctx: CodegenContext, type: ArrayT
   return addSerializeFunction(ctx, type, body);
 }
 
+/**
+ * Generates a JSON serializer for a struct type. Serializes each member field
+ * using its type-specific serializer, with the last field capturing the final
+ * JSON string.
+ */
 export function getForgeSerializeStructFunction(ctx: CodegenContext, struct: StructType): string {
   const body: StructuredText<string> = [`string memory obj = string.concat(objectKey, valueKey);`];
   struct.children.forEach((child, i) => {

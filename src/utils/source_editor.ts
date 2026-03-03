@@ -1,3 +1,10 @@
+/**
+ * Source-text editor for AST-guided code mutations.
+ *
+ * {@link SourceEditor} performs insertions, replacements, and appends on
+ * serialized Solidity source code, using an AST source map to locate nodes
+ * by their byte offsets. Tracks cumulative offset adjustments from prior edits.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import chalk, { ForegroundColor } from "chalk";
 import {
@@ -23,11 +30,17 @@ import {
   isInstanceOf
 } from "solc-typed-ast";
 
+/** Maps AST nodes to their `[offset, length]` positions in serialized source text. */
 export type ASTSourceMap = Map<ASTNode, [number, number]>;
+/** Maps source unit paths to their AST source maps. */
 export type SourceUnitSourceMaps = Map<string, ASTSourceMap>;
 // export
 type ColorName = typeof ForegroundColor;
 
+/**
+ * Edits serialized Solidity source text using AST node positions.
+ * Tracks cumulative offset changes so multiple edits can be applied sequentially.
+ */
 export class SourceEditor {
   edits: Array<{ index: number; sizeDiff: number }> = [];
   originalText: string;

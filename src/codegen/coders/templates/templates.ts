@@ -1,5 +1,12 @@
+/**
+ * Pre-written code templates for common ABI operations.
+ *
+ * `abiDecodeBytes` — Assembly template for decoding bytes/string from calldata to memory.
+ * `abiEncodeBytes` — Template for copying bytes arrays between memory locations with masking.
+ */
 import { writeNestedStructure } from "../../../utils";
 
+/** Assembly template for decoding a bytes/string value from calldata into a new memory allocation. */
 export const abiDecodeBytes = {
   code: [
     `assembly {`,
@@ -35,6 +42,7 @@ export const abiDecodeBytes = {
   ]
 };
 
+/** Template for copying and encoding a bytes/string value between memory locations. */
 export const abiEncodeBytes = {
   comment: [
     `/// @dev Takes a bytes array in memory and copies it to a new location in`,

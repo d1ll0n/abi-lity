@@ -13,6 +13,11 @@ import {
 } from "./utils";
 import { WriteParameterArgs } from "./types";
 
+/**
+ * Generates optimal Yul code for writing a value to a specific field within a packed memory word.
+ * Evaluates multiple strategies (shift+mask, byte-aligned writes) and selects the best
+ * based on gas cost vs code size preference ratio.
+ */
 export function getWriteToMemoryAccessor(args: WriteParameterArgs): string {
   const options = getOptionsReplaceValueInMemory(args);
   return pickBestCodeForPreferences(

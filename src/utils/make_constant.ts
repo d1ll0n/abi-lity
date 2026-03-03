@@ -1,3 +1,9 @@
+/**
+ * AST node factories for Solidity constant variable declarations.
+ *
+ * Provides typed helpers to create `uint`, `bytes`, and `string` constant
+ * VariableDeclaration nodes with their corresponding type names and literals.
+ */
 import {
   ASTContext,
   DataLocation,
@@ -11,9 +17,11 @@ import {
   VariableDeclaration
 } from "solc-typed-ast";
 
+/** Creates an ElementaryTypeName for `uint{size}`. */
 export function makeTypeNameUint(ctx: ASTContext, size: number): ElementaryTypeName {
   return staticNodeFactory.makeElementaryTypeName(ctx, `uint${size}`, `uint${size}`, "nonpayable");
 }
+/** Creates an ElementaryTypeName for `bytes{size}`. */
 export function makeTypeNameFixedBytes(ctx: ASTContext, size: number): ElementaryTypeName {
   return staticNodeFactory.makeElementaryTypeName(
     ctx,
@@ -31,6 +39,7 @@ export function makeTypeNameString(ctx: ASTContext): ElementaryTypeName {
   return staticNodeFactory.makeElementaryTypeName(ctx, "string", "string", "nonpayable");
 }
 
+/** Creates a numeric Literal AST node. */
 export function makeLiteralNumber(ctx: ASTContext, n: string | number): Literal {
   const value = n.toString();
   return staticNodeFactory.makeLiteral(
@@ -42,6 +51,7 @@ export function makeLiteralNumber(ctx: ASTContext, n: string | number): Literal 
   );
 }
 
+/** Creates a string Literal AST node. */
 export function makeLiteralString(ctx: ASTContext, n: string): Literal {
   const value = n.toString();
   return staticNodeFactory.makeLiteral(
@@ -53,6 +63,7 @@ export function makeLiteralString(ctx: ASTContext, n: string): Literal {
   );
 }
 
+/** Creates a constant VariableDeclaration with a given type name and literal value. */
 export function makeConstant(
   ctx: ASTContext,
   name: string,
@@ -113,12 +124,14 @@ export function makeConstantFixedBytes(
   );
 }
 
+/** Discriminator for the elementary type of a constant declaration. */
 export enum ConstantKind {
   String,
   Uint,
   FixedBytes
 }
 
+/** Factory that dispatches to the appropriate typed constant creator based on {@link ConstantKind}. */
 export function makeConstantDeclaration(
   ctx: ASTContext,
   name: string,

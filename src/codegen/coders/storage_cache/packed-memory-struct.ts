@@ -25,6 +25,12 @@ import { readTypeNodesFromSolcAST } from "../../../readers";
 import { CompileHelper } from "../../../utils/compile_utils/compile_helper";
 import assert from "assert";
 
+/**
+ * Generates a custom value type and library for packed memory-layout optimization.
+ * Unlike `PackedStackTypeGenerator` (which packs into a single word), this generates
+ * memory-based accessors that read/write individual fields at their packed byte offsets.
+ * Produces per-field read/write functions using `getReadFromMemoryAccessor` / `getWriteToMemoryAccessor`.
+ */
 export class PackedMemoryTypeGenerator {
   storagePositions: StoragePosition[] = [];
   cacheTypeName: string;

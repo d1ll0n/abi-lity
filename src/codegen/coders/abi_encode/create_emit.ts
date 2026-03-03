@@ -15,6 +15,12 @@ import NameGen from "../../names";
 import { WrappedScope } from "../../ctx/contract_wrapper";
 import { createHashFunction } from "./create_hash";
 
+/**
+ * Creates an optimized emit function for a specific event type. Encodes indexed parameters
+ * as topics (hashing reference types), encodes unindexed parameters using the ABI encoder,
+ * and emits with the appropriate `log0`-`log4` opcode. Replaces EmitStatement AST nodes
+ * with calls to the generated function.
+ */
 export function createEmitFunction(
   ctx: WrappedScope,
   type: EventType,
@@ -99,6 +105,7 @@ export function createEmitFunction(
   );
 }
 
+/** Replaces an EmitStatement AST node with an ExpressionStatement calling the optimized emit function. */
 export function replaceEmitStatement(stmt: EmitStatement, emitFn: Expression): void {
   const factory = new ASTNodeFactory(stmt.requiredContext);
   const call = stmt.vEventCall;

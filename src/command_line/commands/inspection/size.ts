@@ -25,6 +25,14 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `size` CLI command that compiles a Solidity contract and prints
+ * its runtime bytecode size in bytes, along with the distance from the 24,577-byte
+ * contract size limit (EIP-170).
+ *
+ * Note: The `--creationCode` / `-c` option is defined but never used in the
+ * handler — only runtime code size is reported regardless of this flag.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "size <input>",

@@ -256,15 +256,32 @@ function abiDecodingFunctionArraySeparateTail(ctx: CodegenContext, type: ArrayTy
   return fnName;
 }
 
+/**
+ * Top-level array decoding dispatcher. Selects among four strategies based on
+ * the base type characteristics:
+ * - Value type arrays: simple bulk copy (abiDecodingFunctionValueArray)
+ * - Combinable dynamic tails: single copy with strict-encoding validation
+ *   (abiDecodingFunctionArrayCombinedDynamicTail)
+ * - Combinable static tails: single copy for fixed-size reference types
+ *   (abiDecodingFunctionArrayCombinedStaticTail)
+ * - Separate tails: per-element recursive decoding for types with embedded
+ *   reference types (abiDecodingFunctionArraySeparateTail)
+ */
 export function abiDecodingFunctionArray(ctx: CodegenContext, type: ArrayType): string {
+  // Strategy 1: Value type base — direct calldatacopy of the entire array
   if (type.baseType.isValueType) {
     return abiDecodingFunctionValueArray(ctx, type);
   }
   if (canCombineTailCopies(type.baseType)) {
+    // Strategy 2/3: Tails can be combined into a single copy because there
+    // are no embedded reference types requiring separate pointer fixups
     if (type.baseType.isDynamicallyEncoded) {
+      // Strategy 2: Dynamic-size elements — validate strict encoding, then bulk copy tails
       return abiDecodingFunctionArrayCombinedDynamicTail(ctx, type);
     }
+    // Strategy 3: Fixed-size reference type elements — bulk copy tails, then fill head pointers
     return abiDecodingFunctionArrayCombinedStaticTail(ctx, type);
   }
+  // Strategy 4: Elements have embedded reference types — decode each element individually
   return abiDecodingFunctionArraySeparateTail(ctx, type);
 }

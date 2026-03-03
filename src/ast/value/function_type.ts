@@ -11,17 +11,36 @@ import { TupleType } from "../reference";
 import { TypeNode } from "../type_node";
 import { ValueType } from "../value/value_type";
 
+/**
+ * Represents a Solidity external function type (name, parameters, returns, selector).
+ *
+ * In ABI encoding, an external function value is 24 bytes (192 bits): 20 bytes for the
+ * contract address + 4 bytes for the function selector. This is right-aligned in a 32-byte word.
+ *
+ * Also used as a container for function signature metadata — `parameters` and `returnParameters`
+ * are `TupleType` nodes that describe the function's calldata/returndata layout.
+ *
+ * Maps to `FunctionType` in solc Types.h:1253.
+ */
 export class FunctionType extends ValueType {
   readonly kind = ABITypeKind.Function;
 
+  /** Function name (e.g., `"transfer"`). */
   name: string;
+
+  /** Tuple of parameter types. `undefined` for parameterless functions. */
   parameters?: TupleType;
+
+  /** Tuple of return types. `undefined` for functions with no return values. */
   returnParameters?: TupleType;
+
   visibility?: FunctionVisibility;
   stateMutability?: FunctionStateMutability;
 
   leftAligned = false;
   encodingType = undefined;
+
+  /** 192 bits = 24 bytes (20-byte address + 4-byte selector). */
   exactBits = 192;
 
   constructor(
@@ -104,10 +123,15 @@ export class FunctionType extends ValueType {
     return [this.signatureInInternalFunction(), name].join(" ");
   }
 
+  /** Full function signature string, e.g. `"transfer(address,uint256)"`. */
   get functionSignature(): string {
     return this.signature(false);
   }
 
+  /**
+   * The 4-byte function selector: first 4 bytes of `keccak256(signature)`.
+   * Returned as a hex string (e.g., `"0xa9059cbb"`).
+   */
   get functionSelector(): string {
     const signature = this.functionSignature;
     return keccak256(toUtf8Bytes(signature)).slice(0, 10);

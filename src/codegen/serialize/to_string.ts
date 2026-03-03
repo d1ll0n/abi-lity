@@ -29,6 +29,11 @@ const builtinSerializers = {
   "string[]": "serializeString"
 } as Record<string, string>;
 
+/**
+ * Generates a Forge-compatible JSON serialization function for any TypeNode.
+ * Maps types to Forge's `vm.serialize*` builtins where possible, and generates
+ * custom recursive serializers for structs, arrays, and nested types.
+ */
 export function getForgeJsonSerializeFunction(ctx: CodegenContext, type: TypeNode): string {
   const baseSignature = type.signatureInExternalFunction(true);
   const builtinName = builtinSerializers[baseSignature];

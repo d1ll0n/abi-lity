@@ -32,6 +32,10 @@ const ensureHasName = (parameter: VariableDeclaration, i: number) => {
   }
 };
 
+/**
+ * Creates a Solidity function definition that ABI-encodes return parameters
+ * using `abi.encode` and returns the raw encoded data via inline assembly.
+ */
 export function createReturnFunctionForReturnParameters(
   factory: ASTNodeFactory,
   returnParameters: ParameterList,
@@ -100,6 +104,10 @@ export function createReturnFunctionForReturnParameters(
   return returnFn;
 }
 
+/**
+ * Generates a Yul-level encoding function for `bytes` or `string` types.
+ * Masks the length to the nearest word boundary and copies src to dst.
+ */
 function abiEncodingFunctionBytes(ctx: CodegenContext, type: BytesType): string {
   const fnName = NameGen.abiEncode(type);
   if (ctx.hasFunction(fnName)) return fnName;
@@ -131,6 +139,11 @@ function abiEncodingFunctionBytes(ctx: CodegenContext, type: BytesType): string 
   return ctx.addFunction(fnName, code);
 }
 
+/**
+ * Generates an ABI encoding function for a tuple (multiple return values).
+ * Writes value types directly into the head, and dynamic types as tail offsets
+ * followed by their encoded data.
+ */
 function abiEncodingFunctionTuple(ctx: CodegenContext, tuple: TupleType): string {
   const innerParametersSignature = [
     `MemoryPointer`,
@@ -157,6 +170,7 @@ function abiEncodingFunctionTuple(ctx: CodegenContext, tuple: TupleType): string
 
   const fnName = NameGen.abiEncode(tuple);
   if (ctx.hasFunction(fnName)) return fnName;
+  // Head size covers the fixed-width portion; dynamic members append to the tail
   const sizeName = NameGen.headSize(tuple, EncodingScheme.ABI);
   ctx.addConstant(sizeName, toHex(tuple.embeddedCalldataHeadSize));
   const body: StructuredText[] = [`size = ${sizeName};`];
@@ -195,6 +209,10 @@ function abiEncodingFunctionTuple(ctx: CodegenContext, tuple: TupleType): string
   return `${castFnName}(${fnName})`;
 }
 
+/**
+ * Generates an ABI encoding function for a function's parameters, prepending
+ * the 4-byte function selector before the encoded calldata.
+ */
 function abiEncodingFunctionParameters(ctx: CodegenContext, type: FunctionType): string {
   const fnName = NameGen.abiEncode(type);
   const tuple = type.parameters;
@@ -202,6 +220,7 @@ function abiEncodingFunctionParameters(ctx: CodegenContext, type: FunctionType):
   const sizeName = NameGen.parameterHeadSize(type, false);
 
   const selector = ctx.addConstant(`${type.name}_selector`, type.functionSelector.padEnd(66, "0"));
+  // Write the 4-byte selector at the start of dst, then encode parameters after it
   const body: StructuredText[] = [`dst.write(${selector});`];
 
   if (tuple) {
@@ -235,9 +254,15 @@ function abiEncodingFunctionParameters(ctx: CodegenContext, type: FunctionType):
   return fnName;
 }
 
+/**
+ * Generates an ABI encoding function for a struct type. Iterates over struct
+ * members, writing value types into the head and encoding dynamic members
+ * into the tail with head-pointer offsets.
+ */
 function abiEncodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
   const fnName = NameGen.abiEncode(struct);
   if (ctx.hasFunction(fnName)) return fnName;
+  // Head size constant covers all fixed-width slots in the struct's ABI encoding
   const sizeName = `${struct.identifier}_head_size`;
   ctx.addConstant(sizeName, toHex(struct.embeddedCalldataHeadSize));
   const body: StructuredText[] = [`size = ${sizeName};`];
@@ -270,12 +295,18 @@ function abiEncodingFunctionStruct(ctx: CodegenContext, struct: StructType): str
   return fnName;
 }
 
+/**
+ * Creates an optimized return function that ABI-encodes a tuple and returns
+ * the data directly. Uses the scratch space pointer for small, statically-encoded
+ * tuples to avoid a memory allocation.
+ */
 export function createReturnFunction(ctx: CodegenContext, type: TupleType): string {
   const fnName = NameGen.return(type);
   const encodeFn = abiEncodingFunction(ctx, type);
   const body = [];
   let dst = "dst";
   if (!type.isDynamicallyEncoded && type.embeddedCalldataHeadSize < 0x80) {
+    // Small static tuples fit in scratch space, avoiding a memory allocation
     dst = "ScratchPtr";
   } else {
     body.push(`MemoryPointer dst = getFreeMemoryPointer();`);
@@ -293,6 +324,10 @@ export function createReturnFunction(ctx: CodegenContext, type: TupleType): stri
   return fnName;
 }
 
+/**
+ * Top-level dispatcher that selects the appropriate ABI encoding function
+ * generator based on the type (array, bytes, struct, tuple, or function).
+ */
 export function abiEncodingFunction(ctx: CodegenContext, type: TypeNode): string {
   if (type instanceof ArrayType) {
     return abiEncodingFunctionArray(ctx, type);

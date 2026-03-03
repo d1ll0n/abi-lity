@@ -1,3 +1,4 @@
+/** Color theme for CLI syntax highlighting, using chalk ANSI escape codes. */
 import chalk from "chalk";
 
 const green = chalk.hex("#abe338");

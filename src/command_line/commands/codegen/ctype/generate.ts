@@ -16,11 +16,22 @@ import { functionDefinitionToTypeNode } from "../../../../readers";
 import { yulAdd } from "../../../../codegen/coders/storage_cache/accessors";
 import { err } from "../../../../test_utils/logs";
 
+/** Configuration options for contract type library generation. */
 export type ContractTypeOptions = {
   zeroUsedMemory?: boolean;
   skipBaseContracts?: boolean;
 };
 
+/**
+ * Generates a custom type definition and library for a contract's external interface.
+ * Creates a user-defined value type wrapping `address` and a library with optimized
+ * call functions for each external/public function.
+ *
+ * @param helper - Compiler helper with the loaded source
+ * @param fileName - Source file containing the contract
+ * @param contractName - Target contract name (defaults to first contract)
+ * @param options - Generation options (skipBaseContracts, zeroUsedMemory)
+ */
 export function generateContractType(
   helper: CompileHelper,
   fileName: string,
@@ -80,6 +91,26 @@ function generateContractTypeLibrary(
   return lib;
 }
 
+/**
+ * Generates an optimized assembly-based caller function for an external function.
+ * The generated function uses inline assembly to encode calldata and decode return
+ * data without allocating new memory, using scratch space (0x00-0x7f) when possible.
+ *
+ * For functions with only value-type parameters, generates direct assembly with:
+ * - Selector stored at scratch space offset for 28-byte alignment
+ * - Parameters packed sequentially after the selector
+ * - Static/delegate call based on function mutability
+ * - Return data decoded from scratch space or free memory pointer
+ *
+ * For functions with reference-type parameters, logs an unsupported error since
+ * these require dynamic ABI encoding that can't use the scratch-space approach.
+ *
+ * @param ctx - Codegen context to register the function on
+ * @param type - Function type descriptor with parameters and return types
+ * @param visibility - Solidity function mutability (view/pure/payable/nonpayable)
+ * @param zeroUsedMemory - Whether to zero memory beyond the free pointer after the call
+ * @param targetType - The type name of the target (defaults to "address")
+ */
 export function createExternalFunctionCaller(
   ctx: WrappedScope,
   type: FunctionType,
@@ -117,6 +148,13 @@ export function createExternalFunctionCaller(
     let restoreFreePointer = false;
     let restoreZeroSlot = false;
     let writingToFreePointer = false;
+    // Closure that determines whether to use scratch space (0x00-0x7f) or the free
+    // memory pointer based on the data size. Has side effects: may push `let` declarations
+    // onto asmBody and set freeMemoryPointer/restoreFreePointer/restoreZeroSlot flags.
+    // - <= 64 bytes: use address 0 (scratch space, no cleanup needed)
+    // - 65-96 bytes: use address 0 but save/restore free memory pointer at 0x40
+    // - 97-128 bytes: also restore the zero slot at 0x60
+    // - > 128 bytes: allocate from the free memory pointer
     const getPtr = (name: string, size: number) => {
       // If size is above 128 bytes, we need to use the free memory pointer
       if (size > 0x80) {

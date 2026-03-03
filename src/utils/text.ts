@@ -1,10 +1,28 @@
+/**
+ * Structured-text utilities for building indented code output.
+ *
+ * {@link StructuredText} is the core representation: a recursive type where
+ * nesting depth determines indentation level. {@link writeNestedStructure}
+ * flattens it to a formatted string. The remaining helpers modify, search,
+ * wrap, and decorate structured-text trees.
+ */
 import _ from "lodash";
 
+/**
+ * Recursive type representing indented text. Each nesting level adds one
+ * indentation step when rendered by {@link writeNestedStructure}.
+ */
 export type StructuredText<T = string> = Array<StructuredText<T>> | T[] | T;
 
+/** Returns `" ${str}"` if `str` is a non-empty string, otherwise `""`. */
 export const withSpaceOrNull = (str?: string | boolean | null): string =>
   str && typeof str === "string" ? ` ${str}` : "";
 
+/**
+ * Flattens a {@link StructuredText} tree into an indented string.
+ * Each nesting level adds two spaces of indentation. Trailing blank lines
+ * are stripped.
+ */
 export function writeNestedStructure(doc: StructuredText): string {
   if (typeof doc === "string") return doc;
   const ret: string[] = [];
@@ -54,6 +72,10 @@ const modifyString = (
   return original.concat(text);
 };
 
+/**
+ * Recursively walks to the first or last leaf string in a StructuredText tree
+ * and applies a text modification (set, prefix, suffix, or callback) to it.
+ */
 export const modifyItem = <T extends StructuredText>(
   arrOrStr: T,
   modification: StructuredTextModification
@@ -96,6 +118,11 @@ const _searchAndReplace = (
   return text;
 };
 
+/**
+ * Recursively searches a StructuredText tree for nodes matching `findPredicate`
+ * and replaces them using `replacePredicate`. Predicates can be strings (exact match),
+ * RegExps, or callbacks.
+ */
 export const searchAndReplace = (
   text: StructuredText,
   findPredicate: SearchPredicate,
@@ -145,9 +172,11 @@ export const modifyLastString = <T extends StructuredText>(
   cb: TextModificationCallback
 ): T => modifyItem(arrOrStr, { position: "last", type: "callback", cb });
 
+/** Removes trailing empty-string nodes from a StructuredText tree. */
 export const removeTrailingNewLines = <T extends StructuredText>(arrOrStr: T): T =>
   modifyLastString(arrOrStr, (str: string) => (str === "" ? undefined : str));
 
+/** Appends a comma to the last string of every element except the last. */
 export const addCommaSeparators = <T extends StructuredText[]>(doc: T): T => {
   for (let i = 0; i < doc.length - 1; i++) {
     doc[i] = suffixLastString(doc[i], ",");
@@ -155,6 +184,7 @@ export const addCommaSeparators = <T extends StructuredText[]>(doc: T): T => {
   return doc;
 };
 
+/** Appends `separator` to the last string of every element except the last. */
 export const addSeparators = <T extends StructuredText[]>(doc: T, separator: string): T => {
   for (let i = 0; i < doc.length - 1; i++) {
     doc[i] = suffixLastString(doc[i], separator);
@@ -162,11 +192,13 @@ export const addSeparators = <T extends StructuredText[]>(doc: T, separator: str
   return doc;
 };
 
+/** Returns `true` if the tree contains at least one string node. */
 export const hasSomeMembers = (doc: StructuredText): boolean => {
   if (typeof doc === "string") return true;
   return doc.some(hasSomeMembers);
 };
 
+/** Wraps a value in an array if it isn't one already. */
 export const coerceArray = <T>(doc: T | T[]): T[] => (Array.isArray(doc) ? doc : [doc]);
 
 /**

@@ -1,3 +1,21 @@
+/**
+ * Core bridge between solc-typed-ast and abi-lity's TypeNode system.
+ *
+ * This module converts solc-typed-ast's AST nodes and inferred types into abi-lity's
+ * `TypeNode` representation. It is the primary input path for compiled Solidity code
+ * and provides the most complete type information (full type inference, constant
+ * expression evaluation, inherited types, etc.).
+ *
+ * Key functions:
+ * - `solcTypeNodeToTypeNode()` — Converts solc's inferred types to abi-lity TypeNodes
+ * - `typeNameToTypeNode()` — Converts AST TypeName nodes to TypeNodes
+ * - `*DefinitionToTypeNode()` — Convert specific definition nodes (function, struct, etc.)
+ * - `readTypeNodesFromSolcAST()` — Main entry point for extracting all types from SourceUnits
+ * - `readTypeNodesFromContractInterface()` — Extracts only the public/external interface
+ *
+ * @see docs/readers.md for the full module guide.
+ * @see notes/solc-typed-ast.md for how abi-lity uses solc-typed-ast.
+ */
 import {
   ArrayTypeName,
   assert,
@@ -45,6 +63,11 @@ import { elementaryTypeStringToTypeNode } from "./elementary";
 import { TypeNodeReaderResult } from "./types";
 import { isExternalFunction } from "../utils";
 
+/*
+ * solc-typed-ast internal type imports.
+ * These are the inferred type classes from solc's type system, imported with `Solc` prefix
+ * to distinguish them from abi-lity's identically-named TypeNode classes.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { AddressType as SolcAddressType } from "solc-typed-ast/dist/types/ast/address";
 import { ArrayType as SolcArrayType } from "solc-typed-ast/dist/types/ast/array";
@@ -82,6 +105,11 @@ import { getEmitsByEvent, getRevertsByError } from "../codegen/coders/generate";
 // import { PackedArrayType as SolcPackedArrayType } from "solc-typed-ast/dist/types/ast/packed_array_type";
 // import { YulFunctionType as SolcYulFunctionType } from "solc-typed-ast/dist/types/ast/yul_function_type";
 
+/**
+ * Union of all solc-typed-ast inferred type classes that `solcTypeNodeToTypeNode()` may encounter.
+ * Includes both convertible types (value types, arrays, tuples, etc.) and unsupported types
+ * (modifiers, builtins, etc.) that will throw if encountered.
+ */
 type SolcTypeNode =
   | SolcUserDefinedType
   | SolcTypeNameType
@@ -110,6 +138,10 @@ type SolcTypeNode =
   | SolcModifierType
   | SolcSuperType;
 
+/**
+ * Converts a `SolcUserDefinedType` to the appropriate abi-lity TypeNode by dispatching
+ * on the underlying definition (struct, enum, or contract).
+ */
 function UserDefinedTypeToTypeNode(type: SolcUserDefinedType) {
   const def = type.definition;
   if (def instanceof StructDefinition) {
@@ -124,24 +156,66 @@ function UserDefinedTypeToTypeNode(type: SolcUserDefinedType) {
   throw Error(`Unrecognized user defined type ${def.print()}`);
 }
 
+/** Shared InferType instance for resolving expression types. */
 const Infer = new InferType(LatestCompilerVersion);
 
+/**
+ * Infers the type of a solc-typed-ast `Expression` and converts it to an abi-lity TypeNode.
+ * Uses solc-typed-ast's `InferType` to get the semantic type, then converts via `solcTypeNodeToTypeNode()`.
+ */
 export function typeOfExpression(expr: Expression): TypeNode {
   return solcTypeNodeToTypeNode(Infer.typeOf(expr));
 }
+
+/**
+ * Returns a `TupleType` containing the inferred types of all arguments in a `FunctionCall`.
+ */
 export function typeOfFunctionCallArguments(expr: FunctionCall): TupleType {
   return new TupleType(expr.vArguments.map((arg) => typeOfExpression(arg)));
 }
 
+/**
+ * Converts a solc-typed-ast inferred type to an abi-lity TypeNode.
+ *
+ * This is the core type conversion function. It dispatches on the runtime class of the
+ * solc type and recursively builds the equivalent abi-lity TypeNode tree. Handles
+ * 20+ type variants grouped into:
+ * - **User-defined types**: structs, enums, contracts → dispatch to definition converters
+ * - **Value types**: bool, address, int, fixedBytes → direct construction
+ * - **Literal types**: int literals, numeric literals, string literals → resolved to concrete types
+ * - **Reference types**: arrays, tuples → recursive conversion of element/member types
+ * - **Compound types**: functions, errors, events → full parameter mapping
+ * - **Wrapper types**: PointerType, TypeNameType → unwrap and recurse
+ *
+ * @param type - A solc-typed-ast inferred type (from `InferType.typeOf()`)
+ * @param context - Optional ASTContext to register the created node in
+ * @returns The equivalent abi-lity TypeNode
+ * @throws For unsupported types (ModifierType, BuiltinFunctionType, etc.)
+ *
+ * @see docs/readers.md for the full conversion table.
+ */
 export function solcTypeNodeToTypeNode(type: SolcTypeNode, context?: ASTContext): TypeNode {
   let node: TypeNode;
+
+  // --- User-defined types: dispatch to definition-specific converters ---
   if (type instanceof SolcUserDefinedType) node = UserDefinedTypeToTypeNode(type);
+
+  // --- Wrapper types: unwrap and recurse ---
   else if (type instanceof SolcTypeNameType) node = solcTypeNodeToTypeNode(type.type);
+  else if (type instanceof SolcPointerType) {
+    // PointerType wraps a type with a DataLocation — discard the location, keep the type
+    node = solcTypeNodeToTypeNode(type.to);
+  }
+
+  // --- Value types: direct construction ---
   else if (type instanceof SolcAddressType) node = new AddressType(type.payable);
   else if (type instanceof SolcBoolType) node = new BoolType();
   else if (type instanceof SolcIntType) node = new IntegerType(type.nBits, type.signed);
   else if (type instanceof SolcFixedBytesType) node = new FixedBytesType(type.size);
+
+  // --- Literal types: resolve to concrete types ---
   else if (type instanceof SolcIntLiteralType) {
+    // Int literals resolve to the smallest integer type that fits the value
     node = solcTypeNodeToTypeNode(type.smallestFittingType()!);
   } else if (type instanceof SolcNumericLiteralType) {
     node = new IntegerType(256, false);
@@ -149,14 +223,19 @@ export function solcTypeNodeToTypeNode(type: SolcTypeNode, context?: ASTContext)
   else if (type instanceof SolcStringType) node = new StringType();
   else if (type instanceof SolcStringLiteralType) node = new StringType();
   else if (type instanceof SolcBytesType) node = new BytesType();
+
+  // --- Reference types: recursive conversion ---
   else if (type instanceof SolcArrayType) {
     node = new ArrayType(
       solcTypeNodeToTypeNode(type.elementT),
       type.size !== undefined ? Number(type.size) : undefined
     );
-  } else if (type instanceof SolcPointerType) {
-    node = solcTypeNodeToTypeNode(type.to);
-  } else if (type instanceof SolcErrorType) {
+  } else if (type instanceof SolcTupleType) {
+    node = new TupleType(type.elements.map((c) => solcTypeNodeToTypeNode(c as SolcTypeNode)));
+  }
+
+  // --- Compound types: full parameter mapping ---
+  else if (type instanceof SolcErrorType) {
     const parameters =
       type.parameters.length > 0
         ? new TupleType(type.parameters.map((p) => solcTypeNodeToTypeNode(p)))
@@ -168,8 +247,6 @@ export function solcTypeNodeToTypeNode(type: SolcTypeNode, context?: ASTContext)
         ? new TupleType(type.parameters.map((p) => solcTypeNodeToTypeNode(p)))
         : undefined;
     node = new EventType(type.name!, parameters);
-  } else if (type instanceof SolcTupleType) {
-    node = new TupleType(type.elements.map((c) => solcTypeNodeToTypeNode(c as SolcTypeNode)));
   } else if (type instanceof SolcFunctionType) {
     const parameters =
       type.parameters.length > 0
@@ -186,9 +263,13 @@ export function solcTypeNodeToTypeNode(type: SolcTypeNode, context?: ASTContext)
       type.visibility,
       type.mutability
     );
-  } else {
+  }
+
+  // --- Unsupported types ---
+  else {
     throw Error(`Not supported: resolving TypeNode for ${type.constructor.name}`);
   }
+
   if (context) node.context = context;
   return node;
 }
@@ -282,6 +363,12 @@ export function typeNameToTypeNode(astT: TypeName): TypeNode {
   throw new Error(`NYI converting AST Type ${astT.print()} to SType`);
 }
 
+/**
+ * Converts an array of solc-typed-ast `VariableDeclaration` nodes to abi-lity TypeNodes.
+ *
+ * Preserves the parameter name as `labelFromParent` (falls back to `param<index>`) and
+ * the `indexed` flag (for event parameters). Throws if any variable has no type.
+ */
 function convertVariableDeclarations(variables: VariableDeclaration[]): TypeNode[] {
   const members = variables.map((member, i) => {
     if (member.vType) {
@@ -298,6 +385,12 @@ function convertVariableDeclarations(variables: VariableDeclaration[]): TypeNode
   return members as TypeNode[];
 }
 
+/**
+ * Converts a `FunctionDefinition` to a `FunctionType`.
+ *
+ * Extracts parameters, return parameters, visibility, state mutability, and NatSpec
+ * documentation from the AST node.
+ */
 export function functionDefinitionToTypeNode(
   ast: FunctionDefinition,
   context?: ASTContext
@@ -317,6 +410,7 @@ export function functionDefinitionToTypeNode(
   return type;
 }
 
+/** Converts an `EnumDefinition` to an `EnumType`, preserving member names and documentation. */
 export function enumDefinitionToTypeNode(ast: EnumDefinition, context?: ASTContext): EnumType {
   const type = new EnumType(
     ast.name,
@@ -327,6 +421,10 @@ export function enumDefinitionToTypeNode(ast: EnumDefinition, context?: ASTConte
   return type;
 }
 
+/**
+ * Converts a `StructDefinition` to a `StructType`.
+ * Preserves the struct name, canonical name (qualified with contract name), and documentation.
+ */
 export function structDefinitionToTypeNode(
   ast: StructDefinition,
   context?: ASTContext
@@ -337,6 +435,7 @@ export function structDefinitionToTypeNode(
   return type;
 }
 
+/** Converts an `EventDefinition` to an `EventType`, preserving the anonymous flag and documentation. */
 export function eventDefinitionToTypeNode(ast: EventDefinition, context?: ASTContext): EventType {
   const members = convertVariableDeclarations(ast.vParameters.vParameters);
   const type = new EventType(
@@ -349,6 +448,7 @@ export function eventDefinitionToTypeNode(ast: EventDefinition, context?: ASTCon
   return type;
 }
 
+/** Converts an `ErrorDefinition` to an `ErrorType` with optional parameters and documentation. */
 export function errorDefinitionToTypeNode(ast: ErrorDefinition, context?: ASTContext): ErrorType {
   const members = convertVariableDeclarations(ast.vParameters.vParameters);
   const type = new ErrorType(
@@ -360,6 +460,7 @@ export function errorDefinitionToTypeNode(ast: ErrorDefinition, context?: ASTCon
   return type;
 }
 
+/** Union of solc-typed-ast definition node types that can be converted to TypeNodes. */
 type ASTDefinition =
   | FunctionDefinition
   | EnumDefinition
@@ -367,6 +468,7 @@ type ASTDefinition =
   | EventDefinition
   | ErrorDefinition;
 
+/** Maps an `ASTDefinition` subtype to its corresponding abi-lity TypeNode type. */
 export type ASTDefinitionToTypeNode<T extends ASTDefinition> = T extends FunctionDefinition
   ? FunctionType
   : T extends EnumDefinition
@@ -377,6 +479,10 @@ export type ASTDefinitionToTypeNode<T extends ASTDefinition> = T extends Functio
   ? EventType
   : ErrorType;
 
+/**
+ * Type-safe dispatcher: converts any `ASTDefinition` to its corresponding TypeNode.
+ * Uses function overloads to provide exact return types for each definition kind.
+ */
 function astDefinitionToTypeNode(ast: FunctionDefinition): FunctionType;
 function astDefinitionToTypeNode(ast: EnumDefinition): EnumType;
 function astDefinitionToTypeNode(ast: StructDefinition): StructType;
@@ -399,6 +505,17 @@ function astDefinitionToTypeNode(
 
 export { astDefinitionToTypeNode };
 
+/**
+ * Main entry point: extracts all type definitions from compiled solc-typed-ast SourceUnits.
+ *
+ * Finds all function, struct, event, error, and enum definitions across the given
+ * source units and converts them to abi-lity TypeNodes.
+ *
+ * @param disableInternalFunctions - If `true`, only external/public functions are included.
+ *   Internal and private functions are filtered out.
+ * @param sourceUnits - One or more `SourceUnit` nodes from solc-typed-ast's `ASTReader.read()`.
+ * @returns A `TypeNodeReaderResult` with categorized type nodes and a shared `ASTContext`.
+ */
 export function readTypeNodesFromSolcAST(
   disableInternalFunctions: boolean,
   ...sourceUnits: SourceUnit[]
@@ -426,8 +543,20 @@ export function readTypeNodesFromSolcAST(
   };
 }
 
+/**
+ * Extracts only the public/external interface from a contract's AST.
+ *
+ * Unlike `readTypeNodesFromSolcAST()` (which extracts all definitions), this function:
+ * 1. Only includes external and public functions
+ * 2. Discovers events emitted at runtime via `getEmitsByEvent()` (not just declared events)
+ * 3. Discovers errors reverted at runtime via `getRevertsByError()`
+ * 4. Deduplicates all types by signature using lodash `uniqBy()`
+ * 5. Collects enums and structs that were registered in the context during conversion
+ *    (catching types referenced transitively through function parameters)
+ *
+ * @param search - An `ASTSearch` instance over the contract's source units.
+ */
 export function readTypeNodesFromContractInterface(search: ASTSearch): TypeNodeReaderResult {
-  // const search = ASTSearch.from(sourceUnits);
   const context = new ASTContext();
   const functions = [
     ...search.findFunctionsByVisibility(FunctionVisibility.External),

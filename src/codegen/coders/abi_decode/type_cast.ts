@@ -3,6 +3,11 @@ import { TupleType, TypeNode } from "../../../ast";
 import NameGen from "../../names";
 import { WrappedScope } from "../../ctx/contract_wrapper";
 
+/**
+ * Generates a function that casts a decoding function's return type from raw MemoryPointers
+ * to the actual Solidity types (e.g. `(MemoryPointer) → (MyStruct memory)`), using
+ * inline assembly to reinterpret the function pointer.
+ */
 export function typeCastAbiDecodingFunction(ctx: WrappedScope, type: TypeNode): string {
   const name = NameGen.castReturnType(type);
   if (ctx.hasFunction(name)) {

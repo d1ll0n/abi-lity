@@ -1,6 +1,11 @@
+/**
+ * Strongly-typed EventEmitter wrapper.
+ * Based on https://github.com/G-Rath/strongly-typed-event-emitter.
+ */
 /* eslint-disable @typescript-eslint/ban-types */
 import EventEmitter from "events";
 
+/** Maps event names to their payload types. */
 export type EventMap = Record<PropertyKey, unknown>;
 
 /**

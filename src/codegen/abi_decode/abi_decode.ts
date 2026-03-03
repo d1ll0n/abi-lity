@@ -12,6 +12,11 @@ import NameGen from "../names";
 import { EncodingScheme } from "../../constants";
 import { getMemberDataOffset, getMemberHeadOffset, getOffsetExpression } from "../offsets";
 
+/**
+ * Generates an ABI decoding function for a struct type. Copies value-type members
+ * in contiguous segments from calldata to memory, then recursively decodes
+ * each reference-type member.
+ */
 function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): string {
   const fnName = NameGen.abiDecode(struct);
   if (ctx.hasFunction(fnName)) return fnName;
@@ -57,6 +62,10 @@ function abiDecodingFunctionStruct(ctx: CodegenContext, struct: StructType): str
   return fnName;
 }
 
+/**
+ * Generates an ABI decoding function for `bytes` or `string` types. Uses inline
+ * assembly to allocate memory, round up the size, and calldatacopy the content.
+ */
 function abiDecodingFunctionBytes(ctx: CodegenContext, type: BytesType): string {
   const fnName = NameGen.abiDecode(type);
   if (ctx.hasFunction(fnName)) return fnName;
@@ -97,6 +106,10 @@ function abiDecodingFunctionBytes(ctx: CodegenContext, type: BytesType): string 
   return fnName;
 }
 
+/**
+ * Main ABI decoding dispatcher. Routes to the appropriate decoding function
+ * based on the type: arrays, bytes/string, or structs.
+ */
 export function abiDecodingFunction(ctx: CodegenContext, node: TypeNode): string {
   if (node instanceof ArrayType) {
     return abiDecodingFunctionArray(ctx, node);
@@ -110,6 +123,11 @@ export function abiDecodingFunction(ctx: CodegenContext, node: TypeNode): string
   throw Error(`Unsupported type: ${node.identifier}`);
 }
 
+/**
+ * Returns the name of the ABI decoding function for a given FunctionDefinition,
+ * generating it if it does not already exist. Imports dependencies into the
+ * decoder source unit.
+ */
 export function getDecoderForFunction(ctx: CodegenContext, fn: FunctionDefinition): string {
   addDependencyImports(ctx.decoderSourceUnit, fn);
   const type = functionDefinitionToTypeNode(fn);

@@ -38,6 +38,11 @@ const ensureHasName = (parameter: VariableDeclaration, i: number) => {
   }
 };
 
+/**
+ * Creates a return function that ABI-encodes return parameters using `abi.encode` and
+ * returns the data via inline assembly `return`. This is the simpler, non-optimized version
+ * used when the AST-based encoder is not available.
+ */
 export function createReturnFunctionForReturnParameters(
   factory: ASTNodeFactory,
   returnParameters: ParameterList,
@@ -120,6 +125,11 @@ const encodeValueTuple = (paramNames: string[]) => {
   return [`assembly {`, innerBody, `}`];
 };
 
+/**
+ * Creates an optimized return function for a specific tuple type. For value-only tuples,
+ * writes directly to scratch space; for bytes/arrays, encodes inline; otherwise, delegates
+ * to the ABI encoder and returns via `returnData()`.
+ */
 export function createReturnFunction(ctx: WrappedScope, type: TupleType): string {
   const fnName = NameGen.return(type);
   const body = [];
@@ -190,6 +200,12 @@ export function createReturnFunction(ctx: WrappedScope, type: TupleType): string
   return ctx.addInternalFunction(fnName, params, undefined, body, FunctionStateMutability.Pure);
 }
 
+/**
+ * Replaces return statements in a function with calls to an optimized encoding function.
+ * Moves return parameters into local variable declarations and replaces each `return`
+ * with a call to `returnFn`. Handles named return params, tuple unwrapping, and
+ * contract-to-address type conversion.
+ */
 export function replaceReturnStatementsWithCall(
   fn: FunctionDefinition,
   returnFn: FunctionDefinition,

@@ -35,6 +35,17 @@ export type CoderOptions = {
   decoderFileName?: string;
   outPath?: string;
 };
+/**
+ * Generates Forge equality assertion functions for all struct types in the given
+ * Solidity file. Creates an `Assertions` contract that extends `StdAssertions`
+ * with type-specific `assertEq` overloads for each struct and its nested types.
+ *
+ * @param helper - Compiler helper with the loaded source
+ * @param fileName - Source file containing struct definitions
+ * @param options - Output path configuration
+ * @param struct - Optional filter: only generate for these struct names
+ * @param logger - Logger instance for debug output
+ */
 export function generateAssertions(
   helper: CompileHelper,
   fileName: string,
@@ -78,6 +89,8 @@ export function generateAssertions(
   ctx.applyPendingContracts();
 }
 
+// Maps canonical type signatures to their builtin forge-std assertion function names.
+// Types matching these signatures skip custom assertion generation entirely.
 const builtinSerializers = {
   bool: "assertEq",
   uint256: "assertEq",
@@ -91,6 +104,15 @@ const builtinSerializers = {
   "address[]": "assertEq"
 } as Record<string, string>;
 
+/**
+ * Visitor that generates `assertEq` overloads for each type node. Uses the
+ * visitor pattern to recursively handle structs, arrays, enums, and value types.
+ *
+ * For types that match a builtin assertion (e.g. `uint256`, `address`, `bytes`),
+ * the visitor short-circuits and returns the builtin `assertEq` name directly.
+ * For composite types, it generates custom assertion functions that recursively
+ * compare each field/element with a descriptive key path.
+ */
 export class AssertEqVisitor extends DefaultVisitor {
   defaultReturnValue = "assertEq";
 
@@ -184,6 +206,11 @@ const wrapAddress = (type: TypeNode, expr: string) => {
   return expr;
 };
 
+/**
+ * Entry point for generating an assertEq function for a given type node.
+ * Creates a new {@link AssertEqVisitor} and visits the type to produce
+ * the assertion function, registering it on the codegen context.
+ */
 export function getForgeAssertEqualityFunction(
   ctx: ContractCodegenContext,
   type: TypeNode

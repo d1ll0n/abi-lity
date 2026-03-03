@@ -1,3 +1,13 @@
+/**
+ * @module command_line/commands/codegen/json/test
+ *
+ * Test harness for JSON serializer functions. Deploys generated serializer
+ * contracts to an in-process EVM and verifies that the Solidity-generated
+ * JSON output matches the expected TypeScript-generated JSON for each type.
+ *
+ * Note: This is test code located in the command source directory rather than
+ * in a dedicated test directory. See `notes/dead-code-and-cleanup.md`.
+ */
 import { getAddress } from "@ethersproject/address";
 import {
   AddressType,
@@ -40,6 +50,12 @@ async function testTypeSerializer(deployment: TestDeployment, type: TypeNode) {
   }
 }
 
+/**
+ * Tests all serializer functions in the given codegen scope by deploying them
+ * to an in-process EVM and comparing their output against TypeScript-generated
+ * expected values. Wraps internal functions with external entry points for
+ * testing, recompiles, deploys, and verifies each serializer.
+ */
 export async function testSerializers(coderCtx: WrappedScope): Promise<void> {
   if (coderCtx instanceof WrappedContract) {
     coderCtx = WrappedSourceUnit.getWrapper(coderCtx.helper, coderCtx.sourceUnit);

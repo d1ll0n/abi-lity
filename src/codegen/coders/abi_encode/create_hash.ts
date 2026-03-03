@@ -23,6 +23,11 @@ import { abiEncodingMatchesMemoryLayout } from "../../utils";
 
 // @todo Skip encoding where data is laid out the same in solc memory as it is in the ABI
 
+/**
+ * Creates an optimized `keccak256(abi.encode(...))` replacement function. For small value-only
+ * tuples, writes directly to scratch space; otherwise, uses the ABI encoder and hashes the result.
+ * Replaces `keccak256(abi.encode(...))` call patterns in the AST.
+ */
 export function createHashFunction(
   ctx: WrappedScope,
   type: TupleType,
@@ -93,6 +98,7 @@ export function createHashFunction(
   );
 }
 
+/** Replaces a `keccak256(abi.encode(...))` call with a direct call to the optimized hash function. */
 export function replaceHashCall(call: FunctionCall, hashFn: Expression, type: TupleType): void {
   assert(isHashCallWithAbiEncode(call), `Expected hash call with abi.encode: ${type.pp()}`);
   const factory = new ASTNodeFactory(call.requiredContext);

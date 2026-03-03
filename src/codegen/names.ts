@@ -2,6 +2,11 @@ import { DataLocation, assert } from "solc-typed-ast";
 import { ErrorType, EventType, FunctionType, TupleType, TypeNode } from "../ast";
 import { EncodingScheme } from "../constants";
 
+/**
+ * Unwraps single-element, statically-encoded tuples to their inner type.
+ * This ensures naming consistency — a tuple wrapping a single struct produces
+ * the same function name as the struct itself.
+ */
 const unwrapTuple = (type: TypeNode): TypeNode => {
   if (
     type instanceof TupleType &&
@@ -13,6 +18,18 @@ const unwrapTuple = (type: TypeNode): TypeNode => {
   return type;
 };
 
+/**
+ * Centralized naming conventions for all generated Solidity identifiers.
+ *
+ * Provides consistent, deterministic names across the codegen module:
+ * - **Decode/Encode functions**: `abi_decode_<type>`, `abi_encode_<type>`
+ * - **Special functions**: `hash_<type>`, `emit_<type>`, `return_<type>`, `revert_<type>`
+ * - **Struct member constants**: `<parent>_<member>_offset`, `<parent>_<member>_size`
+ * - **Size/offset constants**: `<type>_head_size`, `<type>_tail_size`
+ * - **Type libraries**: `<Type>Library`
+ * - **Type casting**: `with_<type>_ReturnParameter(s)`, `with_<type>_Parameter(s)`
+ * - **Storage cache**: `<type>Stack`, `<type>Memory`, `<type>Cache`, `Lib<type>Cache`
+ */
 export const NameGen = {
   abiDecode: (type: TypeNode): string => {
     type = unwrapTuple(type);
@@ -241,6 +258,7 @@ export type NameGenTypeParams = {
 
 export type NameGenKey = keyof NameGenTypeParams;
 
+/** Converts `snake_case` to `PascalCase` (e.g. `my_struct` → `MyStruct`). */
 export function snakeCaseToPascalCase(str: string): string {
   str = str.replace(/(_\w)/g, (m) => {
     return m[1].toUpperCase();
@@ -248,16 +266,19 @@ export function snakeCaseToPascalCase(str: string): string {
   return str[0].toUpperCase().concat(str.slice(1));
 }
 
+/** Converts `snake_case` to `camelCase` (e.g. `my_struct` → `myStruct`). */
 export function snakeCaseToCamelCase(str: string): string {
   return pascalCaseToCamelCase(snakeCaseToPascalCase(str));
 }
 
+/** Converts `PascalCase` to `camelCase` (e.g. `MyStruct` → `myStruct`). */
 export function pascalCaseToCamelCase(str: string): string {
   return str[0].toLowerCase().concat(str.slice(1));
 }
 
 export default NameGen;
 
+/** Converts any string (including kebab-case, snake_case, spaces) to `PascalCase`. */
 export function toPascalCase(string: string): string {
   return `${string}`
     .toLowerCase()

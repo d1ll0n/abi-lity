@@ -3,6 +3,7 @@ import { ArrayType, DefaultVisitor, TypeNode } from "../../ast";
 import NameGen from "../names";
 import { WrappedScope } from "../ctx/contract_wrapper";
 
+/** Options controlling which pointer cast functions to generate (calldata, memory, array, singleton). */
 export type TypeLibraryOptions = {
   calldataCast?: boolean;
   memoryCast?: boolean;
@@ -10,6 +11,7 @@ export type TypeLibraryOptions = {
   singletonCast?: boolean;
 };
 
+/** Generates a single pointer cast function (e.g. `toMemoryPointer` or `toCalldataPointer`). */
 function addPointerCastFunction(ctx: WrappedScope, type: TypeNode, location: DataLocation) {
   const fnName = NameGen.castToPointer(type, location);
   const ptr = location === DataLocation.Memory ? "MemoryPointer" : "CalldataPointer";
@@ -23,6 +25,7 @@ function addPointerCastFunction(ctx: WrappedScope, type: TypeNode, location: Dat
   );
 }
 
+/** Generates pointer cast functions for a type based on the specified options. */
 export function generatePointerCastFunctions(
   ctx: WrappedScope,
   type: TypeNode,

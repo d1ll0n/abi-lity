@@ -1,3 +1,8 @@
+/**
+ * @module command_line/commands/test
+ *
+ * Aggregates the test subcommands: compare, copy_test, and shim.
+ */
 import * as compare from "./compare";
 import * as copy_test from "./copy_test";
 import * as shim from "./shim";

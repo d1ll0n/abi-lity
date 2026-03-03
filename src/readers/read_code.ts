@@ -1,3 +1,30 @@
+/**
+ * Raw Solidity source reader — parses source text into abi-lity TypeNodes
+ * without invoking the Solidity compiler.
+ *
+ * Uses `@solidity-parser/parser` to build a lightweight AST, then converts
+ * type-defining nodes (structs, enums, functions, errors, events, state variables,
+ * user-defined value types) into abi-lity TypeNodes.
+ *
+ * Two-pass approach:
+ * 1. **Collect** — Visit the parsed AST to gather all relevant definition nodes
+ * 2. **Sort & Convert** — Topologically sort by type dependencies (so structs are
+ *    resolved before functions that reference them), then convert each node
+ *
+ * Special features:
+ * - Public state variables are synthesized into getter `FunctionType` nodes
+ *   (including mapping key unwinding)
+ * - Functions are deduplicated by selector; internal-visibility duplicates are
+ *   stored under their internal signature instead
+ * - `type X is Y` definitions (user-defined value types) are supported
+ *
+ * Limitations:
+ * - Cannot evaluate complex constant expressions for array sizes (only number literals)
+ * - `allowUndefinedUserTypes` flag creates placeholder `EnumType` for unresolved references
+ * - No access to inherited types from base contracts
+ *
+ * @see docs/readers.md for when to use this reader vs the others.
+ */
 import * as parser from "@solidity-parser/parser";
 import {
   StructDefinition,
@@ -138,13 +165,32 @@ import { TypeNodeReaderResult } from "./types";
 //   };
 // }
 
+/**
+ * Mapped type that requires an `add${DefinitionType}` method for each definition kind.
+ * Used as an interface constraint on `ParserTypes` to ensure all definition types are handled.
+ */
 type AddMethods = {
   [K in RelevantDefinition["type"] as `add${K}`]: (
     node: Extract<RelevantDefinition, { type: K }>
   ) => void;
 };
 
+/**
+ * Converts parser AST definitions into abi-lity TypeNodes.
+ *
+ * Implements the `AddMethods` interface, providing an `add${Type}` method for each
+ * definition kind. Types are stored in `mappedTypes` keyed by name (structs, enums,
+ * type definitions) or selector (functions, errors, events), enabling forward references
+ * during recursive type resolution.
+ *
+ * The `getTypeNode()` method resolves `TypeName` AST nodes by dispatching on node type:
+ * - `ElementaryTypeName` → `elementaryTypeStringToTypeNode()`
+ * - `ArrayTypeName` → `ArrayType` (recurses into base type)
+ * - `UserDefinedTypeName` → lookup from `mappedTypes` (or placeholder if `allowUndefinedUserTypes`)
+ * - `FunctionTypeName` → `FunctionType` with converted params/returns
+ */
 class ParserTypes implements AddMethods {
+  /** Categorizes all collected types into a `TypeNodeReaderResult`, registering each in a fresh context. */
   get typeNodesByKind() {
     const context = new ABIContext();
     const typeNodes = [...this.mappedTypes.values()];
@@ -168,6 +214,13 @@ class ParserTypes implements AddMethods {
   mappedTypes: Map<string, TypeNode> = new Map();
   constructor(public allowUndefinedUserTypes = false) {}
 
+  /**
+   * Resolves a parser `TypeName` AST node to an abi-lity TypeNode.
+   *
+   * For `UserDefinedTypeName`, looks up the type in `mappedTypes`. If not found and
+   * `allowUndefinedUserTypes` is set, creates a placeholder `EnumType` with no members.
+   * Array sizes are limited to number literals — complex constant expressions are not evaluated.
+   */
   getTypeNode(node: TypeName): TypeNode {
     if (node.type === "ElementaryTypeName") return elementaryTypeStringToTypeNode(node.name);
     if (node.type === "ArrayTypeName") {
@@ -201,6 +254,12 @@ class ParserTypes implements AddMethods {
     throw Error(`Unimplemented TypeName ${node.type}`);
   }
 
+  /**
+   * Unwinds nested `Mapping` types into flat key/value arrays for getter synthesis.
+   *
+   * For `mapping(address => mapping(uint256 => bool))`, returns
+   * `{ keys: [AddressType, IntegerType(256)], value: BoolType }`.
+   */
   getStateVariableKeyTypes(node: TypeName): { keys: TypeNode[]; value: TypeNode } {
     const keys: TypeNode[] = [];
     let value: TypeNode | undefined;
@@ -216,6 +275,7 @@ class ParserTypes implements AddMethods {
     return { keys, value };
   }
 
+  /** Converts parser `VariableDeclaration[]` to TypeNodes, preserving parameter names as `labelFromParent`. */
   convertVariableDeclarations(variables: VariableDeclaration[]): TypeNode[] {
     const members = variables.map((member) => {
       if (member.typeName) {
@@ -251,6 +311,13 @@ class ParserTypes implements AddMethods {
     this.mappedTypes.set(node.name, type);
   }
 
+  /**
+   * Converts a function definition, deduplicating by selector.
+   *
+   * If a function with the same selector already exists and the new one has
+   * internal/private visibility, it is stored under its internal signature instead.
+   * This preserves both the external-facing function and any internal overload.
+   */
   addFunctionDefinition(ast: FunctionDefinition) {
     const args = this.convertVariableDeclarations(ast.parameters);
     const rets = this.convertVariableDeclarations(ast.returnParameters || []);
@@ -321,6 +388,13 @@ class ParserTypes implements AddMethods {
     }
   }
 
+  /**
+   * Synthesizes getter `FunctionType` nodes for public state variables.
+   *
+   * For mappings, unwinds nested key types into function parameters.
+   * For example, `mapping(address => uint256) public balances` becomes
+   * `function balances(address) external view returns (uint256)`.
+   */
   addStateVariableDeclaration(ast: StateVariableDeclaration) {
     ast.variables.forEach((variable) => {
       if (variable.visibility !== "public" || !variable.typeName || !variable.name) return;
@@ -337,6 +411,7 @@ class ParserTypes implements AddMethods {
     });
   }
 
+  /** Dynamic dispatch: calls `this.add${node.type}(node)` for the given definition. */
   addType(node: RelevantDefinition) {
     const fnKey = `add${node.type}`;
     (this as any)[fnKey](node);
@@ -370,6 +445,18 @@ class ParserTypes implements AddMethods {
   parser.visit(parseResult, visitor);
 } */
 
+/**
+ * Main entry point: parses raw Solidity source text into abi-lity TypeNodes.
+ *
+ * Uses a two-pass approach:
+ * 1. Parse the source and visit the AST to collect all type-defining nodes
+ * 2. Topologically sort definitions by dependency, then convert each via `ParserTypes`
+ *
+ * @param code - Raw Solidity source text (interface, contract, or free-standing definitions)
+ * @param allowUndefinedUserTypes - If `true`, creates placeholder `EnumType` for unresolved
+ *   user-defined types instead of throwing. Useful for parsing incomplete source fragments.
+ * @returns Unified `TypeNodeReaderResult` with all discovered types
+ */
 export function readTypeNodesFromSolidity(
   code: string,
   allowUndefinedUserTypes = false
@@ -402,6 +489,7 @@ export function readTypeNodesFromSolidity(
   return types.typeNodesByKind;
 }
 
+/** Union of all parser AST node types that define types relevant to ABI encoding. */
 type RelevantDefinition =
   | StructDefinition
   | EnumDefinition
@@ -411,8 +499,10 @@ type RelevantDefinition =
   | StateVariableDeclaration
   | TypeDefinition;
 
+/** Subset of definitions that can be referenced by other types (structs, enums, type aliases). */
 type PotentialDependency = StructDefinition | EnumDefinition | TypeDefinition;
 
+/** Recursively unwraps array types to find a `UserDefinedTypeName` reference, if any. */
 const extractUserDefinedTypeName = (typeName: TypeName): string | undefined => {
   if (typeName.type === "ArrayTypeName") {
     return extractUserDefinedTypeName(typeName.baseTypeName);
@@ -423,6 +513,7 @@ const extractUserDefinedTypeName = (typeName: TypeName): string | undefined => {
   return undefined;
 };
 
+/** Extracts all user-defined type names referenced by a list of typed fields. */
 const extractUserDefinedTypes = (fields: Array<{ typeName: TypeName | null }>): string[] => {
   const types: string[] = [];
   fields.forEach((field) => {
@@ -433,6 +524,7 @@ const extractUserDefinedTypes = (fields: Array<{ typeName: TypeName | null }>): 
   return types;
 };
 
+/** Returns the names of all user-defined types that a definition directly references. */
 function extractTypeDependencies(type: RelevantDefinition): string[] {
   switch (type.type) {
     case "EnumDefinition":
@@ -454,8 +546,22 @@ function extractTypeDependencies(type: RelevantDefinition): string[] {
   }
 }
 
+/**
+ * Topologically sorts definitions so types are resolved before their dependents.
+ *
+ * Two-pass algorithm:
+ * 1. **Direct dependencies** — For each definition, extract the user-defined type names
+ *    it references and map them to the corresponding `PotentialDependency` nodes.
+ * 2. **Transitive expansion** — Recursively walk each node's dependency set, adding
+ *    all transitive dependencies. Detects circular dependencies (throws on self-reference).
+ *
+ * The final sort places dependency-free types first, then orders by dependency relationship:
+ * if A depends on B, A comes after B.
+ *
+ * Mutates the `types` array in place.
+ */
 function sortTypesByDependencies(types: RelevantDefinition[]): void {
-  // First pass - top level dependencies
+  // Pass 1: Collect direct dependencies for each definition
   const dependenciesMap = new Map<RelevantDefinition, Set<RelevantDefinition>>();
   const typeDefinitions = types.filter((t) =>
     ["EnumDefinition", "StructDefinition", "TypeDefinition"].includes(t.type)
@@ -472,6 +578,7 @@ function sortTypesByDependencies(types: RelevantDefinition[]): void {
     dependenciesMap.set(type, new Set(extractTypeDependencies(type).map(findDependency)));
   }
 
+  // Pass 2: Transitively expand — if A depends on B and B depends on C, A depends on {B, C}
   const updateNestedDependencies = (type: RelevantDefinition) => {
     const dependencies = dependenciesMap.get(type) as Set<PotentialDependency>;
     for (const dep of dependencies.values()) {
@@ -485,6 +592,7 @@ function sortTypesByDependencies(types: RelevantDefinition[]): void {
   };
   types.forEach(updateNestedDependencies);
 
+  // Sort: dependency-free types first, then by dependency ordering
   types.sort((a, b) => {
     const aDependencies = dependenciesMap.get(a) as Set<RelevantDefinition>;
     const bDependencies = dependenciesMap.get(b) as Set<RelevantDefinition>;

@@ -1,3 +1,10 @@
+/**
+ * Encoding scheme design notes.
+ *
+ * Placeholder file containing design notes for the different encoding schemes
+ * (ABI, Solidity memory, Solidity storage) and how data is laid out in each.
+ * No active code — purely documentation of the encoding model.
+ */
 class AbiEncodingScheme {}
 
 /*

@@ -1,3 +1,10 @@
+/**
+ * Experimental AST node builder utilities.
+ *
+ * Contains type-level helpers for generic "find-or-create" node patterns.
+ * Currently only implements a FunctionDefinition search method; the generic
+ * `Builder` / `NodeAdder` abstractions are incomplete and unused.
+ */
 import { ContractDefinition, FunctionDefinition, InferType, SourceUnit } from "solc-typed-ast";
 import { ASTNodeKind } from "solc-typed-ast/dist/ast/implementation";
 import {

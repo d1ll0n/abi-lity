@@ -29,6 +29,11 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `json` CLI command that generates pure Solidity JSON serializer
+ * functions for struct types. Unlike `forge-json`, these serializers don't depend
+ * on Forge's Vm cheatcode — they build JSON strings directly using `string.concat`.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "json <input> [output]",

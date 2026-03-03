@@ -41,6 +41,17 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `ctype` CLI command that generates a custom Solidity type and
+ * companion library for a contract or interface. The generated library provides
+ * call functions for all external methods that avoid memory allocation by using
+ * inline assembly with scratch space.
+ *
+ * Options:
+ * - `--contract` / `-c`: Target contract name (defaults to first contract in file)
+ * - `--zeroUsedMemory` / `-z`: Zero out memory used past the free pointer after calls
+ * - `--skipBase` / `-s`: Skip generating functions for inherited contracts
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "ctype <input> [output]",

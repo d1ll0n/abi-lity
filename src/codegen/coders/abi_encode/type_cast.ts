@@ -3,6 +3,11 @@ import NameGen from "../../names";
 import { WrappedScope } from "../../ctx/contract_wrapper";
 import { FunctionStateMutability } from "solc-typed-ast";
 
+/**
+ * Generates a function that casts between two function pointer types using inline assembly.
+ * Used to adapt encoding functions with different parameter/return signatures so they can
+ * be called through a common interface. AST-based version using WrappedScope.
+ */
 export function typeCastFunction(
   ctx: WrappedScope,
   type: TypeNode,

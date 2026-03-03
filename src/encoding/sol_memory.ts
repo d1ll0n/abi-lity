@@ -1,3 +1,10 @@
+/**
+ * Solidity memory encoding offset helpers (entirely commented out).
+ *
+ * Contains abandoned implementations of offset/pointer functions for
+ * the Solidity memory encoding scheme. All code is commented out.
+ * See `notes/dead-code-and-cleanup.md`.
+ */
 // import { TypeNode } from "../ast";
 // import NameGen from "../codegen/names";
 // import { CodegenContext } from "../codegen/utils";

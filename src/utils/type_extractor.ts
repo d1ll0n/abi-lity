@@ -1,6 +1,12 @@
 import { isInstanceOf } from "solc-typed-ast";
 import { ErrorType, EventType, FunctionType, TupleType, TypeNode } from "../ast";
 
+/**
+ * Walks TypeNode trees to collect the unique set of reference types that need
+ * ABI coder generation. Unwraps function, error, event, and tuple types to
+ * find their nested reference-type members, and separately tracks types that
+ * appear as function parameters (needed for decoder generation).
+ */
 export class TypeExtractor {
   private _types = new Map<string, TypeNode>();
   private _functionParameters = new Map<string, TypeNode>();

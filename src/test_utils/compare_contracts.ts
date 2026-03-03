@@ -1,3 +1,10 @@
+/**
+ * Contract comparison and benchmarking utilities.
+ *
+ * Deploys multiple contract variants (e.g., base vs optimized), calls their
+ * common functions with default inputs, and produces an ASCII table comparing
+ * gas costs, contract sizes, and output correctness.
+ */
 import { toArray } from "lodash";
 import { assert } from "solc-typed-ast";
 import { FunctionType, TupleType } from "../ast";
@@ -48,6 +55,7 @@ type FunctionTestOutput = {
 //   })
 // }
 
+/** Finds functions shared by all deployments and builds test inputs with default arguments. */
 export function getTestsForCommonFunctions(deployments: TestDeployment[]): FunctionTestInput[] {
   const otherDeployments = deployments.slice(1);
   const functionKeys = Object.keys(deployments[0].interface.functions).filter((key) =>
@@ -72,6 +80,7 @@ const getFunctionLabel = (type: FunctionType) => {
   return `(${args.vMembers.map((m) => m.canonicalName).join(", ")})`;
 };
 
+/** Builds test inputs for all functions in the first deployment, labeled as copy operations. */
 export function getTestsForCopyFunctions(deployments: TestDeployment[]): FunctionTestInput[] {
   const functionKeys = Object.keys(deployments[0].interface.functions);
   return functionKeys.map((key, i) => {
@@ -87,6 +96,7 @@ export function getTestsForCopyFunctions(deployments: TestDeployment[]): Functio
   });
 }
 
+/** Calls a function on every deployment and returns gas/match results for comparison. */
 export async function testFunctionForDeployments(
   deployments: TestDeployment[],
   input: FunctionTestInput
@@ -109,6 +119,7 @@ const CopierLabels: Record<string, string> = {
   CopierWithSwitch: "w/ switch"
 };
 
+/** Deploys all named contracts from a CompileHelper to in-memory EVM instances. */
 export async function getAllContractDeployments(
   helper: CompileHelper,
   contractNames = [...helper.contractsMap.keys()],
@@ -133,6 +144,10 @@ export async function getAllContractDeployments(
   ).filter((x) => x !== undefined) as TestDeployment[];
 }
 
+/**
+ * Runs all common (or copy) function tests across deployments and prints
+ * an ASCII comparison table with gas costs, averages, and contract sizes.
+ */
 export async function testDeployments(
   deployments: TestDeployment[],
   copyTest?: boolean

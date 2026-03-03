@@ -46,6 +46,7 @@ const toJson = (obj: any): string =>
     return v;
   });
 
+/** Generates a builder library for array types with `push()`, `addTo()`, and `build()` methods. */
 function getArrayTypeBuilderLibrary(ctx: WrappedSourceUnit, type: ArrayType) {
   const libraryName = `${type.pascalCaseName}Lib`;
   const library = ctx.addContract(libraryName, ContractKind.Library);
@@ -165,6 +166,11 @@ const getDeepCopyExpression = (type: TypeNode, ref: string) => {
   return `${ref}.copy()`;
 };
 
+/**
+ * Gets or creates a fluent builder library for a type, providing methods like
+ * `withField()`, `push()`, `build()` for constructing instances at runtime.
+ * Routes to array, bytes, string, or struct-specific builder generation.
+ */
 function getTypeBuilderLibrary(ctx: WrappedSourceUnit, type: TypeNode) {
   const libraryName = `${type.pascalCaseName}Lib`;
   // const sourceUnit = ctx.sourceUnit; //addSourceUnit(`${libraryName}.sol`);
@@ -233,6 +239,7 @@ function addTypeLibraryAndUsingFor(
   library.addCustomTypeUsingForDirective("*", ctx.factory.makeIdentifierPath(childLibraryName, -1));
 }
 
+/** Generates a builder library for struct types with per-field `withX()` setter methods. */
 function getStructTypeBuilderLibrary(ctx: WrappedSourceUnit, type: StructType) {
   const libraryName = `${type.pascalCaseName}Lib`;
   const library = ctx.addContract(libraryName, ContractKind.Library);

@@ -25,6 +25,14 @@ import { writeFileSync } from "fs";
 import path from "path";
 import { StructuredText } from "../../../utils";
 
+/**
+ * Generates a custom value type and library for encoding packed struct fields into
+ * a single 256-bit stack value. Produces:
+ * - A `type <Name>Stack is uint256` custom value type
+ * - `pack()` / `unpack()` functions using bit shifting and masking
+ * - `eq()` for equality comparison
+ * - Per-field read/write accessors using `getReadFromStackAccessor` / `getWriteToStackAccessor`
+ */
 export class PackedStackTypeGenerator {
   storagePositions: StoragePosition[] = [];
   cacheTypeName: string;

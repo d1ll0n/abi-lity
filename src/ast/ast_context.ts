@@ -1,4 +1,3 @@
-// import { deepFindIn } from "../misc";
 import { Node, NodeCallback, NodeSelector } from "./node";
 
 function* sequence(start = 0, step = 1): Generator<number, number, number> {
@@ -9,6 +8,14 @@ function* sequence(start = 0, step = 1): Generator<number, number, number> {
 
 const contextIdSequence = sequence();
 
+/**
+ * Registry that maps node IDs to `Node` instances within a tree.
+ *
+ * Provides O(1) lookup of any node by its ID, and ensures no two nodes share the same ID
+ * within the same context. Nodes auto-register when their `context` property is set.
+ *
+ * Adapted from `ASTContext` in solc-typed-ast.
+ */
 export class ASTContext {
   /**
    * ID to distinct different contexts

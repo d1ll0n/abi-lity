@@ -1,3 +1,11 @@
+/**
+ * Solc-typed-ast helper library.
+ *
+ * Provides ~48 utility functions for querying, building, and manipulating
+ * nodes in the solc-typed-ast tree. Covers import management, constant
+ * declarations, function/contract lookup, override resolution, and
+ * scope traversal.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { flatten } from "lodash";
 import {
@@ -45,11 +53,13 @@ import { EnumType, StructType } from "../ast";
 import { getDirectory, getRelativePath } from "./files/path_utils";
 import { ConstantKind, makeConstantDeclaration } from "./make_constant";
 
+/** Extracts the referenced declaration ID from a SymbolAlias (import symbol). */
 export const symbolAliasToId = (symbolAlias: SymbolAlias): number =>
   typeof symbolAlias.foreign === "number"
     ? symbolAlias.foreign
     : symbolAlias.foreign.referencedDeclaration ?? symbolAlias.foreign.id;
 
+/** Walks up the AST to find the nearest SourceUnit ancestor. Throws if none exists. */
 export const getParentSourceUnit = (node: ASTNode): SourceUnit => {
   if (node instanceof SourceUnit) return node;
   const sourceUnit = node.getClosestParentByTypeString("SourceUnit") as SourceUnit | undefined;
@@ -59,6 +69,7 @@ export const getParentSourceUnit = (node: ASTNode): SourceUnit => {
   return sourceUnit;
 };
 
+/** Creates a FunctionCall AST node that calls `fn` with the given arguments. */
 export function makeFunctionCallFor(
   fn: FunctionDefinition | Expression,
   args: Expression[]
@@ -75,6 +86,7 @@ export function makeFunctionCallFor(
   );
 }
 
+/** Creates a VariableDeclarationStatement that captures the return values of a FunctionCall. */
 export function makeVariableDeclarationStatementFromFunctionCall(
   factory: ASTNodeFactory,
   functionCall: FunctionCall
@@ -89,6 +101,7 @@ export function makeVariableDeclarationStatementFromFunctionCall(
   );
 }
 
+/** Creates a type-conversion FunctionCall (e.g., `uint256(expr)`). */
 export function makeElementaryTypeConversion(
   factory: ASTNodeFactory,
   elementaryType: string,
@@ -102,6 +115,7 @@ export function makeElementaryTypeConversion(
   );
 }
 
+/** Finds the EnumDefinition or StructDefinition node in the ASTContext matching `abiType.name`. */
 export function locateDefinitionForType(
   ctx: ASTContext,
   abiType: StructType | EnumType
@@ -115,6 +129,7 @@ export function locateDefinitionForType(
   return definition as EnumDefinition | StructDefinition;
 }
 
+/** Creates a free (file-level) FunctionDefinition node scoped to the given SourceUnit. */
 export function makeGlobalFunctionDefinition(
   sourceUnit: SourceUnit,
   name: string,
@@ -143,6 +158,7 @@ export function makeGlobalFunctionDefinition(
   );
 }
 
+/** Convenience wrapper around `staticNodeFactory.makeVariableDeclarationStatement`. */
 export function makeVariableDeclarationStatement(
   variableDeclarations: VariableDeclaration | VariableDeclaration[],
   initialValue?: Expression
@@ -172,6 +188,7 @@ function getFunctionDefinitions(
   return functions;
 }
 
+/** Creates a payable external fallback function on a contract, with automatic override specifier. */
 export function makeFallbackFunction(
   contract: ContractDefinition,
   virtual?: boolean
@@ -196,6 +213,7 @@ export function makeFallbackFunction(
   return inferOverrideSpecifier(fn);
 }
 
+/** Adds an override specifier to `fn` if it overrides functions in base contracts. */
 export function inferOverrideSpecifier(fn: FunctionDefinition): FunctionDefinition {
   const ctx = fn.requiredContext;
   const overriddenFunctions = resolveOverriddenFunctions(fn);
@@ -216,6 +234,7 @@ export function inferOverrideSpecifier(fn: FunctionDefinition): FunctionDefiniti
   return fn;
 }
 
+/** Finds a FunctionDefinition by name in a contract or source unit. Handles special function kinds. */
 export function findFunctionDefinition(
   ctx: ContractDefinition | SourceUnit,
   name: string
@@ -230,6 +249,7 @@ function getContractDefinitions(ctx: SourceUnit, name: string): ContractDefiniti
   return contracts;
 }
 
+/** Finds a ContractDefinition by name in a SourceUnit. */
 export function findContractDefinition(
   ctx: SourceUnit,
   name: string
@@ -237,6 +257,7 @@ export function findContractDefinition(
   return getContractDefinitions(ctx, name)[0];
 }
 
+/** Adds a ContractDefinition to a SourceUnit, or returns the existing one if same name exists. */
 export function addUniqueContractDefinition(
   ctx: SourceUnit,
   node: ContractDefinition
@@ -248,6 +269,7 @@ export function addUniqueContractDefinition(
   return existingContract;
 }
 
+/** Creates and appends an EnumDefinition with the given member names. */
 export function addEnumDefinition(
   ctx: SourceUnit | ContractDefinition,
   name: string,
@@ -270,6 +292,7 @@ function getAllConstantDeclarations(node: ContractDefinition | SourceUnit): Vari
   );
 }
 
+/** Finds a constant VariableDeclaration by name in the node or its parent SourceUnit. */
 export const findConstantDeclaration = (
   node: ContractDefinition | SourceUnit,
   name: string
@@ -319,6 +342,11 @@ export function getRequiredContractDefinitionOrSourceUnit(
   return parent;
 }
 
+/**
+ * Creates a constant VariableDeclaration in the nearest contract or source unit scope.
+ * Supports uint, fixed bytes, and string constants. Inserts after existing constants
+ * or at the beginning of the scope if none exist.
+ */
 export function addUniqueConstantDeclaration(
   node: ASTNode,
   name: string,
@@ -351,6 +379,7 @@ export function addUniqueConstantDeclaration(
   return existingConstant;
 }
 
+/** Appends a FunctionDefinition if no function with the same name exists in the scope. */
 export function addUniqueFunctionDefinition(
   ctx: ContractDefinition | SourceUnit,
   node: FunctionDefinition
@@ -362,6 +391,7 @@ export function addUniqueFunctionDefinition(
   return existingFunction;
 }
 
+/** Adds a unique function definition and returns an Identifier referencing it. */
 export function getUniqueFunctionDefinition(
   ctx: ContractDefinition | SourceUnit,
   node: FunctionDefinition
@@ -369,6 +399,7 @@ export function getUniqueFunctionDefinition(
   return staticNodeFactory.makeIdentifierFor(addUniqueFunctionDefinition(ctx, node));
 }
 
+/** Creates a unique constant and returns an Identifier referencing it. */
 export function getConstant(
   node: ASTNode,
   name: string,
@@ -381,6 +412,7 @@ export function getConstant(
   );
 }
 
+/** Creates a unique constant and returns a YulIdentifier referencing it (for inline assembly). */
 export function getYulConstant(node: ASTNode, name: string, value: string | number): YulIdentifier {
   return staticNodeFactory.makeYulIdentifierFor(addUniqueConstantDeclaration(node, name, value));
 }
@@ -443,6 +475,7 @@ export function addImports(
   }
 }
 
+/** Adds an import for a user-defined type or function to `sourceUnit` if not already imported. */
 export function addTypeImport(
   sourceUnit: SourceUnit,
   type: UserDefinedTypeName | UserDefinition | FunctionDefinition
@@ -487,6 +520,7 @@ function getRequiredImportsFor(
   }
 } */
 
+/** Adds import directives for all given user-defined type definitions to the source unit. */
 export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDefinition[]): void {
   const importsNeeded = definitions.reduce((importDirectives, type) => {
     const parent = getParentSourceUnit(type);
@@ -528,6 +562,7 @@ export function addDefinitionImports(sourceUnit: SourceUnit, definitions: UserDe
   }
 }
 
+/** Finds all UserDefinedTypeName references within functions/structs and adds their imports. */
 export function addDependencyImports(
   sourceUnit: SourceUnit,
   functions: FunctionDefinition | StructDefinition | Array<FunctionDefinition | StructDefinition>
@@ -557,6 +592,7 @@ export function addDependencyImports(
   addDefinitionImports(sourceUnit, definitions);
 }
 
+/** Adds import directives for the given functions (or their parent contracts/libraries) to a source unit. */
 export function addFunctionImports(
   sourceUnit: SourceUnit,
   functions: FunctionDefinition | FunctionDefinition[],
@@ -641,6 +677,7 @@ export function addRequiredImports(fn: FunctionDefinition): void {
   }
 }
 
+/** Builds a type string for a parameter list (e.g., `tuple(uint256,address)` with memory locations). */
 export function getParametersTypeString(parameters: VariableDeclaration[]): string {
   const paramTypeStrings = parameters.map((v) => v.typeString);
   return (
@@ -650,6 +687,7 @@ export function getParametersTypeString(parameters: VariableDeclaration[]): stri
     .replace(/\[\]/g, "[] memory");
 }
 
+/** Type guard: returns `true` if `fn` is a FunctionDefinition with external or public visibility. */
 export function isExternalFunction(fn: ASTNode): fn is FunctionDefinition & boolean {
   return (
     fn instanceof FunctionDefinition &&
@@ -658,6 +696,7 @@ export function isExternalFunction(fn: ASTNode): fn is FunctionDefinition & bool
   );
 }
 
+/** Recursively collects all ancestor contracts in the inheritance hierarchy. */
 export function getParentsRecursive(
   contract: ContractDefinition,
   allowInterfaces?: boolean
@@ -678,12 +717,14 @@ export function getParentsRecursive(
   return parents;
 }
 
+/** Returns all public state variables declared in a contract (including inherited). */
 export function getPublicStateVariables(contract: ContractDefinition): VariableDeclaration[] {
   return ASTSearch.fromContract(contract).findStateVariablesByVisibility(
     StateVariableVisibility.Public
   );
 }
 
+/** Returns the function signature used for override matching (handles fallback/receive specially). */
 export function getFunctionSignatureForOverride(fn: FunctionDefinition): string {
   if (fn.kind === FunctionKind.Fallback) {
     return "fallback";
@@ -695,6 +736,7 @@ export function getFunctionSignatureForOverride(fn: FunctionDefinition): string 
   return infer.signature(fn);
 }
 
+/** Finds all functions in base contracts that are overridden by the given function or state variable. */
 export function resolveOverriddenFunctions(
   overriding: FunctionDefinition | VariableDeclaration
 ): FunctionDefinition[] {
@@ -718,6 +760,7 @@ export function resolveOverriddenFunctions(
   return overridden;
 }
 
+/** Generates a unique name within `scope` by prepending `prefix` until no name collision exists. */
 export function getUniqueNameInScope(scope: ASTNode, name: string, prefix: string): string {
   while (resolveAny(name, scope, new InferType(LatestCompilerVersion), true, false).size > 0) {
     name = `${prefix}${name}`;
@@ -725,6 +768,7 @@ export function getUniqueNameInScope(scope: ASTNode, name: string, prefix: strin
   return name;
 }
 
+/** Traverses the import graph from `sourceUnit`, calling `cb` on each visited SourceUnit. */
 export function walkImportedSourceUnits(
   sourceUnit: SourceUnit,
   cb: (sourceUnit: SourceUnit) => void,
@@ -750,6 +794,10 @@ export function walkImportedSourceUnits(
   }
 }
 
+/**
+ * Returns an Identifier or MemberAccess referencing a function in `source`, importing it
+ * into `target` as needed. If the function is in a library, returns `Library.fnName`.
+ */
 export function getFunctionReference(
   target: SourceUnit,
   source: SourceUnit,
@@ -775,6 +823,10 @@ export function getFunctionReference(
   }
 }
 
+/**
+ * Finds all function definitions matching `functionName` that are available on `type`
+ * via `using ... for` directives in the enclosing scope.
+ */
 export function getUsingForDirectiveFunctions(
   _node: ASTNode,
   type: TypeName,

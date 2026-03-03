@@ -16,6 +16,7 @@ import { readTypeNodesFromSolcAST } from "../../../readers";
 import { writeFileSync } from "fs";
 import path from "path";
 
+/** Options for packed type library generation. */
 export type PackedTypeLibraryOptions = {
   gasToCodePreferenceRatio?: number;
   defaultSelectionForSameScore?: "leastgas" | "leastcode";
@@ -23,6 +24,10 @@ export type PackedTypeLibraryOptions = {
   withMemory?: boolean;
 };
 
+/**
+ * Generates packed type libraries (stack and/or memory variants) for a struct type.
+ * Creates separate source units for each variant and wires up cross-imports.
+ */
 function generatePackedTypeLibraries(
   typeDefinition: StructDefinition | undefined,
   type: StructType | ArrayType,

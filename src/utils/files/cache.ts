@@ -1,11 +1,16 @@
+/**
+ * Content-hash-based file cache for detecting new and modified files between compilations.
+ */
 import { keccak256 } from "@ethersproject/keccak256";
 import { toUtf8Bytes } from "@ethersproject/strings";
 
+/** Maps file paths to keccak256 hashes of their contents. */
 export type FilesCache = {
   // maps file path to hash of its contents
   [path: string]: string;
 };
 
+/** Creates a cache by hashing each file's contents with keccak256. */
 export function getFilesCache(files: Map<string, string>): FilesCache {
   const cache: FilesCache = {};
   for (const [path, file] of files) {

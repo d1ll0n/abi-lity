@@ -16,10 +16,21 @@ import { WrappedScope, WrappedSourceUnit } from "../../../../codegen/ctx/contrac
 import NameGen from "../../../../codegen/names";
 import { CompileHelper } from "../../../../utils/compile_utils/compile_helper";
 
+/** Configuration for the JSON serializer generator output file. */
 export type JsonSerializerOptions = {
   serializerFileName?: string;
 };
 
+/**
+ * Generates pure Solidity JSON serializer functions for all struct types in
+ * the given file. Uses the `JsonLib` solidity library for primitive type
+ * serialization and generates custom functions for structs, arrays, and enums.
+ *
+ * @param helper - Compiler helper with the loaded source
+ * @param fileName - Source file containing struct definitions
+ * @param options - Output filename configuration
+ * @param struct - Optional filter: only generate for these struct names
+ */
 export function generateJsonSerializers(
   helper: CompileHelper,
   fileName: string,
@@ -58,11 +69,25 @@ const builtinSerializers = {
 
 export const VisitorByScope: WeakMap<WrappedScope, JsonSerializer> = new Map();
 
+/**
+ * Entry point for generating a JSON serializer function for a type. Retrieves
+ * or creates a {@link JsonSerializer} visitor for the given scope and visits
+ * the type to produce the serializer function.
+ */
 export function getJsonSerializerFunction(ctx: WrappedScope, node: TypeNode): string {
   const visitor = JsonSerializer.getVisitor(ctx);
   return visitor.accept(node);
 }
 
+/**
+ * Visitor-based JSON serializer generator. Traverses type nodes and generates
+ * Solidity functions that serialize values to JSON strings. Uses a per-scope
+ * singleton pattern via {@link VisitorByScope} to cache visitors and avoid
+ * duplicate function generation.
+ *
+ * The visitor memoizes generated functions in `existingTypeFunctions` and
+ * short-circuits for types that have a builtin `JsonLib` serializer.
+ */
 export class JsonSerializer extends DefaultVisitor {
   existingTypeFunctions: Map<string, string> = new Map();
 

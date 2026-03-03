@@ -1,3 +1,19 @@
+/**
+ * Readers module barrel — re-exports the three input paths for converting
+ * external Solidity type representations into abi-lity TypeNodes.
+ *
+ * - `readTypeNodesFromSolcAST()` / `readTypeNodesFromContractInterface()` — compiled solc AST
+ * - `readTypeNodesFromABI()` — JSON ABI (ethers v5)
+ * - `readTypeNodesFromSolidity()` — raw Solidity source text
+ *
+ * All paths produce the same `TypeNodeReaderResult` output.
+ *
+ * Note: Lines 65–487 below contain experimental/test code (analysis helpers,
+ * `checkFunction()`, `runtest()`, etc.) that is not part of the public API.
+ * See `notes/dead-code-and-cleanup.md` for details.
+ *
+ * @see docs/readers.md for when to use each reader.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   ASTNode,

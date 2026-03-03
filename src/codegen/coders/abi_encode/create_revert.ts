@@ -21,6 +21,11 @@ const ensureHasName = (parameter: VariableDeclaration, i: number) => {
   }
 };
 
+/**
+ * Creates an optimized revert function for a specific error type. Prepends the 4-byte error
+ * selector, ABI-encodes the parameters, and reverts. For value-only tuples, writes directly
+ * to scratch space. Replaces RevertStatement AST nodes with calls to the generated function.
+ */
 export function createRevertFunction(
   ctx: WrappedScope,
   type: ErrorType,
@@ -149,6 +154,7 @@ const encodeValueTuple = (paramNames: string[]) => {
   return [`assembly {`, innerBody, `}`];
 };
 
+/** Replaces a RevertStatement AST node with an ExpressionStatement calling the optimized revert function. */
 export function replaceRevertStatement(stmt: RevertStatement, revertFn: Expression): void {
   const factory = new ASTNodeFactory(stmt.requiredContext);
   const call = stmt.errorCall;

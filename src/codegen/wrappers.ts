@@ -9,12 +9,14 @@ import {
 import { WrappedSourceUnit } from "./ctx/contract_wrapper";
 import { getParentSourceUnit, makeFunctionCallFor } from "../utils";
 
-// @todo make better fn to derive reference to fn
-// should be able to make:
-// - MemberAccess if fn member of a library which is not same scope as call context
-// - identifier if fn is in scope (source unit, contract, parent contract)
-// - identifier to import directive if fn is in another file
-
+/**
+ * Builds an `ExternalWrapper` contract that exposes internal/library functions as
+ * external functions. This allows testing internal code generation by making
+ * generated functions callable from external transactions or test harnesses.
+ *
+ * Handles cross-source-unit imports, library member access, and alias renaming
+ * to avoid name collisions between file-level free functions.
+ */
 export function buildExternalWrapper(
   outputSourceUnit: WrappedSourceUnit,
   functions: FunctionDefinition[]

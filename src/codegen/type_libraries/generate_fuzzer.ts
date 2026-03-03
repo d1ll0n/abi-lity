@@ -22,6 +22,12 @@ import { ConstantKind } from "../../utils/make_constant";
 import { UserDefinedValueType } from "../../ast/value/user_defined_value_type";
 
 export const VisitorByScope: WeakMap<WrappedScope, FuzzGenerator> = new WeakMap();
+
+/**
+ * Visitor-based fuzzer function generator. Walks a TypeNode tree and generates
+ * `fuzz<Type>()` functions that produce randomized values for each type, suitable
+ * for fuzz testing. Handles value types (bounded random), enums, arrays, structs, and bytes.
+ */
 class FuzzGenerator extends DefaultVisitor {
   existingTypeFunctions: Map<string, string> = new Map();
 

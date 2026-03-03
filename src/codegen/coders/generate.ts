@@ -49,17 +49,32 @@ import {
 import { ErrorType, EventType, TupleType, TypeNode } from "../../ast";
 import { createRevertFunction } from "./abi_encode/create_revert";
 
+/**
+ * Options controlling which optimization passes are applied when upgrading
+ * source-level coders to optimized assembly equivalents.
+ */
 export type UpgradeCoderOptions = {
+  /** Output file path for the generated decoder/encoder Solidity file. */
   outputPath?: string;
+  /** Replace Solidity `return` statements with optimized assembly return functions. */
   replaceReturnStatements?: boolean;
+  /** Replace `revert ErrorName(...)` calls with optimized assembly revert functions. */
   replaceRevertCalls?: boolean;
+  /** Replace `keccak256(abi.encode(...))` calls with optimized hash functions. */
   replaceHashCalls?: boolean;
+  /** Replace `emit EventName(...)` statements with optimized assembly emit functions. */
   replaceEmitCalls?: boolean;
+  /** Replace `abi.encode(...)` calls with optimized encoding functions. */
   replaceAbiEncodeCalls?: boolean;
+  /** Replace reference-type calldata parameters with inline decoding from calldata pointers. */
   replaceExternalParameters?: boolean;
+  /** Rename public state variables to internal and generate external getter functions. */
   replaceStateVariables?: boolean;
+  /** Wrap generated decoder functions inside a library contract. */
   outputToLibrary?: boolean;
+  /** Custom file name for the generated decoder source file. */
   decoderFileName?: string;
+  /** Generate a fallback function with selector-based dispatch for all external functions. */
   functionSwitch?: boolean;
 };
 

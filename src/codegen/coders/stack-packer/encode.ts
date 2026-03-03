@@ -3,6 +3,11 @@ import { TypeNode } from "../../../ast";
 import { DataLocation } from "../../../constants";
 import { toHex } from "../../../utils";
 
+/**
+ * Generates Yul instructions to move a packed struct field between data locations
+ * (stack, memory, calldata, returndata). Returns assembly instructions for the copy
+ * operation based on source/destination combination, or undefined if unsupported.
+ */
 export function moveData(
   type: TypeNode,
   ref: string,

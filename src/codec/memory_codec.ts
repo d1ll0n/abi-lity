@@ -1,3 +1,11 @@
+/**
+ * Experimental memory codec types.
+ *
+ * Early-stage exploration of a codec abstraction for describing how types
+ * are laid out in EVM memory. Currently defines placeholder types for
+ * relative/absolute pointer destinations and a stub `SomeCodec` class.
+ * Not yet integrated into the rest of the codebase.
+ */
 import { BytesType, StructType, TupleType } from "../ast";
 
 // @todo define specific expressions

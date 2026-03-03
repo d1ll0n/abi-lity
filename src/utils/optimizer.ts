@@ -1,3 +1,10 @@
+/**
+ * AST-to-AST optimization passes for generated Yul code.
+ *
+ * Currently implements {@link combineSequentialCalldataCopies}, which merges
+ * adjacent `calldatacopy` calls into a single larger copy when the gap between
+ * them is small enough (≤ 4 words) to be cheaper than two separate copies.
+ */
 import { simplify } from "mathjs";
 import {
   ASTContext,
@@ -19,6 +26,7 @@ import {
 } from "solc-typed-ast/dist/ast/implementation/yul/algebra/algebra";
 import { last } from "./array";
 
+/** Represents a calldatacopy operation with destination, source, and size expressions. */
 export type PendingDynamicCopy = {
   dst: YulExpression;
   src: YulExpression;
@@ -83,6 +91,12 @@ function getDependenciesAssignedBetween(fromNode: YulFunctionCall, toNode: YulFu
   return [];
 }
 
+/**
+ * Merges adjacent `calldatacopy` calls in a Yul block into fewer, larger copies.
+ * Two copies are combined when the gap between them is ≤ 4 words (128 bytes),
+ * making a single copy cheaper than two separate ones. Uses symbolic algebra
+ * to determine distances between copy regions.
+ */
 export function combineSequentialCalldataCopies(block: YulBlock): void {
   const ctx = block.context as ASTContext;
   const maxIntermediateBytesLiteral = staticNodeFactory.makeYulLiteral(

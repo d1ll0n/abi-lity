@@ -1,3 +1,15 @@
+/**
+ * @module command_line/utils2
+ *
+ * Newer CLI utility functions that replace and extend `utils.ts`. Uses the
+ * updated `CompileHelper.fromFileSystem` API with an options object and the
+ * `CompilerOpts` type. Also provides `getTypesFromCommandLineInputs` for
+ * reading type nodes from `.sol` or `.json` files.
+ *
+ * Commands that have been migrated to the new compiler API import from this
+ * file; legacy commands still use `utils.ts`.
+ */
+
 import { existsSync, readFileSync } from "fs";
 import path from "path";
 import {
@@ -28,6 +40,7 @@ import {
 } from "../readers";
 import _ from "lodash";
 
+/** Resolved CLI input/output paths along with the compiled `CompileHelper` instance. */
 export type CommandLineInputPaths = {
   basePath: string;
   fileName: string;
@@ -36,6 +49,16 @@ export type CommandLineInputPaths = {
   helper: CompileHelper;
 };
 
+/**
+ * Reads type nodes from a `.sol` or `.json` input file. For `.json` files,
+ * parses the ABI via `readTypeNodesFromABI`. For `.sol` files, compiles the
+ * source and extracts types via `readTypeNodesFromContractInterface`.
+ *
+ * @param input - Absolute path to a `.sol` or `.json` file.
+ * @param output - Optional output directory; defaults to the input's parent directory.
+ * @param contract - Optional contract name filter (currently unused in implementation).
+ * @returns Parsed types keyed by contract name, along with resolved paths.
+ */
 export async function getTypesFromCommandLineInputs({
   input,
   output,
@@ -101,6 +124,17 @@ export async function getTypesFromCommandLineInputs({
   };
 }
 
+/**
+ * Resolves CLI input/output paths, compiles the Solidity file(s), and returns
+ * a `CommandLineInputPaths` object. Uses the updated `CompileHelper.fromFileSystem`
+ * API with an options object containing `settings` and `outputs`.
+ *
+ * @param input - Absolute path to a `.sol` file (or directory if `allowDirectory` is true).
+ * @param output - Optional output directory; defaults to `basePath`.
+ * @param allowDirectory - When true, accepts a directory and compiles all `.sol` files within.
+ * @param optionOverrides - Optional compiler option overrides (merged with defaults).
+ * @param outputConfig - Optional key into `CompilerOutputConfigs` to select compiler outputs.
+ */
 export async function getCommandLineInputPaths(
   { input, output }: { input: string; output?: string },
   allowDirectory?: boolean,
@@ -153,6 +187,11 @@ export async function getCommandLineInputPaths(
   };
 }
 
+/**
+ * Renames a file entry within a `Map<string, string>` file set by updating
+ * the key from `oldFileName` to `newFileName`. Throws if any other file in
+ * the map imports the old file (circular import detection).
+ */
 export function renameFile(
   oldFileName: string,
   newFileName: string,
@@ -186,6 +225,7 @@ export function renameFile(
   }
 }
 
+/** Formats compiler settings (version, viaIR, optimizer) as `StructuredText` for display. Uses the newer `CompilerOpts` type. */
 export function writeCompilerOptions(compilerOptions?: CompilerOpts): StructuredText {
   const settings = compilerOptions?.settings;
   return [
@@ -199,6 +239,10 @@ export function writeCompilerOptions(compilerOptions?: CompilerOpts): Structured
   ];
 }
 
+/**
+ * Prints the runtime code size of a compiled contract and compares it to
+ * the EIP-170 contract size limit (24,577 bytes).
+ */
 export function printCodeSize(helper: CompileHelper, fileName: string): void {
   const contract = helper.getContractForFile(fileName);
   const contractCode = contract.runtimeCode;

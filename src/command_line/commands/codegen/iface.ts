@@ -20,6 +20,12 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `iface` CLI command that generates a Solidity interface file
+ * from a compiled contract or JSON ABI. Outputs `I<ContractName>.sol` files
+ * containing struct/enum definitions and the interface with errors, events,
+ * and function signatures.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "iface <input> [output]",

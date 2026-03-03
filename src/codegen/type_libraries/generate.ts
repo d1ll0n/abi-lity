@@ -697,6 +697,7 @@ function addLengthFunctions(
   // ]);
 }
 
+/** Generates a pointer library for a struct type with member offset accessors. */
 function generateStructLibrary(parentCtx: CodegenContext, type: StructType): TypePointerLibrary {
   const typeLibrary = generateTypeAndLibrary(parentCtx, type);
   const { library, pointerName } = typeLibrary;
@@ -714,6 +715,7 @@ function generateStructLibrary(parentCtx: CodegenContext, type: StructType): Typ
   return typeLibrary;
 }
 
+/** Generates a pointer library for a function type with parameter offset accessors. */
 function generateFunctionLibrary(
   parentCtx: CodegenContext,
   type: FunctionType
@@ -807,6 +809,7 @@ function generateFunctionLibrary(
   return typeLibrary;
 }
 
+/** Generates a pointer library for an array type with element access and length functions. */
 function generateArrayLibrary(parentCtx: CodegenContext, type: ArrayType): TypePointerLibrary {
   const typeLibrary = generateTypeAndLibrary(parentCtx, type);
   const { ctx, library, pointerName } = typeLibrary;
@@ -938,6 +941,7 @@ function generateArrayLibrary(parentCtx: CodegenContext, type: ArrayType): TypeP
   return typeLibrary;
 }
 
+/** Generates a pointer library for bytes/string types with length and data accessors. */
 function generateBytesLibrary(parentCtx: CodegenContext, type: BytesType): TypePointerLibrary {
   const typeLibrary = generateTypeAndLibrary(parentCtx, type);
   const { ctx, library, pointerName } = typeLibrary;
@@ -998,6 +1002,12 @@ function lookupDefinition(
   return undefined;
 }
 
+/**
+ * Main dispatcher for generating a per-type pointer library. Routes to the appropriate
+ * generator based on type kind (struct, array, bytes, function). Each generator creates
+ * a separate source unit with a custom pointer type and library containing wrap/unwrap,
+ * member accessors, length, and offset helper functions.
+ */
 function generateReferenceTypeLibrary(
   parentCtx: CodegenContext,
   type: TypeNode,
@@ -1054,7 +1064,9 @@ function generateReferenceTypeLibrary(
 }
 
 /**
- * Build files for scuff directives
+ * Generates a complete pointer library index for a Solidity source file. Creates per-type
+ * pointer libraries for all reference types (structs, arrays, bytes, functions), generates
+ * scuff directives for fuzzing, and produces an `Index.sol` that re-exports everything.
  */
 export function buildPointerFiles(
   helper: CompileHelper,

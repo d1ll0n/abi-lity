@@ -13,6 +13,12 @@ import {
 } from "solc-typed-ast";
 import { getParametersTypeString, last } from "../../utils";
 
+/**
+ * Replaces return statements in a function with calls to an optimized encoding function.
+ * Moves return parameters into local variable declarations and replaces each `return`
+ * with a call to `returnFn` passing the same arguments. Handles named return parameters,
+ * tuple unwrapping, and assignment-to-declaration conversion.
+ */
 export function replaceReturnStatementsWithCall(
   fn: FunctionDefinition,
   returnFn: FunctionDefinition

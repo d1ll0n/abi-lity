@@ -1,3 +1,10 @@
+/**
+ * Function and modifier invocation analysis utilities.
+ *
+ * Extracts structured information about function calls and modifier
+ * invocations from a FunctionDefinition, normalizing named arguments
+ * and handling member-access call patterns.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   ASTNode,
@@ -12,6 +19,7 @@ import {
   ModifierInvocation
 } from "solc-typed-ast";
 
+/** Returns the constructor that would be invoked for `contract`, walking the linearized base list. */
 export function getInvokedConstructor(
   contract: ContractDefinition
 ): FunctionDefinition | undefined {
@@ -19,6 +27,7 @@ export function getInvokedConstructor(
     ?.vConstructor;
 }
 
+/** Normalized representation of a function call or modifier invocation with resolved arguments. */
 export type Invocation = {
   // original invocation ast node id
   invocation: FunctionCall | ModifierInvocation;
@@ -26,6 +35,7 @@ export type Invocation = {
   arguments: Expression[];
 };
 
+/** Collects all modifier invocations and function calls within a FunctionDefinition. */
 export function getFunctionsAndModifierInvocations(fn: FunctionDefinition): Invocation[] {
   const invocations: Invocation[] = [];
   if (fn.vModifiers) {
@@ -74,6 +84,11 @@ type FnCall = {
   vArguments: Expression[];
 };
 
+/**
+ * Normalizes a FunctionCall into a FnCall with ordered arguments.
+ * Handles named arguments by reordering to match parameter declaration order,
+ * and prepends the receiver for member-access calls.
+ */
 export const functionCallToFnCall = (call: FunctionCall): FnCall | undefined => {
   const args: Expression[] = [];
   const expression = call.vExpression;

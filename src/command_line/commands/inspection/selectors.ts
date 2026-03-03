@@ -29,6 +29,16 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `selectors` CLI command that computes and prints 4-byte function
+ * selectors for external functions in a contract. Accepts both Solidity source
+ * files and JSON ABI/artifact files as input.
+ *
+ * When a `--name` filter is provided, only matching functions are shown. The name
+ * can be a simple function name or a full signature (e.g. `transfer(address,uint256)`).
+ * Results are displayed as a formatted table when multiple functions match, or as
+ * a single `selector : name` line for a single match.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "selectors <input> [name] [output]",

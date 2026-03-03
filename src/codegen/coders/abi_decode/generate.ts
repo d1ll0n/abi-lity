@@ -20,12 +20,18 @@ import { abiDecodingFunction } from "./abi_decode";
 import { typeCastAbiDecodingFunction } from "./type_cast";
 import { WrappedScope, WrappedSourceUnit } from "../../ctx/contract_wrapper";
 
+/** Options for generating a standalone decoder source file. */
 export type GenerateDecoderOptions = {
   outputPath?: string;
   outputToLibrary?: boolean;
   generateTypeDecoders?: boolean;
 };
 
+/**
+ * Creates a standalone decoder source unit with pointer libraries and type-specialized
+ * decoding functions for all external functions in the primary source file.
+ * Uses the AST-based WrappedScope approach for code generation.
+ */
 export function buildDecoderFile(
   helper: CompileHelper,
   primaryFileName: string,
@@ -49,6 +55,7 @@ export function buildDecoderFile(
   return ctx;
 }
 
+/** Generates ABI decoding functions for all extracted coder types and their type casts. */
 export function addTypeDecoders(ctx: WrappedScope, inputTypes: TypeNode[]): void {
   const { types, functionParameters } = TypeExtractor.extractCoderTypes(inputTypes);
 
@@ -60,6 +67,10 @@ export function addTypeDecoders(ctx: WrappedScope, inputTypes: TypeNode[]): void
   }
 }
 
+/**
+ * Builds an ExternalWrapper contract that exposes internal/library decoding functions
+ * as external functions for testing and verification.
+ */
 export function buildExternalWrapper(
   helper: CompileHelper,
   primaryFileName: string,

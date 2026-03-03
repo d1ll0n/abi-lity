@@ -1,3 +1,10 @@
+/**
+ * Foundry (Forge) import remapping resolution.
+ *
+ * Discovers `foundry.toml` and `remappings.txt` files, parses them, and
+ * builds the remapping list needed by the Solidity compiler to resolve
+ * cross-package imports (e.g., `forge-std/`, `openzeppelin-contracts/`).
+ */
 import path from "path";
 import toml from "toml";
 import fs, { existsSync } from "fs";
@@ -80,6 +87,11 @@ function parseFoundryTomlRemappings(foundryPath: string, remappings: Map<string,
   }
 } */
 
+/**
+ * Discovers and returns all Forge import remappings for a project.
+ * Searches upward for `foundry.toml`, parses its remappings, then `remappings.txt`,
+ * and finally infers mappings for installed libraries in `lib/`.
+ */
 export function getForgeRemappings(currentDir: string): string[] {
   const remappings = new Map<string, string>();
   // Find Foundry config file at or above current directory
@@ -109,6 +121,10 @@ export function getForgeRemappings(currentDir: string): string[] {
   return [...remappings.entries()].map(([key, value]) => `${key}=${value}`);
 }
 
+/**
+ * Resolves Solidity source files and their transitive imports, returning
+ * the file contents, remappings, and common base path.
+ */
 export function resolveSolidityFiles(
   fileNames: string | string[],
   basePath?: string
@@ -152,6 +168,7 @@ export function resolveSolidityFiles(
   };
 }
 
+/** Resolves a single .sol file or a directory of .sol files. */
 export function resolveSolidityFilesOrDirectory(
   input: string,
   allowDirectory?: boolean

@@ -1,3 +1,10 @@
+/**
+ * Compilation wrapper around solc-typed-ast.
+ *
+ * {@link CompileHelper} manages the full compile → read-AST → mutate → recompile
+ * lifecycle. Provides source-unit lookup, code mutation queuing, and static
+ * factory methods for compiling from files or the filesystem.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { readdirSync, writeFileSync } from "fs";
 import path from "path";
@@ -34,16 +41,26 @@ import { ASTSourceMap } from "../source_editor";
 import { ContractOutput, compile, CompilerOpts, compileAsync, getCompileOptions } from "./solc";
 import { CodeMutation, applyMutations, getInsertionMutation } from "./mutations";
 
+/** A pending function addition: name and source code to be inserted. */
 export type FunctionAddition = {
   code: string;
   name: string;
 };
 
+/** A pending contract addition: name and code lines to be inserted. */
 export type ContractAddition = {
   name: string;
   code: string[];
 };
 
+/**
+ * Central compilation helper. Wraps solc compilation with AST read/write,
+ * source-unit management, code mutation queuing, and recompilation.
+ *
+ * Use the static factories `fromFiles()` or `fromFileSystem()` to create instances.
+ * After construction, mutate the AST or queue text mutations, then call
+ * `applyMutations()` and/or `recompile()` to produce updated output.
+ */
 export class CompileHelper {
   sourceUnits: SourceUnit[] = [];
   contractsMap = new Map<string, ContractOutput>();
@@ -110,6 +127,7 @@ export class CompileHelper {
     return this._basePath;
   }
 
+  /** Returns all contract outputs for the given file, supporting partial path matching. */
   getContractsForFile(fileName: string): Array<ContractOutput & { name: string }> {
     fileName = path.normalize(fileName);
     if (path.isAbsolute(fileName) && this.basePath) {
@@ -150,6 +168,7 @@ export class CompileHelper {
     return contracts[0];
   }
 
+  /** Finds a SourceUnit by file name (normalizes the path). */
   findSourceUnit(fileName: string): SourceUnit | undefined {
     fileName = this.normalizePath(fileName);
     const sourceUnit = this.sourceUnits.find(
@@ -162,6 +181,7 @@ export class CompileHelper {
     return this.findSourceUnit(fileName) !== undefined;
   }
 
+  /** Gets a SourceUnit by file name, throwing if not found. */
   getSourceUnit(fileName: string): SourceUnit {
     const sourceUnit = this.findSourceUnit(fileName);
     if (!sourceUnit) {
@@ -174,6 +194,7 @@ export class CompileHelper {
     return sourceUnit;
   }
 
+  /** Serializes all SourceUnits back to source code using the AST writer. */
   getFiles(sourceMap?: ASTSourceMap): Map<string, string> {
     const files = new Map<string, string>();
     for (const sourceUnit of this.sourceUnits) {
@@ -191,6 +212,7 @@ export class CompileHelper {
   //                      COMPILER                     //
   //---------------------------------------------------//
 
+  /** Reads AST and contract outputs from a raw solc compile result. */
   handleCompilerOutput(compileResult: any): void {
     const reader = new ASTReader((this.context = new ASTContext()));
     this.sourceUnits = reader.read(compileResult, ASTKind.Modern, compileResult.files);
@@ -238,6 +260,7 @@ export class CompileHelper {
     }
   }
 
+  /** Re-serializes all source units and recompiles, refreshing the AST and contract outputs. */
   recompile(options?: CompilerOpts): void {
     const files = this.getFiles();
     const resolvedFileNames = new Map<string, string>();
@@ -324,6 +347,11 @@ export class CompileHelper {
     addImports(dst, src, []);
   }
 
+  /**
+   * Queues a function definition insertion into the given scope.
+   * The function is inserted before `referenceNode` if provided, otherwise appended.
+   * The optional callback is invoked with the resulting AST node after compilation.
+   */
   addFunctionMutation(
     scope: ContractDefinition | SourceUnit,
     code: string,
@@ -370,6 +398,7 @@ export class CompileHelper {
     }
   }
 
+  /** Queues a contract definition insertion into the given source unit. */
   addContractMutation(
     sourceUnit: SourceUnit,
     name: string,
@@ -389,6 +418,7 @@ export class CompileHelper {
     }
   }
 
+  /** Applies all queued mutations: edits source text, recompiles, and copies new nodes into the existing AST. */
   applyMutations(): ASTNode[] {
     const mutations = this.mutationsCache;
     this.mutationsCache = [];
@@ -410,6 +440,7 @@ export class CompileHelper {
     return sourceUnit;
   }
 
+  /** Creates a CompileHelper from in-memory source files. */
   static async fromFiles(
     files: Map<string, string>,
     basePath?: string,
@@ -425,6 +456,7 @@ export class CompileHelper {
     return helper;
   }
 
+  /** Creates a CompileHelper by reading Solidity files from disk, resolving Foundry remappings. */
   static async fromFileSystem(
     fileNames: string | string[],
     basePath?: string,
@@ -443,6 +475,7 @@ export class CompileHelper {
   }
 }
 
+/** Writes a map of file paths → source code to disk, resolving against `basePath`. */
 export function writeFilesTo(basePath: string | undefined, files: Map<string, string>): void {
   const filePaths = [...files.keys()];
   const allAbsolutePaths = filePaths.every(path.isAbsolute);

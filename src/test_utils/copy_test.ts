@@ -1,3 +1,11 @@
+/**
+ * Calldata copy benchmark generator.
+ *
+ * Creates three variants of a "copier" contract for each type: a base version
+ * (standard Solidity), one with optimized decoders, and one with decoders +
+ * function selector switch. Compiles, deploys, and benchmarks them to measure
+ * the gas savings from abi-lity's optimizations.
+ */
 import { CompilationOutput, DataLocation, isInstanceOf } from "solc-typed-ast";
 import { EnumType, StructType, TupleType } from "../ast";
 import { CallResult } from "./deployment";
@@ -8,6 +16,7 @@ import { CompileHelper } from "../utils/compile_utils/compile_helper";
 import { getAllContractDeployments, testDeployments } from "./compare_contracts";
 import { getCompilerOptionsWithDefaults, UserCompilerOptions } from "../utils/compile_utils/solc";
 
+/** Deploys the three copier contract variants and runs gas comparison benchmarks. */
 export async function testCopiers(helper: CompileHelper, types: CopyTestType[]): Promise<void> {
   const names = copierNames.map((n) => n.replace(`.sol`, ""));
   const deployments = await getAllContractDeployments(helper, names, true);

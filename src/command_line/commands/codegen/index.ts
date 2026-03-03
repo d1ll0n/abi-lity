@@ -1,3 +1,9 @@
+/**
+ * @module command_line/commands/codegen
+ *
+ * Aggregates all codegen subcommands: assert_eq, ctype, forge_json, json,
+ * iface, generate_coders (default `$0`), pointer_libs, and wrappers.
+ */
 import * as assert_eq from "./assert_eq";
 import * as forge_json from "./forge_json";
 import * as json from "./json";

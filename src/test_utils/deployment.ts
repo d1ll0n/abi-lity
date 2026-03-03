@@ -1,3 +1,11 @@
+/**
+ * In-memory EVM contract deployment and call execution.
+ *
+ * Uses `@ethereumjs/vm` to deploy compiled runtime bytecode and execute
+ * function calls without a real blockchain. Provides {@link getTestDeployment}
+ * which returns a {@link TestDeployment} with convenience `call()` and
+ * `callDefault()` methods for testing generated code.
+ */
 import { addHexPrefix, Address, bufferToHex, toBuffer } from "@ethereumjs/util";
 import { Chain, Common, Hardfork } from "@ethereumjs/common";
 import { Interface, JsonFragment, LogDescription } from "@ethersproject/abi";
@@ -11,6 +19,7 @@ let nextAddressIndex = 0xff;
 const getNextAddress = () =>
   Address.fromString(addHexPrefix((++nextAddressIndex).toString(16).padStart(40, "0")));
 
+/** Result of a single EVM function call, including decoded data, gas, logs, and error info. */
 export type CallResult = {
   rawData: string;
   rawReturnData: string;
@@ -23,12 +32,14 @@ export type CallResult = {
   errorData?: any;
 };
 
+/** Outcome of an EVM call: success, revert, or exceptional halt. */
 export enum CallStatus {
   Success = "success",
   Revert = "revert",
   ExceptionalHalt = "exceptional halt"
 }
 
+/** An in-memory contract deployment with call helpers, ABI interface, and parsed type info. */
 export type TestDeployment = {
   name?: string;
   label?: string;
@@ -43,6 +54,10 @@ export type TestDeployment = {
   types: TypeNodeReaderResult;
 };
 
+/**
+ * Deploys runtime bytecode to an in-memory EVM and returns a {@link TestDeployment}
+ * with `call()`, `encodeCall()`, and `callDefault()` methods for testing.
+ */
 export async function getTestDeployment(
   runtimeCode: string,
   abi: JsonFragment[],

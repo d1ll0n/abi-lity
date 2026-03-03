@@ -1,3 +1,10 @@
+/**
+ * Low-level Solidity compilation interface.
+ *
+ * Wraps solc-typed-ast's `compileSync` with error detection, compiler option
+ * presets, and async compiler acquisition. Defines the {@link ContractOutput}
+ * type used throughout the codebase for bytecode/ABI/IR access.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   CompilationOutput,
@@ -15,6 +22,7 @@ import { JsonFragment } from "@ethersproject/abi";
 import { writeFileSync } from "fs";
 import path from "path";
 
+/** Synchronously compiles source files with the given compiler, throwing on errors. */
 export function compile(
   compiler: WasmCompiler | NativeCompiler,
   files: Map<string, string>,
@@ -37,6 +45,7 @@ export function compile(
   throw new CompileFailedError([{ compilerVersion: compiler.version, errors }]);
 }
 
+/** Asynchronously acquires the WASM compiler and compiles the given files. */
 export async function compileAsync(
   files: Map<string, string>,
   remapping: string[],
@@ -61,12 +70,14 @@ export async function compileAsync(
   };
 }
 
+/** Internal compiler options: output selections, solc settings JSON, and compiler version. */
 export type CompilerOpts = {
   outputs?: CompilationOutput[];
   settings?: any;
   version?: string;
 };
 
+/** Returns resolved compiler options with defaults (AST output, optimizer off, latest version). */
 export function getCompileOptions(opts?: CompilerOpts): CompilerOpts {
   const outputs: CompilationOutput[] = opts?.outputs ?? [CompilationOutput.AST];
   const settings = opts?.settings ?? {
@@ -78,6 +89,7 @@ export function getCompileOptions(opts?: CompilerOpts): CompilerOpts {
   return { settings, outputs, version: opts?.version ?? LatestCompilerVersion };
 }
 
+/** Structured output for a single compiled contract (ABI, bytecode, IR, debug info). */
 export type ContractOutput = {
   abi: JsonFragment[];
   creationCode: string;
@@ -92,6 +104,7 @@ export type ContractOutput = {
   functionDebugData?: any;
 };
 
+/** Default full set of compiler output selections (ABI, bytecode, IR, source maps). */
 export const CompilerOutputs = [
   CompilationOutput.ABI,
   CompilationOutput.AST,
@@ -103,6 +116,7 @@ export const CompilerOutputs = [
   "evm.deployedBytecode.sourceMap" as any
 ];
 
+/** Predefined compiler output presets for different use cases. */
 export const CompilerOutputConfigs = {
   // Config for copy tests that need bytecode & abi
   TESTS: [CompilationOutput.ABI, CompilationOutput.AST, "evm.deployedBytecode.object" as any],
@@ -120,7 +134,7 @@ export const CompilerOutputConfigs = {
   ]
 };
 
-// Compiler options given by API consumer (e.g. cli, fn that triggers a compile)
+/** User-facing compiler options (simplified from solc settings). */
 export type UserCompilerOptions = {
   metadata?: boolean;
   viaIR?: boolean;
@@ -132,7 +146,7 @@ export type UserCompilerOptions = {
   extraOutputSelection?: CompilationOutput[];
 };
 
-// Compiler options that can be passed to solc
+/** Solc-compatible compiler settings object. */
 export type CompilerOptions = {
   metadata?: { bytecodeHash: "none" };
   viaIR?: boolean;
@@ -146,6 +160,7 @@ export type CompilerOptions = {
   };
 };
 
+/** Merges user-facing options with defaults (optimized or unoptimized presets). */
 export const getCompilerOptionsWithDefaults = (
   optionOverrides?: UserCompilerOptions
 ): CompilerOptions => {

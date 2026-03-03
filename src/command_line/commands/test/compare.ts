@@ -19,6 +19,14 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `compare` CLI command that compares gas usage and code size
+ * across multiple contract implementations of the same functions. Compiles the
+ * input directory with maximum optimizer runs and `viaIR`, deploys all contracts,
+ * and runs comparative tests.
+ *
+ * Note: The `--ir` / `-y` option is defined but never used in the handler.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "compare <input>",

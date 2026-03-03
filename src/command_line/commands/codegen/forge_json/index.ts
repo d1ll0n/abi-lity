@@ -29,6 +29,12 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `forge-json` CLI command that generates Forge-compatible JSON
+ * serializer functions for Solidity struct types. Uses Forge's `Vm` cheatcode
+ * interface for serialization. The output file replaces the temporary `Vm` import
+ * shim with the real forge-std import.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "forge-json <input> [output]",

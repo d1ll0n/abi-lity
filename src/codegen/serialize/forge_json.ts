@@ -31,6 +31,11 @@ const builtinSerializers = {
 //   type.walkChildren((node) => !(node instanceof ))
 // }
 
+/**
+ * Generates a JSON serialization function using Forge's `vm.serialize*` builtins.
+ * Variant that produces serialization code for the given type, routing to
+ * specialized generators for structs, arrays, enums, and value types.
+ */
 export function getForgeJsonSerializeFunction(ctx: CodegenContext, type: TypeNode): string {
   const baseSignature = type.signatureInExternalFunction(true);
   const builtinName = builtinSerializers[baseSignature];

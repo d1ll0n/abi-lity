@@ -47,6 +47,15 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `rename` CLI command that performs a case-aware find-and-replace
+ * across all Solidity files in a directory. The search/replace text must be in
+ * snake_case; the command automatically derives PascalCase, camelCase, and
+ * UPPER_CASE variants for replacement.
+ *
+ * Bug: This command never writes the output files — the `files` map is populated
+ * but no `writeFilesTo` call follows. See `notes/dead-code-and-cleanup.md`.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "rename <input> [output] [search] [replace]",
@@ -75,6 +84,14 @@ export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
     }
   );
 
+/**
+ * Creates a replacement function that transforms all case variants (PascalCase,
+ * camelCase, UPPERCASE) of `searchText` to the corresponding variant of
+ * `replaceText`. Both inputs must be in snake_case.
+ *
+ * Note: The regex patterns on lines 89 and 93 use `(!?...)` which is a literal
+ * `!` followed by a capture group, not a negative lookahead `(?!...)`.
+ */
 function getReplaceFunction(
   searchText: string,
   replaceText: string,

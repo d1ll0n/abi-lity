@@ -1,3 +1,10 @@
+/**
+ * @deprecated Legacy CompileHelper — use `compile_utils/compile_helper.ts` instead.
+ *
+ * This is an older version of the compilation wrapper with a similar API but
+ * different internals. Retained for backward compatibility with existing callers;
+ * new code should import from `compile_utils/compile_helper`.
+ */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   assert,

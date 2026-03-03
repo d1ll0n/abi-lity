@@ -38,6 +38,19 @@ const options = {
   }
 } as const;
 
+/**
+ * Registers the `shim` CLI command that generates Forge test shim contracts
+ * for a given Solidity contract. The test shim provides fuzz, concrete, and
+ * failure test scaffolding.
+ *
+ * Options:
+ * - `--fuzz` / `-f`: Generate fuzz tests (default true)
+ * - `--concrete`: Generate concrete tests (default true)
+ * - `--failures`: Generate failure tests (default true)
+ *
+ * Note: The command description is copy-pasted from `forge-json` and reads
+ * "Generate JSON serializers for forge" — this is incorrect.
+ */
 export const addCommand = <T>(yargs: Argv<T>): Argv<T> =>
   yargs.command(
     "shim <input> [output]",

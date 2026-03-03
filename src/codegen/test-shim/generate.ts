@@ -45,6 +45,11 @@ const makeCommentSeparator = (comment: string): StructuredText => {
   return [row, `// ${" ".repeat(leftPadding)}${comment}${" ".repeat(rightPadding)} //`, row];
 };
 
+/**
+ * Generates a Forge test contract harness that exposes all external functions
+ * from the primary contract as test-callable functions. Creates concrete and fuzz
+ * test methods, error assertion helpers, and test setup boilerplate.
+ */
 export function generateForgeTestShim(
   ctx: WrappedSourceUnit,
   contract: ContractDefinition,

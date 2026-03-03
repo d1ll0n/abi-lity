@@ -69,6 +69,11 @@ const getLoc = (decl: VariableDeclaration) => {
   return DataLocation.Default;
 };
 
+/**
+ * Generates an external getter function for a public state variable.
+ * Handles mappings (adds key parameters), arrays (adds index parameters), and
+ * structs (returns individual members as a tuple, skipping array members).
+ */
 function makeStateVariableGetter(
   search: ASTSearch,
   stateVariable: VariableDeclaration

@@ -1,3 +1,20 @@
+/**
+ * JSON ABI reader — converts ethers v5 ABI fragments into abi-lity TypeNodes.
+ *
+ * This module parses standard Solidity JSON ABI (the format used by etherscan, compiled
+ * artifacts, and interface files) without requiring source code or a compiler.
+ *
+ * Uses ethers v5's `Interface` class to parse the JSON, then converts the resulting
+ * `ParamType` trees to abi-lity TypeNodes. Nested structs and enums are automatically
+ * discovered during recursive type traversal.
+ *
+ * Limitations:
+ * - Enum member names are not available in ABI JSON — placeholder members are created
+ * - No access to NatSpec documentation
+ * - The `internalType` field is used heuristically to detect struct/enum names
+ *
+ * @see docs/readers.md for when to use this reader vs the others.
+ */
 import {
   ErrorFragment,
   EventFragment,
@@ -24,6 +41,18 @@ import { ASTContext } from "../ast/ast_context";
 import { elementaryTypeStringToTypeNode } from "./elementary";
 import { TypeNodeReaderResult } from "./types";
 
+/**
+ * Recursively converts an ethers `ParamType` to an abi-lity TypeNode.
+ *
+ * Dispatch logic:
+ * - `baseType === "tuple"` → Creates `StructType` (if `internalType` starts with "struct")
+ *   or `TupleType`, then recurses into components
+ * - `baseType === "array"` → Creates `ArrayType` and recurses into `arrayChildren`
+ * - Otherwise → checks `internalType` for enum heuristic, falls back to `elementaryTypeStringToTypeNode()`
+ *
+ * @param param - Ethers ParamType (parsed from ABI JSON)
+ * @param fragment - The raw JSON fragment, used to access `internalType` and `components`
+ */
 function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
   if (param.baseType === "tuple") {
     if (fragment === undefined || fragment.components === undefined) {
@@ -70,10 +99,17 @@ function fromParamType(param: ParamType, fragment: JsonFragmentType): TypeNode {
   }
 }
 
+/** Zips parallel `ParamType[]` and `JsonFragmentType[]` arrays, converting each pair via `fromParamType()`. */
 const paramTypesToMembers = (params: ParamType[], fragments: JsonFragmentType[]): TypeNode[] => {
   return params.map((param, i) => fromParamType(param, fragments[i]));
 };
 
+/**
+ * Converts an ethers `FunctionFragment` to a `FunctionType`.
+ *
+ * All ABI functions are assumed `External` visibility. State mutability is
+ * taken directly from the fragment (view, pure, payable, nonpayable).
+ */
 function functionFragmentToTypeNode(fn: FunctionFragment, jsonFragment: JsonFragment) {
   let parameters: TupleType | undefined;
   let returnParameters: TupleType | undefined;
@@ -98,6 +134,7 @@ function functionFragmentToTypeNode(fn: FunctionFragment, jsonFragment: JsonFrag
   );
 }
 
+/** Converts an ethers `ErrorFragment` to an `ErrorType` with optional parameter tuple. */
 function errorFragmentToTypeNode(fn: ErrorFragment, jsonFragment: JsonFragment) {
   let parameters: TupleType | undefined;
   if (fn.inputs?.length) {
@@ -108,6 +145,7 @@ function errorFragmentToTypeNode(fn: ErrorFragment, jsonFragment: JsonFragment) 
   return new ErrorType(fn.name, parameters);
 }
 
+/** Converts an ethers `EventFragment` to an `EventType`, preserving the `anonymous` flag. */
 function eventFragmentToTypeNode(fn: EventFragment, jsonFragment: JsonFragment) {
   let parameters: TupleType | undefined;
   if (fn.inputs?.length) {
@@ -118,6 +156,16 @@ function eventFragmentToTypeNode(fn: EventFragment, jsonFragment: JsonFragment) 
   return new EventType(fn.name, parameters, jsonFragment.anonymous);
 }
 
+/**
+ * Orchestrates ABI parsing and recursively collects all discovered types.
+ *
+ * Wraps ethers v5's `Interface` to iterate over parsed fragments. As top-level
+ * types (functions, errors, events) are added via `addTypeNode()`, the method
+ * recursively walks their parameter trees to discover nested `StructType` and
+ * `EnumType` instances, deduplicating structs by name.
+ *
+ * All collected TypeNodes are registered in the shared `ASTContext`.
+ */
 class InterfaceTypes {
   interface: Interface;
   functions: FunctionType[] = [];
@@ -146,6 +194,13 @@ class InterfaceTypes {
     return Object.values(this.interface.structs);
   }
 
+  /**
+   * Recursively categorizes a TypeNode and its children into the appropriate collection.
+   *
+   * Walks the type tree depth-first: compound types (functions, errors, events) are stored
+   * in their respective arrays, then their parameter tuples are recursed into. Structs are
+   * deduplicated by name. Every node is registered in the shared `context`.
+   */
   addTypeNode(node: TypeNode | undefined) {
     if (node instanceof StructType) {
       if (!this.structs.find((s) => s.name === node.name)) {
@@ -174,6 +229,13 @@ class InterfaceTypes {
     }
   }
 
+  /**
+   * Finds the original `JsonFragment` corresponding to a parsed ethers fragment.
+   *
+   * Matches by comparing the canonical `format()` string of each fragment.
+   * Needed because ethers' parsed fragments drop `internalType` and `components`,
+   * which are required for struct/enum detection in `fromParamType()`.
+   */
   getJsonFragment(fn: FunctionFragment | ErrorFragment | EventFragment) {
     const fragment = this.jsonFragments.find((frag) => {
       return Fragment.from(frag).format() === fn.format();
@@ -185,6 +247,16 @@ class InterfaceTypes {
   }
 }
 
+/**
+ * Main entry point: parses a JSON ABI array into abi-lity TypeNodes.
+ *
+ * Filters out constructor fragments, then iterates all functions, errors, and events
+ * from the parsed interface. Nested structs and enums are automatically discovered
+ * during recursive traversal of parameter types.
+ *
+ * @param _jsonFragments - Standard Solidity JSON ABI array (e.g., from etherscan or compiled artifacts)
+ * @returns Unified `TypeNodeReaderResult` with all discovered types registered in a shared context
+ */
 export function readTypeNodesFromABI(_jsonFragments: JsonFragment[]): TypeNodeReaderResult {
   const context = new ASTContext();
   _jsonFragments = _jsonFragments.filter((fn) => fn.type !== "constructor");

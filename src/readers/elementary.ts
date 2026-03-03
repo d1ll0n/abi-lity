@@ -1,3 +1,8 @@
+/**
+ * Elementary type string parser — shared by `read_abi.ts` and `read_code.ts`.
+ *
+ * @see docs/readers.md for the full parsing chain.
+ */
 import {
   AddressType,
   BoolType,
@@ -8,6 +13,20 @@ import {
   TypeNode
 } from "../ast";
 
+/**
+ * Converts a Solidity elementary type name string to the corresponding TypeNode.
+ *
+ * Parsing chain (first match wins):
+ * 1. `"bool"` → `BoolType`
+ * 2. `"address"` / `"address payable"` → `AddressType`
+ * 3. `"uint256"` / `"int8"` / `"int"` (no width → 256) → `IntegerType(nBits, signed)`
+ * 4. `"bytes32"` / `"bytes1"` etc. → `FixedBytesType(size)`
+ * 5. `"byte"` → `FixedBytesType(1)` (Solidity <0.8 alias)
+ * 6. `"bytes"` → `BytesType` (dynamic)
+ * 7. `"string"` → `StringType`
+ *
+ * @throws If the type name doesn't match any known elementary type
+ */
 export function elementaryTypeStringToTypeNode(typeName: string): TypeNode {
   const name = typeName.trim();
 
